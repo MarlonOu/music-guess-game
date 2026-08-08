@@ -1,0 +1,39 @@
+{
+  "artists": [
+    { "id": "a1", "name": "示範歌手A", "gender": "FEMALE" },
+    { "id": "a2", "name": "示範歌手B", "gender": "MALE" },
+    { "id": "a3", "name": "示範樂團C", "gender": "GROUP" }
+  ],
+  "songs": [
+    {
+      "id": "s1",
+      "title": "範例歌曲一",
+      "artistId": "a1",
+      "audioUrl": "/audio/s1.mp3",
+      "durationSec": 210,
+      "introEndSec": 12,
+      "lyrics": "第一句歌詞範例\n第二句歌詞範例\n第三句歌詞範例\n第四句歌詞範例",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "s2",
+      "title": "範例歌曲二",
+      "artistId": "a2",
+      "audioUrl": "/audio/s2.mp3",
+      "durationSec": 185,
+      "introEndSec": 8,
+      "lyrics": "第二首歌詞第一句\n第二首歌詞第二句\n第二首歌詞第三句",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "s3",
+      "title": "範例歌曲三",
+      "artistId": "a3",
+      "audioUrl": "/audio/s3.mp3",
+      "durationSec": 240,
+      "introEndSec": 15,
+      "lyrics": "第三首開頭歌詞\n第三首中段歌詞\n第三首副歌歌詞\n第三首結尾歌詞",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    }
+  ]
+}
