@@ -28,7 +28,27 @@ export default function Home() {
         </h1>
       </div>
 
+      <Link
+        href="/match-setup"
+        style={{
+          display: 'flex',
+          justifyContent: 'center',
+          padding: '16px 24px',
+          borderRadius: '14px',
+          border: 'none',
+          background: 'var(--accent)',
+          color: 'var(--accent-ink)',
+          fontWeight: 600,
+          fontSize: '1.05rem',
+          width: '100%',
+          maxWidth: '360px',
+        }}
+      >
+        建立比賽
+      </Link>
+
       <nav style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', maxWidth: '360px' }}>
+        <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem' }}>或直接單機快速開始：</span>
         {modes.map((m) => (
           <Link
             key={m.code}
@@ -50,6 +70,28 @@ export default function Home() {
           </Link>
         ))}
       </nav>
+
+      <Link
+        href="/players"
+        style={{
+          color: 'var(--ink-dim)',
+          fontSize: '0.9rem',
+          textDecoration: 'underline',
+        }}
+      >
+        對戰人別管理
+      </Link>
+
+      <Link
+        href="/admin"
+        style={{
+          color: 'var(--ink-dim)',
+          fontSize: '0.9rem',
+          textDecoration: 'underline',
+        }}
+      >
+        資料庫管理（歌手／歌曲）
+      </Link>
     </main>
   );
 }

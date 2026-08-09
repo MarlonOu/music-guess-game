@@ -1,38 +1,179 @@
 {
   "artists": [
-    { "id": "a1", "name": "示範歌手A", "gender": "FEMALE" },
-    { "id": "a2", "name": "示範歌手B", "gender": "MALE" },
-    { "id": "a3", "name": "示範樂團C", "gender": "GROUP" }
+    {
+      "id": "jay-chou",
+      "name": "周杰倫",
+      "gender": "MALE"
+    },
+    {
+      "id": "jj-lin",
+      "name": "林俊傑",
+      "gender": "MALE"
+    },
+    {
+      "id": "mayday",
+      "name": "五月天",
+      "gender": "GROUP"
+    },
+    {
+      "id": "she",
+      "name": "S.H.E",
+      "gender": "GROUP"
+    },
+    {
+      "id": "jolin-tsai",
+      "name": "蔡依林",
+      "gender": "FEMALE"
+    },
+    {
+      "id": "eason-chan",
+      "name": "陳奕迅",
+      "gender": "MALE"
+    }
   ],
   "songs": [
     {
-      "id": "s1",
-      "title": "範例歌曲一",
-      "artistId": "a1",
-      "audioUrl": "/audio/s1.mp3",
-      "durationSec": 210,
-      "introEndSec": 12,
-      "lyrics": "第一句歌詞範例\n第二句歌詞範例\n第三句歌詞範例\n第四句歌詞範例",
+      "id": "song-qing-tian",
+      "title": "晴天",
+      "artistId": "jay-chou",
+      "youtubeVideoId": "SJKoWAd5ySo",
+      "durationSec": 269,
+      "lyrics": "（請自行填入歌詞供 LYRIC_LINE 模式使用，避免著作權疑慮，此處不預先填入）",
       "createdAt": "2026-01-01T00:00:00.000Z"
     },
     {
-      "id": "s2",
-      "title": "範例歌曲二",
-      "artistId": "a2",
-      "audioUrl": "/audio/s2.mp3",
-      "durationSec": 185,
-      "introEndSec": 8,
-      "lyrics": "第二首歌詞第一句\n第二首歌詞第二句\n第二首歌詞第三句",
+      "id": "song-dao-xiang",
+      "title": "稻香",
+      "artistId": "jay-chou",
+      "youtubeVideoId": "l6a5D6yxqEU",
+      "durationSec": 223,
+      "lyrics": "（請自行填入歌詞供 LYRIC_LINE 模式使用，避免著作權疑慮，此處不預先填入）",
       "createdAt": "2026-01-01T00:00:00.000Z"
     },
     {
-      "id": "s3",
-      "title": "範例歌曲三",
-      "artistId": "a3",
-      "audioUrl": "/audio/s3.mp3",
+      "id": "song-gao-bai-qi-qiu",
+      "title": "告白氣球",
+      "artistId": "jay-chou",
+      "youtubeVideoId": "cSqlwNjq77c",
+      "durationSec": 214,
+      "lyrics": "（請自行填入歌詞供 LYRIC_LINE 模式使用，避免著作權疑慮，此處不預先填入）",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "song-qi-li-xiang",
+      "title": "七里香",
+      "artistId": "jay-chou",
+      "youtubeVideoId": "U8E3j6y__BA",
+      "durationSec": 245,
+      "lyrics": "（請自行填入歌詞供 LYRIC_LINE 模式使用，避免著作權疑慮，此處不預先填入）",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "song-long-juan-feng",
+      "title": "龍捲風",
+      "artistId": "jay-chou",
+      "youtubeVideoId": "QMqizmScJfI",
+      "durationSec": 219,
+      "lyrics": "（請自行填入歌詞供 LYRIC_LINE 模式使用，避免著作權疑慮，此處不預先填入）",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "song-xiu-lian-ai-qing",
+      "title": "修煉愛情",
+      "artistId": "jj-lin",
+      "youtubeVideoId": "BRir0qs538Q",
+      "durationSec": 258,
+      "lyrics": "（請自行填入歌詞供 LYRIC_LINE 模式使用，避免著作權疑慮，此處不預先填入）",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "song-jiang-nan",
+      "title": "江南",
+      "artistId": "jj-lin",
+      "youtubeVideoId": "QUNcX9Z3Mqo",
+      "durationSec": 264,
+      "lyrics": "（請自行填入歌詞供 LYRIC_LINE 模式使用，避免著作權疑慮，此處不預先填入）",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "song-ta-shuo",
+      "title": "她說",
+      "artistId": "jj-lin",
+      "youtubeVideoId": "2YKd5uG-v_o",
       "durationSec": 240,
-      "introEndSec": 15,
-      "lyrics": "第三首開頭歌詞\n第三首中段歌詞\n第三首副歌歌詞\n第三首結尾歌詞",
+      "lyrics": "（請自行填入歌詞供 LYRIC_LINE 模式使用，避免著作權疑慮，此處不預先填入）",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "song-tu-ran-hao-xiang-ni",
+      "title": "突然好想你",
+      "artistId": "mayday",
+      "youtubeVideoId": "EopCPbEj1FA",
+      "durationSec": 265,
+      "lyrics": "（請自行填入歌詞供 LYRIC_LINE 模式使用，避免著作權疑慮，此處不預先填入）",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "song-zhi-zu",
+      "title": "知足",
+      "artistId": "mayday",
+      "youtubeVideoId": "xKWoLDsJJKo",
+      "durationSec": 257,
+      "lyrics": "（請自行填入歌詞供 LYRIC_LINE 模式使用，避免著作權疑慮，此處不預先填入）",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "song-nuo-ya-fang-zhou",
+      "title": "諾亞方舟",
+      "artistId": "mayday",
+      "youtubeVideoId": "7u76RWd4UM0",
+      "durationSec": 348,
+      "lyrics": "（請自行填入歌詞供 LYRIC_LINE 模式使用，避免著作權疑慮，此處不預先填入）",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "song-zhong-guo-hua",
+      "title": "中國話",
+      "artistId": "she",
+      "youtubeVideoId": "3baofXUpIqM",
+      "durationSec": 223,
+      "lyrics": "（請自行填入歌詞供 LYRIC_LINE 模式使用，避免著作權疑慮，此處不預先填入）",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "song-super-star",
+      "title": "Super Star",
+      "artistId": "she",
+      "youtubeVideoId": "ShgAspeDRds",
+      "durationSec": 227,
+      "lyrics": "（請自行填入歌詞供 LYRIC_LINE 模式使用，避免著作權疑慮，此處不預先填入）",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "song-ri-bu-luo",
+      "title": "日不落",
+      "artistId": "jolin-tsai",
+      "youtubeVideoId": "qiIBo1teoq0",
+      "durationSec": 222,
+      "lyrics": "（請自行填入歌詞供 LYRIC_LINE 模式使用，避免著作權疑慮，此處不預先填入）",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "song-fu-shi-shan-xia",
+      "title": "富士山下",
+      "artistId": "eason-chan",
+      "youtubeVideoId": "7qeShSmmsNg",
+      "durationSec": 259,
+      "lyrics": "（請自行填入歌詞供 LYRIC_LINE 模式使用，避免著作權疑慮，此處不預先填入）",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "song-shi-nian",
+      "title": "十年",
+      "artistId": "eason-chan",
+      "youtubeVideoId": "tjr3SrCg3pc",
+      "durationSec": 205,
+      "lyrics": "（請自行填入歌詞供 LYRIC_LINE 模式使用，避免著作權疑慮，此處不預先填入）",
       "createdAt": "2026-01-01T00:00:00.000Z"
     }
   ]

@@ -1,3 +1,21 @@
+## ⚠️ 重要：開發環境存取網址（YouTube 播放前必讀）
+
+**不要用 IP 位址（例如 `http://192.168.x.x:3000`）存取本專案來測試遊戲音訊播放。**
+
+YouTube IFrame Player 的嵌入播放驗證機制不接受純 IP 位址作為來源網域（`localhost` 是唯一的例外），用 IP 存取時，`AudioController` 會持續回報「錯誤碼 150：影片擁有者關閉了外部網站的嵌入播放權限」，即使實際上該影片完全沒有嵌入限制（可用 `curl "https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=<videoId>&format=json"` 驗證）。這個症狀會讓人誤以為是程式碼或個別影片的問題，實際上只是網址存取方式不對。
+
+**正確做法**：在要瀏覽此網站的電腦上編輯 hosts 檔案，把 VM 的 IP 對應到一個自訂網域名稱，並用該網域存取：
+
+```
+# Windows: C:\Windows\System32\drivers\etc\hosts（需以系統管理員身分編輯）
+# macOS/Linux: /etc/hosts（需 sudo 編輯）
+192.168.x.x    musicguess.local
+```
+
+存檔後執行 `ipconfig /flushdns`（Windows）或 `sudo dscacheutil -flushcache`（macOS），改用 `http://musicguess.local:3000` 存取。若 IP 或網域名稱有異動，記得同步更新 `next.config.ts` 的 `allowedDevOrigins` 清單。
+
+---
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started

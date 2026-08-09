@@ -1,0 +1,36 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// 對應 03-data-model.md 的 Artist 實體
+model Artist {
+  id     String @id @default(uuid())
+  name   String
+  gender String // 保留欄位，供未來主題篩選（男歌手等）使用；先以字串儲存，對齊現有 JSON 資料
+
+  songs Song[]
+
+  @@map("artists")
+}
+
+// 對應 03-data-model.md 的 Song 實體
+model Song {
+  id              String   @id @default(uuid())
+  title           String
+  artistId        String   @map("artist_id")
+  artist          Artist   @relation(fields: [artistId], references: [id])
+  /// @deprecated 播放已改用 YouTube IFrame Player（見 youtubeVideoId），保留供未來自架 CDN 音檔備援方案使用
+  audioUrl        String?  @map("audio_url")
+  youtubeVideoId  String   @map("youtube_video_id")
+  durationSec     Int      @map("duration_sec")
+  lyrics          String
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([artistId])
+  @@map("songs")
+}

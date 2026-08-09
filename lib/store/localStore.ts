@@ -19,6 +19,12 @@ function openDb(): Promise<IDBDatabase> {
 
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
+    // 若有其他分頁持有舊版連線未關閉，open() 會卡在 blocked 狀態、
+    // 永遠不觸發 onsuccess/onerror；顯式處理避免呼叫端無限等待。
+    request.onblocked = () => {
+      reject(new Error('IndexedDB 開啟被其他分頁阻擋，請關閉其他開啟本站的分頁後重試'));
+    };
+
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE_NAMES.players)) {

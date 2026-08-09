@@ -22,11 +22,14 @@ export const randomClipMode: GameModeStrategy = {
   renderQuestionType: 'audio-clip',
 
   prepareQuestion(song: Song): QuestionPayload {
-    const clipDurationSec = Math.min(DEFAULT_CLIP_DURATION_SEC, song.durationSec);
+    // 防護：durationSec 若為 0 或缺漏（例如資料輸入疏漏），無法算出合理片段長度，
+    // 退回固定的預設片段長度，避免片段長度算成 0 秒導致播放器立刻自動暫停。
+    const effectiveDuration = song.durationSec > 0 ? song.durationSec : DEFAULT_CLIP_DURATION_SEC;
+    const clipDurationSec = Math.min(DEFAULT_CLIP_DURATION_SEC, effectiveDuration);
     return {
       songId: song.id,
       renderType: 'audio-clip',
-      clipStartSec: getRandomClipStart(song.durationSec, clipDurationSec),
+      clipStartSec: getRandomClipStart(effectiveDuration, clipDurationSec),
       clipDurationSec,
       correctTitle: song.title,
     };

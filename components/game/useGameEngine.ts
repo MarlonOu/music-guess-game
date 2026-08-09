@@ -11,7 +11,6 @@ export function useGameEngine() {
     const unsubscribe = engine.subscribe(setState);
     return () => {
       unsubscribe();
-      engine.reset();
     };
   }, [engine]);
 
