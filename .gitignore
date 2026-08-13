@@ -30,8 +30,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files（.env.example 為範本檔案，需要進版控供他人參考該填哪些變數；只排除真正含密碼的 .env 本身）
+.env
+.env.local
+.env.*.local
 
 # vercel
 .vercel

@@ -78,11 +78,6 @@ export default function DebugAudioPage() {
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '1.5rem' }}>YouTube 播放測試</h1>
       </header>
 
-      <div
-        id={playerContainerId}
-        style={{ position: 'fixed', top: '-9999px', left: '-9999px', width: '200px', height: '200px' }}
-      />
-
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', maxWidth: '360px' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
           <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>YouTube videoId（非完整網址）</span>

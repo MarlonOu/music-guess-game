@@ -51,6 +51,19 @@ button {
   cursor: pointer;
 }
 
+/*
+  iOS Safari 有個內建行為：輸入框（input/textarea/select）的字體如果小於 16px，
+  聚焦時瀏覽器會自動放大整個畫面（避免使用者看不清楚打字內容），對話框、聊天室這類
+  常需要打字的介面體驗會很差（畫面一直被強制縮放）。修法不是關掉這個行為本身
+  （那樣反而讓真的看不清楚的使用者更難用），而是把所有輸入框字體固定在 16px 以上，
+  瀏覽器判定「已經夠大不需要放大」，就不會觸發這個自動縮放。
+*/
+input,
+textarea,
+select {
+  font-size: 16px;
+}
+
 button:focus-visible,
 input:focus-visible {
   outline: 2px solid var(--accent);
@@ -62,5 +75,27 @@ input:focus-visible {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* 音訊播放狀態動畫（見 components/game/AudioStatusIndicator.tsx），單機與線上模式共用 */
+@keyframes vinyl-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes vinyl-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.02);
   }
 }

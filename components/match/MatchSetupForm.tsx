@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import type { PlayerProfile } from '../../lib/types/player';
-import type { Artist } from '../../lib/types/theme';
+import type { Artist, Theme } from '../../lib/types/theme';
 import type { GameMode } from '../../lib/types/match';
-import { playerRepository } from '../../lib/repository/playerRepository';
 import { songRepository } from '../../lib/repository/songRepository';
-import { DEFAULT_ROUND_COUNT } from '../../lib/engine/gameEngine';
 import { ArtistFilter } from '../filter/ArtistFilter';
+import { ThemeFilter } from '../filter/ThemeFilter';
+import { PlayerPicker } from '../player/PlayerPicker';
 
 const MODES: { code: GameMode; label: string; path: string }[] = [
   { code: 'INTRO', label: '前奏猜歌', path: '/intro' },
@@ -15,25 +15,21 @@ const MODES: { code: GameMode; label: string; path: string }[] = [
   { code: 'LYRIC_LINE', label: '歌詞猜歌', path: '/lyric-line' },
 ];
 
+type FilterType = 'artist' | 'theme';
+
 export function MatchSetupForm() {
-  const [players, setPlayers] = useState<PlayerProfile[]>([]);
-  const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
+  const [selectedPlayers, setSelectedPlayers] = useState<PlayerProfile[]>([]);
   const [artists, setArtists] = useState<Artist[]>([]);
   const [selectedArtistIds, setSelectedArtistIds] = useState<string[]>([]);
-  const [roundCount, setRoundCount] = useState(DEFAULT_ROUND_COUNT);
+  const [themes, setThemes] = useState<Theme[]>([]);
+  const [selectedThemeIds, setSelectedThemeIds] = useState<string[]>([]);
+  // 歌手篩選、主題篩選只能擇一使用，不能同時套用兩種條件
+  const [filterType, setFilterType] = useState<FilterType>('artist');
   const [mode, setMode] = useState<GameMode>('INTRO');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    playerRepository.getAll().then((result) => {
-      if (cancelled) return;
-      if (result.ok && result.data) {
-        setPlayers(result.data);
-      } else {
-        setError(result.error ?? '讀取對戰人別失敗');
-      }
-    });
     songRepository.getAllArtists().then(
       (data) => {
         if (!cancelled) setArtists(data);
@@ -42,24 +38,40 @@ export function MatchSetupForm() {
         if (!cancelled) setError(err instanceof Error ? err.message : '讀取歌手清單失敗');
       }
     );
+    songRepository.getAllThemes().then(
+      (data) => {
+        if (!cancelled) setThemes(data);
+      },
+      (err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : '讀取主題清單失敗');
+      }
+    );
     return () => {
       cancelled = true;
     };
   }, []);
 
-  function togglePlayer(id: string) {
-    setSelectedPlayerIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  }
-
   function toggleArtist(id: string) {
     setSelectedArtistIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
+  function toggleTheme(id: string) {
+    setSelectedThemeIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function switchFilterType(type: FilterType) {
+    setFilterType(type);
+    // 切換篩選種類時清空另一種的已選項目，避免兩種條件同時存在卻只有一種會實際生效造成誤解
+    if (type === 'artist') setSelectedThemeIds([]);
+    else setSelectedArtistIds([]);
+  }
+
   const selectedPath = MODES.find((m) => m.code === mode)!.path;
   const query = new URLSearchParams();
-  if (selectedPlayerIds.length > 0) query.set('players', selectedPlayerIds.join(','));
-  if (selectedArtistIds.length > 0) query.set('artists', selectedArtistIds.join(','));
-  query.set('rounds', String(roundCount));
+  if (selectedPlayers.length > 0) query.set('players', selectedPlayers.map((p) => p.id).join(','));
+  if (filterType === 'artist' && selectedArtistIds.length > 0) query.set('artists', selectedArtistIds.join(','));
+  if (filterType === 'theme' && selectedThemeIds.length > 0) query.set('themes', selectedThemeIds.join(','));
+  // 不帶 rounds 參數：GamePage 會把篩選出來的全部歌曲玩完，不再限制固定題數
   const startHref = `${selectedPath}?${query.toString()}`;
 
   return (
@@ -91,63 +103,57 @@ export function MatchSetupForm() {
 
       <section style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>
-          參與人別（不勾選 = 單機無人別模式）
+          這次一起玩的人（不加 = 單機無人別模式）
         </span>
-        {players.length === 0 && (
-          <p style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>
-            尚無對戰人別，可於「對戰人別管理」新增，或直接以單機模式開始
-          </p>
-        )}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          {players.map((p) => (
-            <label
-              key={p.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '10px 14px',
-                borderRadius: '10px',
-                border: '1px solid var(--groove)',
-                background: selectedPlayerIds.includes(p.id) ? 'var(--bg-raised)' : 'transparent',
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={selectedPlayerIds.includes(p.id)}
-                onChange={() => togglePlayer(p.id)}
-              />
-              <span>{p.displayName}</span>
-            </label>
-          ))}
-        </div>
+        <PlayerPicker selected={selectedPlayers} onChange={setSelectedPlayers} onError={setError} />
       </section>
 
       <section style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>
-          歌手篩選（不勾選 = 全部歌手）
+          題庫篩選方式（歌手／主題擇一，不能同時套用）
         </span>
-        <ArtistFilter artists={artists} selectedIds={selectedArtistIds} onToggle={toggleArtist} />
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={() => switchFilterType('artist')}
+            style={{
+              flex: 1,
+              padding: '10px',
+              borderRadius: '10px',
+              border: filterType === 'artist' ? '1px solid var(--accent)' : '1px solid var(--groove)',
+              background: filterType === 'artist' ? 'var(--bg-raised)' : 'transparent',
+              color: filterType === 'artist' ? 'var(--accent)' : 'var(--ink)',
+              fontSize: '0.9rem',
+            }}
+          >
+            依歌手篩選
+          </button>
+          <button
+            onClick={() => switchFilterType('theme')}
+            style={{
+              flex: 1,
+              padding: '10px',
+              borderRadius: '10px',
+              border: filterType === 'theme' ? '1px solid var(--accent)' : '1px solid var(--groove)',
+              background: filterType === 'theme' ? 'var(--bg-raised)' : 'transparent',
+              color: filterType === 'theme' ? 'var(--accent)' : 'var(--ink)',
+              fontSize: '0.9rem',
+            }}
+          >
+            依主題篩選
+          </button>
+        </div>
+
+        {filterType === 'artist' ? (
+          <ArtistFilter artists={artists} selectedIds={selectedArtistIds} onToggle={toggleArtist} />
+        ) : (
+          <ThemeFilter themes={themes} selectedIds={selectedThemeIds} onToggle={toggleTheme} />
+        )}
+        <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>不勾選任何項目 = 使用全部題庫</span>
       </section>
 
-      <section style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>題數</span>
-        <input
-          type="number"
-          min={1}
-          max={20}
-          value={roundCount}
-          onChange={(e) => setRoundCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
-          style={{
-            padding: '10px 14px',
-            borderRadius: '10px',
-            border: '1px solid var(--groove)',
-            background: 'var(--bg-raised)',
-            color: 'var(--ink)',
-            width: '100px',
-          }}
-        />
-      </section>
+      <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+        本場會把符合篩選條件的歌曲全部玩完，題數不設上限。
+      </p>
 
       <a
         href={startHref}

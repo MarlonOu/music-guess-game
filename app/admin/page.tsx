@@ -1,10 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { Song } from '../../lib/types/song';
-import type { Artist, ArtistGender } from '../../lib/types/theme';
-import { songRepository } from '../../lib/repository/songRepository';
+import type { Artist, ArtistGender, Theme } from '../../lib/types/theme';
+import { songRepository, type ImportSummary } from '../../lib/repository/songRepository';
 
 const GENDER_OPTIONS: { value: ArtistGender; label: string }[] = [
   { value: 'MALE', label: '男歌手' },
@@ -15,17 +15,20 @@ const GENDER_OPTIONS: { value: ArtistGender; label: string }[] = [
 
 export default function AdminPage() {
   const [artists, setArtists] = useState<Artist[]>([]);
+  const [themes, setThemes] = useState<Theme[]>([]);
   const [songs, setSongs] = useState<Song[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
-      const [artistList, songList] = await Promise.all([
+      const [artistList, themeList, songList] = await Promise.all([
         songRepository.getAllArtists(),
+        songRepository.getAllThemes(),
         songRepository.getAll(),
       ]);
       setArtists(artistList);
+      setThemes(themeList);
       setSongs(songList);
       setError(null);
     } catch (err) {
@@ -35,10 +38,11 @@ export default function AdminPage() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([songRepository.getAllArtists(), songRepository.getAll()]).then(
-      ([artistList, songList]) => {
+    Promise.all([songRepository.getAllArtists(), songRepository.getAllThemes(), songRepository.getAll()]).then(
+      ([artistList, themeList, songList]) => {
         if (cancelled) return;
         setArtists(artistList);
+        setThemes(themeList);
         setSongs(songList);
         setError(null);
       },
@@ -77,8 +81,16 @@ export default function AdminPage() {
       {error && <p style={{ color: 'var(--error)' }}>{error}</p>}
       {notice && <p style={{ color: 'var(--success)' }}>{notice}</p>}
 
-      <SongSection songs={songs} artists={artists} onChanged={reload} onError={setError} onNotice={flashNotice} />
+      <SongSection
+        songs={songs}
+        artists={artists}
+        themes={themes}
+        onChanged={reload}
+        onError={setError}
+        onNotice={flashNotice}
+      />
       <ArtistSection artists={artists} onChanged={reload} onError={setError} onNotice={flashNotice} />
+      <ThemeSection themes={themes} onChanged={reload} onError={setError} onNotice={flashNotice} />
 
       <Link href="/" style={{ color: 'var(--ink-dim)', fontSize: '0.9rem' }}>
         返回首頁
@@ -287,6 +299,113 @@ interface YouTubeSearchResult {
   thumbnailUrl: string;
   durationSec: number;
   embeddable: boolean;
+}
+
+function ThemeSection({
+  themes,
+  onChanged,
+  onError,
+  onNotice,
+}: { themes: Theme[] } & SectionCallbacks) {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [formError, setFormError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setFormError(null);
+    const trimmed = name.trim();
+    if (trimmed.length === 0) {
+      setFormError('請輸入主題名稱');
+      return;
+    }
+    const result = await songRepository.createTheme({ name: trimmed, description: description.trim() });
+    if (!result.ok) {
+      setFormError(result.error ?? '新增主題失敗');
+      return;
+    }
+    onNotice('已新增主題');
+    setName('');
+    setDescription('');
+    onChanged();
+  }
+
+  return (
+    <section style={sectionStyle}>
+      <h2 style={{ fontSize: '1.1rem' }}>主題管理（{themes.length}）</h2>
+      <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+        例如「90年代金曲」「男歌手」「聽團歌」，在歌曲管理下方可為每首歌指派多個主題，比賽建立流程可依主題篩選題庫。
+      </p>
+
+      <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="主題名稱"
+          style={{ ...inputStyle, flex: 1, minWidth: '140px' }}
+        />
+        <input
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="說明（選填）"
+          style={{ ...inputStyle, flex: 1, minWidth: '140px' }}
+        />
+        <button type="submit" style={buttonStyle}>
+          新增
+        </button>
+        {formError && <span style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{formError}</span>}
+      </form>
+
+      <ul
+        style={{
+          listStyle: 'none',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '6px',
+          maxHeight: '280px',
+          overflowY: 'auto',
+          overscrollBehavior: 'contain',
+        }}
+      >
+        {themes.map((t) => (
+          <li
+            key={t.id}
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '10px 14px',
+              borderRadius: '8px',
+              border: '1px solid var(--groove)',
+            }}
+          >
+            <span>
+              {t.name}
+              {t.description && (
+                <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', marginLeft: '8px' }}>
+                  {t.description}
+                </span>
+              )}
+            </span>
+            <button
+              onClick={async () => {
+                const result = await songRepository.deleteTheme(t.id);
+                if (!result.ok) {
+                  onError(result.error ?? '刪除主題失敗');
+                  return;
+                }
+                onNotice('已刪除主題');
+                onChanged();
+              }}
+              style={dangerButtonStyle}
+            >
+              刪除
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 function formatDuration(sec: number): string {
@@ -511,6 +630,7 @@ interface SongFormState {
   youtubeVideoId: string;
   durationSec: string;
   lyrics: string;
+  themeIds: string[];
 }
 
 const EMPTY_SONG_FORM: SongFormState = {
@@ -519,40 +639,136 @@ const EMPTY_SONG_FORM: SongFormState = {
   youtubeVideoId: '',
   durationSec: '',
   lyrics: '',
+  themeIds: [],
 };
+
+function ImportExportBar({
+  onImported,
+  onError,
+  onNotice,
+}: {
+  onImported: () => void;
+  onError: (msg: string) => void;
+  onNotice: (msg: string) => void;
+}) {
+  const [importing, setImporting] = useState(false);
+  const [lastResult, setLastResult] = useState<ImportSummary | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setLastResult(null);
+    try {
+      const text = await file.text();
+      const result = await songRepository.importSongsCsv(text);
+      if (!result.ok || !result.data) {
+        onError(result.error ?? '匯入失敗');
+        return;
+      }
+      setLastResult(result.data);
+      const { created, updated, errors } = result.data.summary;
+      onNotice(`匯入完成：新增 ${created} 首、更新 ${updated} 首${errors > 0 ? `、失敗 ${errors} 列` : ''}`);
+      onImported();
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px',
+        padding: '12px 16px',
+        borderRadius: '10px',
+        border: '1px solid var(--groove)',
+      }}
+    >
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- 這是觸發檔案下載，不是頁面導覽，用 next/link 會攔截點擊導致下載失效 */}
+        <a href="/api/songs/export" style={editButtonStyle}>
+          匯出 CSV
+        </a>
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={importing}
+          style={editButtonStyle}
+        >
+          {importing ? '匯入中…' : '匯入 CSV'}
+        </button>
+        <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleFileChange} style={{ display: 'none' }} />
+        <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+          欄位：title, artist, youtubeVideoId, durationSec, themes（用 ; 分隔多個）, lyrics。
+          同一個 youtubeVideoId 視為同一首歌，已存在會被更新，不會重複新增。
+        </span>
+      </div>
+
+      {lastResult && lastResult.results.some((r) => r.status === 'error') && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '160px', overflowY: 'auto' }}>
+          {lastResult.results
+            .filter((r) => r.status === 'error')
+            .map((r) => (
+              <p key={r.row} style={{ color: 'var(--error)', fontSize: '0.8rem' }}>
+                第 {r.row} 列（{r.title}）：{r.error}
+              </p>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function SongSection({
   songs,
   artists,
+  themes,
   onChanged,
   onError,
   onNotice,
-}: { songs: Song[]; artists: Artist[] } & SectionCallbacks) {
+}: { songs: Song[]; artists: Artist[]; themes: Theme[] } & SectionCallbacks) {
   const [editing, setEditing] = useState<Song | null>(null);
   const [filterArtistId, setFilterArtistId] = useState<string>('');
+  const [filterThemeId, setFilterThemeId] = useState<string>('');
   const [prefill, setPrefill] = useState<YouTubePrefill | null>(null);
+  // 目前正在試聽的歌曲，一次只展開一個避免畫面雜亂
+  const [previewSongId, setPreviewSongId] = useState<string | null>(null);
 
   function artistName(id: string) {
     return artists.find((a) => a.id === id)?.name ?? '（未知歌手）';
   }
 
-  const visibleSongs = filterArtistId ? songs.filter((s) => s.artistId === filterArtistId) : songs;
+  // 歌手／主題查詢可以同時使用（交集），跟比賽建立流程的「擇一」不同——
+  // 這裡單純是管理頁面找歌曲用的篩選，不是決定比賽題庫，同時縮小範圍反而更好用。
+  const visibleSongs = songs.filter(
+    (s) =>
+      (!filterArtistId || s.artistId === filterArtistId) &&
+      (!filterThemeId || s.themeIds.includes(filterThemeId))
+  );
 
   // 歌手清單（artists）內容一變（新增/刪除歌手）就重新掛載表單，
   // 避免表單記住舊的歌手清單快照，導致明明已經新增了歌手，
   // 下面的新增歌曲表單卻還是選不到、或悄悄送到錯的歌手底下。
   const artistsKey = artists.map((a) => a.id).join(',');
+  const themesKey = themes.map((t) => t.id).join(',');
 
   return (
     <section style={sectionStyle}>
       <h2 style={{ fontSize: '1.1rem' }}>歌曲管理（{songs.length}）</h2>
 
+      <ImportExportBar onImported={onChanged} onError={onError} onNotice={onNotice} />
+
       <YouTubeSearchAccordion onPick={setPrefill} />
 
       <SongForm
-        key={`${editing?.id ?? 'new'}-${artistsKey}-${prefill?.videoId ?? ''}`}
+        key={`${editing?.id ?? 'new'}-${artistsKey}-${themesKey}-${prefill?.videoId ?? ''}`}
         editing={editing}
         artists={artists}
+        themes={themes}
         existingSongs={songs}
         prefill={prefill}
         onCancel={() => {
@@ -567,12 +783,12 @@ function SongSection({
         }}
       />
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
         <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>依歌手查詢：</span>
         <select
           value={filterArtistId}
           onChange={(e) => setFilterArtistId(e.target.value)}
-          style={{ ...inputStyle, flex: 1, maxWidth: '240px' }}
+          style={{ ...inputStyle, flex: 1, maxWidth: '200px' }}
         >
           <option value="">全部歌手</option>
           {artists.map((a) => (
@@ -581,7 +797,20 @@ function SongSection({
             </option>
           ))}
         </select>
-        {filterArtistId && (
+        <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>依主題查詢：</span>
+        <select
+          value={filterThemeId}
+          onChange={(e) => setFilterThemeId(e.target.value)}
+          style={{ ...inputStyle, flex: 1, maxWidth: '200px' }}
+        >
+          <option value="">全部主題</option>
+          {themes.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+        {(filterArtistId || filterThemeId) && (
           <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
             {visibleSongs.length} 首
           </span>
@@ -607,40 +836,59 @@ function SongSection({
             key={s.id}
             style={{
               display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
+              flexDirection: 'column',
+              gap: '8px',
               padding: '10px 14px',
               borderRadius: '8px',
               border: '1px solid var(--groove)',
-              gap: '8px',
             }}
           >
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {s.title}
-              <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', marginLeft: '8px' }}>
-                {artistName(s.artistId)} · {s.youtubeVideoId}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {s.title}
+                <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', marginLeft: '8px' }}>
+                  {artistName(s.artistId)} · {s.youtubeVideoId}
+                </span>
               </span>
-            </span>
-            <span style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-              <button onClick={() => setEditing(s)} style={editButtonStyle}>
-                編輯
-              </button>
-              <button
-                onClick={async () => {
-                  const result = await songRepository.deleteSong(s.id);
-                  if (!result.ok) {
-                    onError(result.error ?? '刪除歌曲失敗');
-                    return;
-                  }
-                  onNotice('已刪除歌曲');
-                  if (editing?.id === s.id) setEditing(null);
-                  onChanged();
-                }}
-                style={dangerButtonStyle}
-              >
-                刪除
-              </button>
-            </span>
+              <span style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                <button
+                  onClick={() => setPreviewSongId((cur) => (cur === s.id ? null : s.id))}
+                  style={editButtonStyle}
+                >
+                  {previewSongId === s.id ? '收起試聽' : '試聽'}
+                </button>
+                <button onClick={() => setEditing(s)} style={editButtonStyle}>
+                  編輯
+                </button>
+                <button
+                  onClick={async () => {
+                    const result = await songRepository.deleteSong(s.id);
+                    if (!result.ok) {
+                      onError(result.error ?? '刪除歌曲失敗');
+                      return;
+                    }
+                    onNotice('已刪除歌曲');
+                    if (editing?.id === s.id) setEditing(null);
+                    onChanged();
+                  }}
+                  style={dangerButtonStyle}
+                >
+                  刪除
+                </button>
+              </span>
+            </div>
+            {previewSongId === s.id && (
+              <iframe
+                width="100%"
+                height="220"
+                src={`https://www.youtube.com/embed/${s.youtubeVideoId}?autoplay=1`}
+                title={s.title}
+                style={{ border: 'none', borderRadius: '8px' }}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                referrerPolicy="strict-origin-when-cross-origin"
+                allowFullScreen
+              />
+            )}
           </li>
         ))}
       </ul>
@@ -653,6 +901,7 @@ const NEW_ARTIST_OPTION = '__new_artist__';
 function SongForm({
   editing,
   artists,
+  themes,
   existingSongs,
   prefill,
   onCancel,
@@ -660,6 +909,7 @@ function SongForm({
 }: {
   editing: Song | null;
   artists: Artist[];
+  themes: Theme[];
   existingSongs: Song[];
   prefill: YouTubePrefill | null;
   onCancel: () => void;
@@ -673,6 +923,7 @@ function SongForm({
           youtubeVideoId: prefill?.videoId ?? editing.youtubeVideoId,
           durationSec: String(prefill?.durationSec ?? editing.durationSec),
           lyrics: editing.lyrics,
+          themeIds: editing.themeIds,
         }
       : {
           ...EMPTY_SONG_FORM,
@@ -744,6 +995,7 @@ function SongForm({
       youtubeVideoId,
       durationSec,
       lyrics: form.lyrics,
+      themeIds: form.themeIds,
     };
 
     const result = editing
@@ -812,6 +1064,45 @@ function SongForm({
         rows={3}
         style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }}
       />
+
+      {themes.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>主題（可複選，選填）</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {themes.map((t) => {
+              const checked = form.themeIds.includes(t.id);
+              return (
+                <label
+                  key={t.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 10px',
+                    borderRadius: '999px',
+                    border: '1px solid var(--groove)',
+                    background: checked ? 'var(--bg-raised)' : 'transparent',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() =>
+                      setForm((f) => ({
+                        ...f,
+                        themeIds: checked ? f.themeIds.filter((id) => id !== t.id) : [...f.themeIds, t.id],
+                      }))
+                    }
+                  />
+                  {t.name}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
         <button type="submit" style={buttonStyle}>
           {editing ? '儲存' : '新增歌曲'}

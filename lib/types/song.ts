@@ -9,6 +9,8 @@ export interface Song {
   durationSec: number;
   lyrics: string;
   createdAt: string;
+  /** 這首歌所屬的主題 id 清單（男歌手、90年代金曲等），供主題篩選使用 */
+  themeIds: string[];
 }
 
 export interface SongFilter {

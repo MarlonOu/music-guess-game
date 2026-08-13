@@ -1,0 +1,229 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import type { GameMode } from '../../lib/types/match';
+import { roomRepository } from '../../lib/repository/roomRepository';
+import { getGlobalAudioController } from '../../lib/audio/globalAudioController';
+
+type PendingAction = 'create' | 'join' | null;
+
+export default function OnlinePage() {
+  const router = useRouter();
+  const [pending, setPending] = useState<PendingAction>(null);
+  const [displayName, setDisplayName] = useState('');
+  const [joinCode, setJoinCode] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // 一進這個頁面就先背景把播放器建好（不需要使用者手勢，純建立空播放器不受限制）。
+  // 這樣使用者實際點擊「建立房間／加入房間」時，unlock() 裡的 ensurePlayer() 幾乎瞬間完成，
+  // 緊接著的 playVideo() 呼叫才能真正落在使用者手勢的有效期內，解鎖才有意義——
+  // 如果播放器要等點擊之後才臨時建立（可能耗時 1~2 秒），解鎖的播放呼叫就會太晚，等於白做工。
+  useEffect(() => {
+    getGlobalAudioController().preload();
+  }, []);
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    // 這裡是真正的使用者手勢（表單送出點擊），且在任何 await 之前立刻呼叫——
+    // 不等待其完成（不 await），讓它在背景解鎖播放器，不拖慢建立房間的流程。
+    // 詳見 AudioController.unlock() 的說明。
+    getGlobalAudioController().unlock();
+    const trimmed = displayName.trim();
+    if (trimmed.length === 0) {
+      setError('請輸入暱稱');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    // 建立房間先固定用 INTRO 模式起始值，進到準備室後房主可以再改
+    const result = await roomRepository.create(trimmed, 'INTRO' as GameMode);
+    setLoading(false);
+    if (!result.ok || !result.data) {
+      setError(result.error ?? '建立房間失敗');
+      return;
+    }
+    sessionStorage.setItem(`room-player-${result.data.room.joinCode}`, result.data.playerId);
+    router.push(`/online/room/${result.data.room.joinCode}`);
+  }
+
+  async function handleJoin(e: React.FormEvent) {
+    e.preventDefault();
+    // 同 handleCreate：真實使用者手勢，在任何 await 之前立刻觸發解鎖。
+    getGlobalAudioController().unlock();
+    const trimmedName = displayName.trim();
+    const trimmedCode = joinCode.trim().toUpperCase();
+    if (trimmedName.length === 0) {
+      setError('請輸入暱稱');
+      return;
+    }
+    if (trimmedCode.length === 0) {
+      setError('請輸入房間代碼');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const result = await roomRepository.join(trimmedCode, trimmedName);
+    setLoading(false);
+    if (!result.ok || !result.data) {
+      setError(result.error ?? '加入房間失敗');
+      return;
+    }
+    sessionStorage.setItem(`room-player-${result.data.room.joinCode}`, result.data.playerId);
+    router.push(`/online/room/${result.data.room.joinCode}`);
+  }
+
+  return (
+    <main
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '32px',
+        padding: '24px',
+      }}
+    >
+      <div style={{ textAlign: 'center' }}>
+        <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem', letterSpacing: '0.1em' }}>
+          MUSIC GUESS · ONLINE
+        </span>
+        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '2rem', marginTop: '8px' }}>線上模式</h1>
+      </div>
+
+      {!pending && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', maxWidth: '360px' }}>
+          <button
+            onClick={() => setPending('create')}
+            style={{
+              padding: '16px 24px',
+              borderRadius: '14px',
+              border: 'none',
+              background: 'var(--accent)',
+              color: 'var(--accent-ink)',
+              fontWeight: 600,
+              fontSize: '1.05rem',
+            }}
+          >
+            建立房間
+          </button>
+          <button
+            onClick={() => setPending('join')}
+            style={{
+              padding: '16px 24px',
+              borderRadius: '14px',
+              border: '1px solid var(--groove)',
+              background: 'var(--bg-raised)',
+              color: 'var(--ink)',
+              fontWeight: 600,
+              fontSize: '1.05rem',
+            }}
+          >
+            加入房間
+          </button>
+        </div>
+      )}
+
+      {pending && (
+        <form
+          onSubmit={pending === 'create' ? handleCreate : handleJoin}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+            width: '100%',
+            maxWidth: '360px',
+            padding: '20px',
+            borderRadius: '14px',
+            border: '1px solid var(--groove)',
+            background: 'var(--bg-raised)',
+          }}
+        >
+          <span style={{ fontSize: '1rem', fontWeight: 600 }}>
+            {pending === 'create' ? '建立房間' : '加入房間'}
+          </span>
+
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>你的暱稱</span>
+            <input
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="輸入暱稱"
+              autoFocus
+              style={{
+                padding: '10px 14px',
+                borderRadius: '10px',
+                border: '1px solid var(--groove)',
+                background: 'var(--bg)',
+                color: 'var(--ink)',
+              }}
+            />
+          </label>
+
+          {pending === 'join' && (
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>房間代碼</span>
+              <input
+                value={joinCode}
+                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                placeholder="例如 AB12CD"
+                style={{
+                  padding: '10px 14px',
+                  borderRadius: '10px',
+                  border: '1px solid var(--groove)',
+                  background: 'var(--bg)',
+                  color: 'var(--ink)',
+                  fontFamily: 'var(--font-mono)',
+                  letterSpacing: '0.1em',
+                }}
+              />
+            </label>
+          )}
+
+          {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
+
+          <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+            <button
+              type="submit"
+              disabled={loading}
+              style={{
+                flex: 1,
+                padding: '12px',
+                borderRadius: '10px',
+                border: 'none',
+                background: 'var(--accent)',
+                color: 'var(--accent-ink)',
+                fontWeight: 600,
+              }}
+            >
+              {loading ? '處理中…' : pending === 'create' ? '建立並進入' : '加入並進入'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPending(null);
+                setError(null);
+              }}
+              style={{
+                padding: '12px 16px',
+                borderRadius: '10px',
+                border: '1px solid var(--groove)',
+                background: 'transparent',
+                color: 'var(--ink)',
+              }}
+            >
+              返回
+            </button>
+          </div>
+        </form>
+      )}
+
+      <Link href="/" style={{ color: 'var(--ink-dim)', fontSize: '0.9rem' }}>
+        返回首頁
+      </Link>
+    </main>
+  );
+}

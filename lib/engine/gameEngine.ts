@@ -13,8 +13,6 @@ export type GameStatus = 'idle' | 'question' | 'reveal' | 'finished';
 export interface RoundResult {
   songId: string;
   question: QuestionPayload;
-  /** 該題答對／得分的玩家 id；null 代表這題沒人答對（略過不計分） */
-  winnerPlayerId: string | null;
   roundIndex: number;
 }
 
@@ -22,12 +20,14 @@ export interface GameEngineState {
   status: GameStatus;
   mode: GameMode | null;
   songPool: Song[];
+  /** 題庫是否為「玩完篩選出來的全部歌曲」（未指定固定題數）；true 時 UI 不該顯示總題數，只顯示目前第幾題 */
+  unlimitedRounds: boolean;
   roundCount: number;
   currentRoundIndex: number;
   currentQuestion: QuestionPayload | null;
   /** 對戰人別 id 清單；空陣列代表單機無人別模式，此時以 SOLO_PLAYER_KEY 記分 */
   players: string[];
-  /** playerId -> 累計分數；單機模式鍵值固定為 SOLO_PLAYER_KEY */
+  /** playerId -> 累計分數；單機模式鍵值固定為 SOLO_PLAYER_KEY。加分與換題是兩個獨立動作，互不影響。 */
   scores: Record<string, number>;
   results: RoundResult[];
 }
@@ -35,7 +35,8 @@ export interface GameEngineState {
 export interface StartConfig {
   mode: GameMode;
   songPool: Song[];
-  roundCount: number;
+  /** 省略時代表「玩完整個 songPool」（不限題數） */
+  roundCount?: number;
   /** 未提供或空陣列 = 單機無人別模式（相容舊有單人流程） */
   playerIds?: string[];
 }
@@ -47,6 +48,7 @@ function createInitialState(): GameEngineState {
     status: 'idle',
     mode: null,
     songPool: [],
+    unlimitedRounds: false,
     roundCount: 0,
     currentRoundIndex: -1,
     currentQuestion: null,
@@ -58,19 +60,21 @@ function createInitialState(): GameEngineState {
 
 /**
  * 依題數需求從歌曲池抽題，避免同一首歌重複出現（若題庫足夠）。
- * 輸入：songPool、roundCount
- * 輸出：長度為 min(roundCount, songPool.length) 的 Song 陣列，隨機排序
+ * roundCount 省略時代表把整個 songPool 都抽出來（不限題數，玩完為止）。
  * 邊界條件：songPool 為空時回傳空陣列，呼叫端須另行處理「無可用題目」狀態
  */
-function drawSongsForRounds(songPool: Song[], roundCount: number): Song[] {
+function drawSongsForRounds(songPool: Song[], roundCount?: number): Song[] {
   if (songPool.length === 0) return [];
   const shuffled = [...songPool].sort(() => Math.random() - 0.5);
+  if (roundCount === undefined) return shuffled;
   return shuffled.slice(0, Math.min(roundCount, shuffled.length));
 }
 
 /**
- * 玩法：播放片段 → 玩家口頭搶答 → 主持人按「顯示正確答案」→ 手動點選這題是誰答對（或沒人答對）。
- * App 本身不判斷文字對錯，只負責播放、揭曉答案、記錄計分，判定交由玩家彼此口頭確認。
+ * 玩法：播放片段 → 玩家口頭搶答 → 主持人按「顯示正確答案」→ 按「下一題」繼續。
+ * App 本身不判斷文字對錯、也不強制要求「揭曉答案」與「加分」綁在一起：
+ * 加分（awardPoint）是隨時可以觸發的獨立動作（例如點擊玩家分數 +1），
+ * 換題（nextQuestion）也是獨立動作，兩者互不依賴，UI 不需要在揭曉答案後強制先選出誰答對才能繼續。
  */
 export class GameEngine {
   private state: GameEngineState = createInitialState();
@@ -103,6 +107,7 @@ export class GameEngine {
       status: this.drawnSongs.length > 0 ? 'question' : 'finished',
       mode: config.mode,
       songPool: config.songPool,
+      unlimitedRounds: config.roundCount === undefined,
       roundCount: this.drawnSongs.length,
       currentRoundIndex: this.drawnSongs.length > 0 ? 0 : -1,
       currentQuestion: this.drawnSongs.length > 0 ? this.prepareQuestion(config.mode, this.drawnSongs[0]) : null,
@@ -123,25 +128,28 @@ export class GameEngine {
   }
 
   /**
-   * 記錄這題是誰答對（playerId 為 null 代表沒人答對，不計分），
-   * 記錄完立即進入下一題（或若已是最後一題則結束比賽）。
+   * 幫指定玩家（或單機模式的 SOLO_PLAYER_KEY）調整分數（delta 為 +1 或 -1）。
+   * 只能在已公布答案（reveal）狀態下觸發，避免答案還沒公布就先加分；
+   * 分數下限為 0，不會因為誤按減到負數。
    */
-  awardPoint(playerId: string | null): void {
-    if (this.state.status !== 'reveal' || !this.state.currentQuestion) return;
-
+  awardPoint(playerId: string, delta: 1 | -1 = 1): void {
+    if (this.state.status !== 'reveal') return;
     const scores = { ...this.state.scores };
-    if (playerId) {
-      scores[playerId] = (scores[playerId] ?? 0) + 1;
-    }
+    scores[playerId] = Math.max(0, (scores[playerId] ?? 0) + delta);
+    this.setState({ scores });
+  }
+
+  /** 換到下一題（或若已是最後一題則結束比賽），只能在已顯示答案（reveal）狀態下觸發 */
+  nextQuestion(): void {
+    if (this.state.status !== 'reveal' || !this.state.currentQuestion) return;
 
     const result: RoundResult = {
       songId: this.state.currentQuestion.songId,
       question: this.state.currentQuestion,
-      winnerPlayerId: playerId,
       roundIndex: this.state.currentRoundIndex,
     };
+    this.setState({ results: [...this.state.results, result] });
 
-    this.setState({ scores, results: [...this.state.results, result] });
     this.advanceRound();
   }
 
@@ -160,6 +168,12 @@ export class GameEngine {
       currentRoundIndex: nextIndex,
       currentQuestion: this.prepareQuestion(this.state.mode, song),
     });
+  }
+
+  /** 玩家主動提前結束這場比賽，不用把題庫剩下的歌全部玩完 */
+  endMatchEarly(): void {
+    if (this.state.status === 'idle' || this.state.status === 'finished') return;
+    this.setState({ status: 'finished', currentQuestion: null });
   }
 
   reset(): void {

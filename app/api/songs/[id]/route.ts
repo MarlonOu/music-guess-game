@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../../../lib/db';
 
 // PUT /api/songs/:id → 更新指定歌曲，供 /admin 資料庫管理頁面使用
+// themeIds 若有帶入，會整批覆蓋該歌曲的主題指派（先刪舊的關聯再依新清單建立）
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   try {
     const body = await request.json();
-    const { title, artistId, youtubeVideoId, durationSec, lyrics } = body;
+    const { title, artistId, youtubeVideoId, durationSec, lyrics, themeIds } = body;
 
     await prisma.song.update({
       where: { id },
@@ -16,6 +17,14 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         ...(youtubeVideoId !== undefined ? { youtubeVideoId } : {}),
         ...(durationSec !== undefined ? { durationSec: Number(durationSec) } : {}),
         ...(lyrics !== undefined ? { lyrics } : {}),
+        ...(Array.isArray(themeIds)
+          ? {
+              themes: {
+                deleteMany: {},
+                create: themeIds.map((themeId: string) => ({ themeId })),
+              },
+            }
+          : {}),
       },
     });
 

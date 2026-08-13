@@ -30,7 +30,95 @@ model Song {
   durationSec     Int      @map("duration_sec")
   lyrics          String
   createdAt       DateTime @default(now()) @map("created_at")
+  themes          SongTheme[]
 
   @@index([artistId])
   @@map("songs")
+}
+
+// 對應 03-data-model.md 的 Theme 實體，Phase 6 保留功能提前開放
+model Theme {
+  id          String @id @default(uuid())
+  name        String
+  description String @default("")
+
+  songs SongTheme[]
+
+  @@map("themes")
+}
+
+// 對應 03-data-model.md 的 SongTheme 多對多關聯表
+model SongTheme {
+  songId  String @map("song_id")
+  song    Song   @relation(fields: [songId], references: [id], onDelete: Cascade)
+  themeId String @map("theme_id")
+  theme   Theme  @relation(fields: [themeId], references: [id], onDelete: Cascade)
+
+  @@id([songId, themeId])
+  @@index([themeId])
+  @@map("song_themes")
+}
+
+// 線上對戰房間。房間本身為暫時性資料，比賽結束後不強制保留（與 IndexedDB 內的
+// 單機 Match/Round 紀錄性質不同），刻意存在 Postgres 而非 IndexedDB，
+// 因為房間狀態需要讓所有玩家（不同瀏覽器/裝置）都能讀到同一份資料。
+model Room {
+  id              String   @id @default(uuid())
+  /// 供玩家輸入加入房間的短碼，與 id 分開是為了讓房號好讀好打（例如 6 碼英數字）
+  joinCode        String   @unique @map("join_code")
+  mode            String
+  artistFilterIds String[] @map("artist_filter_ids")
+  themeFilterIds  String[] @map("theme_filter_ids")
+  status          String   @default("lobby") // lobby | playing | finished
+  /// 這場房間抽到的題目 id 清單，房主開始遊戲時決定，之後所有玩家依此清單同步進度
+  songQueue       String[] @map("song_queue")
+  /// RANDOM_CLIP 模式用的隨機片段起始秒數，與 songQueue 一一對應，開始遊戲時算好存起來，
+  /// 避免每個玩家的裝置各自重算導致抽到不同片段
+  clipStartSecs     Int[] @map("clip_start_secs")
+  /// LYRIC_LINE 模式用的歌詞行索引，與 songQueue 一一對應，理由同上
+  lyricLineIndexes  Int[] @map("lyric_line_indexes")
+  currentRoundIndex Int    @default(0) @map("current_round_index")
+  /// 目前這題（若已顯示）的正確答案是否已公布
+  revealed        Boolean  @default(false)
+  /// 投票跳題：目前這一題已按下「投票跳題」的玩家 id 清單。全體玩家（players 關聯的數量）都投了
+  /// 就視為這題流局，直接公布答案（不計分），流程之後跟答對公布一樣。換題時重置為空陣列。
+  skipVotePlayerIds String[] @default([]) @map("skip_vote_player_ids")
+  /// 目前這題開始播放的時間戳，供各玩家端計算「該從第幾秒接著播放」做同步近似
+  roundStartedAt  DateTime? @map("round_started_at")
+  hostPlayerId    String   @map("host_player_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  players  RoomPlayer[]
+  messages RoomMessage[]
+
+  @@map("rooms")
+}
+
+model RoomPlayer {
+  id          String   @id @default(uuid())
+  roomId      String   @map("room_id")
+  room        Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  displayName String   @map("display_name")
+  score       Int      @default(0)
+  joinedAt    DateTime @default(now()) @map("joined_at")
+
+  @@index([roomId])
+  @@map("room_players")
+}
+
+// 聊天室訊息，同時也是搶答輸入的管道（isAnswer/isCorrect 標記該則是否為判定過的正確搶答）
+model RoomMessage {
+  id          String   @id @default(uuid())
+  roomId      String   @map("room_id")
+  room        Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  playerId    String   @map("player_id")
+  displayName String   @map("display_name")
+  text        String
+  isCorrectAnswer Boolean @default(false) @map("is_correct_answer")
+  roundIndex  Int?     @map("round_index")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([roomId, createdAt])
+  @@map("room_messages")
 }

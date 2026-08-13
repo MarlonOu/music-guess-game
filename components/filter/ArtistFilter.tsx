@@ -16,7 +16,19 @@ export function ArtistFilter({ artists, selectedIds, onToggle }: ArtistFilterPro
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '6px',
+        // 固定列高、超出可滑動：避免歌手清單一長，篩選區塊把整個頁面往下撐得很長，
+        // 尤其線上模式的房間 lobby 頁面下面還有聊天室要顯示，清單本身要能收在固定高度內。
+        maxHeight: '260px',
+        overflowY: 'auto',
+        overscrollBehavior: 'contain',
+        paddingRight: '4px',
+      }}
+    >
       {artists.map((a) => (
         <label
           key={a.id}
@@ -28,6 +40,7 @@ export function ArtistFilter({ artists, selectedIds, onToggle }: ArtistFilterPro
             borderRadius: '10px',
             border: '1px solid var(--groove)',
             background: selectedIds.includes(a.id) ? 'var(--bg-raised)' : 'transparent',
+            flexShrink: 0,
           }}
         >
           <input

@@ -6,12 +6,10 @@ import type { PlayerProfile } from '../../lib/types/player';
 import { playerRepository } from '../../lib/repository/playerRepository';
 import { PlayerProfileForm } from '../../components/player/PlayerProfileForm';
 import { PlayerList } from '../../components/player/PlayerList';
+import { generateId } from '../../lib/utils/id';
 
 function generateAvatarSeed(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID();
-  }
-  return Math.random().toString(36).slice(2);
+  return generateId();
 }
 
 export default function PlayersPage() {
@@ -49,7 +47,7 @@ export default function PlayersPage() {
     const profile: PlayerProfile = editingProfile
       ? { ...editingProfile, displayName }
       : {
-          id: crypto.randomUUID(),
+          id: generateId(),
           displayName,
           avatarSeed: generateAvatarSeed(),
           createdAt: new Date().toISOString(),

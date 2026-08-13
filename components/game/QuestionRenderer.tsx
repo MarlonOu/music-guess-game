@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { QuestionPayload } from '../../lib/types/question';
 import type { Song } from '../../lib/types/song';
-import type { AudioController, AudioLoadState } from '../../lib/audio/audioController';
+import type { AudioController, AudioPlaybackStatus } from '../../lib/audio/audioController';
+import { AudioStatusIndicator } from './AudioStatusIndicator';
 
 interface QuestionRendererProps {
   question: QuestionPayload;
@@ -15,10 +16,17 @@ interface QuestionRendererProps {
 // 純 UI 狀態元件：本身不建立／持有播放器，只透過傳入的 controller 呼叫播放控制。
 // 呼叫端須在每次換題時以 key={currentRoundIndex} 掛載本元件，讓按鈕顯示的播放狀態正確重置。
 export function QuestionRenderer({ question, song, controller }: QuestionRendererProps) {
-  const [loadState, setLoadState] = useState<AudioLoadState>('idle');
-  const [isPlaying, setIsPlaying] = useState(false);
-  // 該題是否已按過播放（決定按鈕顯示「播放」或「繼續播放」）
-  const [hasStarted, setHasStarted] = useState(false);
+  const [status, setStatus] = useState<AudioPlaybackStatus>('idle');
+
+  // 訂閱 controller 的播放狀態回呼，取代先前「呼叫完 play/pause 後手動讀一次狀態」的作法——
+  // 這樣才能即時反映「loading」這種非同步中間狀態，UI 動畫才會準確。
+  // 每次換題本元件都會因 key 變更而重新掛載，初始值 'idle' 已經跟「換題時 GamePage 會呼叫
+  // controller.stop()」的狀態一致，這裡只需要訂閱之後的變化，不需要再額外同步讀取一次目前狀態。
+  useEffect(() => {
+    if (!controller) return;
+    controller.setOnStatusChange(setStatus);
+    return () => controller.setOnStatusChange(undefined);
+  }, [controller]);
 
   const startSec = question.renderType === 'audio-intro' ? 0 : question.clipStartSec ?? 0;
   const durationSec =
@@ -26,32 +34,21 @@ export function QuestionRenderer({ question, song, controller }: QuestionRendere
 
   async function handlePlayPause() {
     if (!controller || question.renderType === 'text-lyric') return;
-
-    if (isPlaying) {
+    if (status === 'playing') {
       controller.pause();
-      setIsPlaying(false);
       return;
     }
-
-    if (hasStarted && controller.getLoadState() === 'ready') {
+    if (status === 'paused') {
       controller.resume();
-      setIsPlaying(controller.getIsPlaying());
       return;
     }
-
-    setHasStarted(true);
+    // idle／finished／error 都視為「重新播放」
     await controller.play(song.youtubeVideoId, startSec, durationSec);
-    setLoadState(controller.getLoadState());
-    setIsPlaying(controller.getIsPlaying());
   }
 
   function handleRestart() {
     if (!controller || question.renderType === 'text-lyric') return;
-    setHasStarted(true);
-    controller.play(song.youtubeVideoId, startSec, durationSec).then(() => {
-      setLoadState(controller.getLoadState());
-      setIsPlaying(controller.getIsPlaying());
-    });
+    controller.play(song.youtubeVideoId, startSec, durationSec);
   }
 
   if (question.renderType === 'text-lyric') {
@@ -73,7 +70,8 @@ export function QuestionRenderer({ question, song, controller }: QuestionRendere
     );
   }
 
-  const playPauseLabel = isPlaying ? '暫停' : hasStarted ? '繼續播放' : '播放';
+  const hasStarted = status !== 'idle';
+  const playPauseLabel = status === 'playing' ? '暫停' : hasStarted ? '繼續播放' : '播放';
 
   return (
     <div
@@ -84,17 +82,8 @@ export function QuestionRenderer({ question, song, controller }: QuestionRendere
         gap: '16px',
       }}
     >
-      <div
-        style={{
-          width: '96px',
-          height: '96px',
-          borderRadius: '50%',
-          background:
-            'repeating-radial-gradient(circle, var(--groove) 0px, var(--groove) 3px, var(--bg-raised) 3px, var(--bg-raised) 7px)',
-          border: `2px solid ${isPlaying ? 'var(--success)' : 'var(--accent)'}`,
-        }}
-      />
-      {loadState === 'error' && (
+      <AudioStatusIndicator status={status} />
+      {status === 'error' && (
         <p style={{ color: 'var(--error)', fontSize: '0.875rem' }}>
           音訊載入失敗，請重新播放
         </p>

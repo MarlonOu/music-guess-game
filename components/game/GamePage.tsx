@@ -2,14 +2,16 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import type { GameMode } from '../../lib/types/match';
 import type { Song } from '../../lib/types/song';
+import type { Artist, Theme } from '../../lib/types/theme';
 import type { PlayerProfile } from '../../lib/types/player';
 import type { Round } from '../../lib/types/match';
 import { songRepository } from '../../lib/repository/songRepository';
 import { playerRepository } from '../../lib/repository/playerRepository';
 import { matchRepository } from '../../lib/repository/matchRepository';
-import { DEFAULT_ROUND_COUNT, SOLO_PLAYER_KEY } from '../../lib/engine/gameEngine';
+import { generateId } from '../../lib/utils/id';
 import { AudioController } from '../../lib/audio/audioController';
 import { useGameEngine } from './useGameEngine';
 import { QuestionRenderer } from './QuestionRenderer';
@@ -24,6 +26,8 @@ export function GamePage({ mode, title }: GamePageProps) {
   const searchParams = useSearchParams();
   const [songPool, setSongPool] = useState<Song[] | null>(null);
   const [players, setPlayers] = useState<PlayerProfile[]>([]);
+  const [artists, setArtists] = useState<Artist[]>([]);
+  const [themes, setThemes] = useState<Theme[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const matchIdRef = useRef<string | null>(null);
   const persistedRef = useRef(false);
@@ -40,13 +44,18 @@ export function GamePage({ mode, title }: GamePageProps) {
 
   const playerIds = (searchParams.get('players') ?? '').split(',').filter(Boolean);
   const artistIds = (searchParams.get('artists') ?? '').split(',').filter(Boolean);
+  const themeIds = (searchParams.get('themes') ?? '').split(',').filter(Boolean);
   const roundCountParam = Number(searchParams.get('rounds'));
-  const roundCount = Number.isFinite(roundCountParam) && roundCountParam > 0 ? roundCountParam : DEFAULT_ROUND_COUNT;
+  // 未指定 rounds 時，代表「玩完篩選出來的全部歌曲」，不限題數
+  const explicitRoundCount = Number.isFinite(roundCountParam) && roundCountParam > 0 ? roundCountParam : undefined;
 
   useEffect(() => {
     const controller = new AudioController(playerContainerId);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 建立外部播放器物件屬於「連接外部系統」的合法例外，非可在 render 期間衍生的資料
     setAudioController(controller);
+    // 進畫面就先背景暖機（見 AudioController.preload() 註解），避免玩家第一次按播放時
+    // 因為臨時建立播放器耗時而在手機上被判定手勢過期、載入失敗
+    controller.preload();
     return () => {
       controller.dispose();
     };
@@ -70,12 +79,12 @@ export function GamePage({ mode, title }: GamePageProps) {
     }, 8000);
 
     async function setup() {
-      const songs = await songRepository.getByArtistIds(artistIds);
+      const songs = await songRepository.getFiltered({ artistIds, themeIds });
       if (cancelled) return;
       if (songs.length === 0) {
         setLoadError(
-          artistIds.length > 0
-            ? '篩選的歌手目前無任何歌曲，請重新選擇歌手篩選條件'
+          artistIds.length > 0 || themeIds.length > 0
+            ? '篩選條件下目前無任何歌曲，請重新選擇歌手／主題篩選條件'
             : '目前題庫為空，無法開始遊戲'
         );
         return;
@@ -90,14 +99,14 @@ export function GamePage({ mode, title }: GamePageProps) {
           setPlayers(matchedPlayers);
         }
 
-        const matchId = crypto.randomUUID();
+        const matchId = generateId();
         matchIdRef.current = matchId;
         await matchRepository.createMatch({
           id: matchId,
           mode,
           artistFilterIds: artistIds,
-          themeFilterIds: [],
-          roundCount,
+          themeFilterIds: themeIds,
+          roundCount: explicitRoundCount ?? songs.length,
           createdAt: new Date().toISOString(),
         });
         await Promise.all(
@@ -111,7 +120,7 @@ export function GamePage({ mode, title }: GamePageProps) {
       engine.start({
         mode,
         songPool: songs,
-        roundCount,
+        roundCount: explicitRoundCount,
         playerIds: matchedPlayers.length > 0 ? matchedPlayers.map((p) => p.id) : undefined,
       });
     }
@@ -131,7 +140,7 @@ export function GamePage({ mode, title }: GamePageProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
-  // 比賽結束時，將 Round 與最終 MatchPlayer 分數寫入資料層（僅執行一次）
+  // 比賽結束時（含主動提前結束），將 Round 與最終 MatchPlayer 分數寫入資料層（僅執行一次）
   useEffect(() => {
     if (state.status !== 'finished' || persistedRef.current) return;
     const matchId = matchIdRef.current;
@@ -142,7 +151,7 @@ export function GamePage({ mode, title }: GamePageProps) {
     state.results.forEach((r) => {
       if (roundsByIndex.has(r.roundIndex)) return;
       roundsByIndex.set(r.roundIndex, {
-        id: crypto.randomUUID(),
+        id: generateId(),
         matchId,
         songId: r.songId,
         clipStartSec: r.question.clipStartSec,
@@ -159,16 +168,30 @@ export function GamePage({ mode, title }: GamePageProps) {
     ]);
   }, [state.status, state.results, state.scores, players]);
 
+  // 答案顯示歌手名稱、（若有依主題篩選）主題小標用，跟遊戲進度無關，獨立抓一次即可
+  useEffect(() => {
+    songRepository.getAllArtists().then(setArtists, () => {});
+    songRepository.getAllThemes().then(setThemes, () => {});
+  }, []);
+
   const currentSong =
     state.currentQuestion && songPool
       ? songPool.find((s) => s.id === state.currentQuestion!.songId) ?? null
       : null;
 
-  const lastResult = state.results[state.results.length - 1];
-  const lastWinnerName =
-    lastResult?.winnerPlayerId && lastResult.winnerPlayerId !== SOLO_PLAYER_KEY
-      ? players.find((p) => p.id === lastResult.winnerPlayerId)?.displayName ?? null
-      : null;
+  const currentArtistName = currentSong ? artists.find((a) => a.id === currentSong.artistId)?.name : undefined;
+  // 只有這場比賽本來就是「依主題篩選」時才顯示小標，且只列出這首歌「符合本場篩選」的主題
+  // （一首歌可能同時屬於多個主題，但只有玩家選定的那些才跟這場比賽相關）
+  const currentThemeLabels =
+    currentSong && themeIds.length > 0
+      ? currentSong.themeIds
+          .filter((id) => themeIds.includes(id))
+          .map((id) => themes.find((t) => t.id === id)?.name)
+          .filter((name): name is string => Boolean(name))
+      : [];
+
+  // 這次沒有選任何對戰人別（單機無人別模式）就完全不顯示得分相關的畫面
+  const hasPlayers = players.length > 0;
 
   return (
     <main
@@ -190,18 +213,13 @@ export function GamePage({ mode, title }: GamePageProps) {
 
       {loadError && <p style={{ color: 'var(--error)' }}>{loadError}</p>}
 
-      <div
-        id={playerContainerId}
-        style={{ position: 'fixed', top: '-9999px', left: '-9999px', width: '200px', height: '200px' }}
-      />
-
       {!loadError && state.status === 'idle' && <p style={{ color: 'var(--ink-dim)' }}>準備中</p>}
 
       {(state.status === 'question' || state.status === 'reveal') && currentSong && state.currentQuestion && (
         <>
           <div style={{ display: 'flex', gap: '24px', alignItems: 'center', color: 'var(--ink-dim)', fontFamily: 'var(--font-mono)' }}>
             <span>
-              第 {state.currentRoundIndex + 1} / {state.roundCount} 題
+              {state.unlimitedRounds ? `第 ${state.currentRoundIndex + 1} 題` : `第 ${state.currentRoundIndex + 1} / ${state.roundCount} 題`}
             </span>
           </div>
           <QuestionRenderer
@@ -229,161 +247,223 @@ export function GamePage({ mode, title }: GamePageProps) {
           )}
 
           {state.status === 'reveal' && (
-            <AwardPanel
-              correctTitle={state.currentQuestion.correctTitle}
+            <>
+              <p style={{ color: 'var(--accent)', fontWeight: 600, fontSize: '1.5rem', textAlign: 'center' }}>
+                {state.currentQuestion.correctTitle}
+                {currentArtistName && (
+                  <span style={{ color: 'var(--ink-dim)', fontWeight: 400, fontSize: '1.05rem' }}>
+                    {' '}– {currentArtistName}
+                  </span>
+                )}
+              </p>
+              {currentThemeLabels.length > 0 && (
+                <p style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>
+                  主題：{currentThemeLabels.join('、')}
+                </p>
+              )}
+              <button
+                onClick={() => engine.nextQuestion()}
+                style={{
+                  padding: '12px 28px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  background: 'var(--accent)',
+                  color: 'var(--accent-ink)',
+                  fontWeight: 600,
+                  fontSize: '1.05rem',
+                }}
+              >
+                下一題
+              </button>
+            </>
+          )}
+
+          {hasPlayers && (
+            <ScoreStrip
               players={players}
-              onAward={(playerId) => engine.awardPoint(playerId)}
+              scores={state.scores}
+              canAdjust={state.status === 'reveal'}
+              onAdjust={(id, delta) => engine.awardPoint(id, delta)}
             />
           )}
 
-          <ScoreStrip players={players} scores={state.scores} />
+          <button
+            onClick={() => {
+              if (window.confirm('確定要提前結束這場比賽嗎？')) engine.endMatchEarly();
+            }}
+            style={{
+              padding: '8px 16px',
+              borderRadius: '8px',
+              border: '1px solid var(--groove)',
+              background: 'transparent',
+              color: 'var(--ink-dim)',
+              fontSize: '0.85rem',
+            }}
+          >
+            結束比賽
+          </button>
         </>
       )}
 
       {state.status === 'finished' && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-          {players.length > 0 ? (
-            <ScoreBoard players={players} scores={state.scores} />
-          ) : (
-            <p style={{ fontFamily: 'var(--font-display)', fontSize: '2rem' }}>
-              {state.scores[SOLO_PLAYER_KEY] ?? 0} / {state.roundCount}
-            </p>
-          )}
-          <p style={{ color: 'var(--ink-dim)' }}>
-            比賽結束
-            {lastWinnerName && `（最後一題：${lastWinnerName} 答對）`}
-          </p>
+          {hasPlayers && <ScoreBoard players={players} scores={state.scores} />}
+          <p style={{ color: 'var(--ink-dim)' }}>比賽結束</p>
+          <Link
+            href="/"
+            style={{
+              padding: '10px 24px',
+              borderRadius: '10px',
+              border: 'none',
+              background: 'var(--accent)',
+              color: 'var(--accent-ink)',
+              fontWeight: 600,
+            }}
+          >
+            返回首頁
+          </Link>
         </div>
       )}
     </main>
   );
 }
 
-/** 顯示目前每位玩家（或單機模式）的即時分數，方便玩家隨時掌握戰況 */
-function ScoreStrip({ players, scores }: { players: PlayerProfile[]; scores: Record<string, number> }) {
-  if (players.length === 0) {
-    return (
-      <p style={{ color: 'var(--ink-dim)', fontFamily: 'var(--font-mono)' }}>
-        得分 {scores[SOLO_PLAYER_KEY] ?? 0}
-      </p>
-    );
-  }
-  return (
-    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', justifyContent: 'center', color: 'var(--ink-dim)', fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}>
-      {players.map((p) => (
-        <span key={p.id}>
-          {p.displayName} {scores[p.id] ?? 0}
-        </span>
-      ))}
-    </div>
-  );
-}
-
 /**
- * 揭曉答案後，顯示正確答案並讓使用者手動指定這題是誰答對（口頭搶答，App 不判斷文字對錯）。
- * 單機無人別模式（players 為空）簡化為「答對／答錯」兩個按鈕。
+ * 顯示每位玩家的即時分數，同時是加減分按鈕。
+ * 加減分只在公布答案（reveal）後才能操作，避免答案還沒公布就先動分數；
+ * 題目階段（question）仍會顯示目前分數，只是先不能點。
  */
-function AwardPanel({
-  correctTitle,
+function ScoreStrip({
   players,
-  onAward,
+  scores,
+  canAdjust,
+  onAdjust,
 }: {
-  correctTitle: string;
   players: PlayerProfile[];
-  onAward: (playerId: string | null) => void;
+  scores: Record<string, number>;
+  canAdjust: boolean;
+  onAdjust: (playerId: string, delta: 1 | -1) => void;
 }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-      <p style={{ color: 'var(--accent)', fontWeight: 600, fontSize: '1.5rem' }}>{correctTitle}</p>
-
-      {players.length === 0 ? (
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button
-            onClick={() => onAward(SOLO_PLAYER_KEY)}
-            style={{
-              padding: '10px 24px',
-              borderRadius: '10px',
-              border: 'none',
-              background: 'var(--success)',
-              color: 'var(--accent-ink)',
-              fontWeight: 600,
-            }}
-          >
-            答對
-          </button>
-          <button
-            onClick={() => onAward(null)}
-            style={{
-              padding: '10px 24px',
-              borderRadius: '10px',
-              border: '1px solid var(--groove)',
-              background: 'transparent',
-              color: 'var(--ink)',
-            }}
-          >
-            答錯
-          </button>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', maxWidth: '360px' }}>
-          <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem', textAlign: 'center' }}>
-            這題誰答對了？
-          </span>
-          {players.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => onAward(p.id)}
-              style={{
-                padding: '10px 16px',
-                borderRadius: '10px',
-                border: 'none',
-                background: 'var(--success)',
-                color: 'var(--accent-ink)',
-                fontWeight: 600,
-              }}
-            >
-              {p.displayName} 答對
-            </button>
-          ))}
-          <button
-            onClick={() => onAward(null)}
-            style={{
-              padding: '10px 16px',
-              borderRadius: '10px',
-              border: '1px solid var(--groove)',
-              background: 'transparent',
-              color: 'var(--ink)',
-            }}
-          >
-            沒人答對
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ScoreBoard({ players, scores }: { players: PlayerProfile[]; scores: Record<string, number> }) {
   const ranked = [...players].sort((a, b) => (scores[b.id] ?? 0) - (scores[a.id] ?? 0));
   return (
-    <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '240px' }}>
-      {ranked.map((p, i) => (
-        <li
+    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'center', width: '100%', maxWidth: '480px' }}>
+      {ranked.map((p) => (
+        <div
           key={p.id}
           style={{
             display: 'flex',
-            justifyContent: 'space-between',
-            padding: '10px 16px',
-            borderRadius: '10px',
+            alignItems: 'center',
+            gap: '10px',
+            padding: '8px 8px 8px 16px',
+            borderRadius: '999px',
             border: '1px solid var(--groove)',
-            background: i === 0 ? 'var(--bg-raised)' : 'transparent',
-            fontFamily: 'var(--font-mono)',
+            background: 'var(--bg-raised)',
           }}
         >
-          <span>{i === 0 ? '[1] ' : ''}{p.displayName}</span>
-          <span>{scores[p.id] ?? 0}</span>
-        </li>
+          <span style={{ fontSize: '0.9rem' }}>{p.displayName}</span>
+          <span
+            style={{
+              minWidth: '28px',
+              textAlign: 'center',
+              fontFamily: 'var(--font-mono)',
+              fontWeight: 700,
+              fontSize: '1.1rem',
+              color: 'var(--accent)',
+            }}
+          >
+            {scores[p.id] ?? 0}
+          </span>
+          {canAdjust && (
+            <span style={{ display: 'flex', gap: '4px' }}>
+              <button
+                onClick={() => onAdjust(p.id, -1)}
+                aria-label={`${p.displayName} 減一分`}
+                style={{
+                  width: '26px',
+                  height: '26px',
+                  borderRadius: '50%',
+                  border: '1px solid var(--groove)',
+                  background: 'transparent',
+                  color: 'var(--ink-dim)',
+                  fontSize: '0.9rem',
+                  lineHeight: 1,
+                }}
+              >
+                −
+              </button>
+              <button
+                onClick={() => onAdjust(p.id, 1)}
+                aria-label={`${p.displayName} 加一分`}
+                style={{
+                  width: '26px',
+                  height: '26px',
+                  borderRadius: '50%',
+                  border: 'none',
+                  background: 'var(--accent)',
+                  color: 'var(--accent-ink)',
+                  fontSize: '0.9rem',
+                  lineHeight: 1,
+                  fontWeight: 700,
+                }}
+              >
+                +
+              </button>
+            </span>
+          )}
+        </div>
       ))}
-    </ul>
+    </div>
+  );
+}
+
+const MEDALS = ['🥇', '🥈', '🥉'];
+
+function ScoreBoard({ players, scores }: { players: PlayerProfile[]; scores: Record<string, number> }) {
+  const ranked = [...players].sort((a, b) => (scores[b.id] ?? 0) - (scores[a.id] ?? 0));
+  const topScore = ranked[0] ? scores[ranked[0].id] ?? 0 : 0;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', maxWidth: '360px' }}>
+      <p style={{ textAlign: 'center', color: 'var(--ink-dim)', fontSize: '0.85rem', letterSpacing: '0.1em' }}>
+        最終戰績
+      </p>
+      <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {ranked.map((p, i) => {
+          const score = scores[p.id] ?? 0;
+          const isTopScore = score === topScore && topScore > 0;
+          return (
+            <li
+              key={p.id}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '14px 18px',
+                borderRadius: '14px',
+                border: isTopScore ? '1px solid var(--accent)' : '1px solid var(--groove)',
+                background: isTopScore ? 'var(--bg-raised)' : 'transparent',
+                boxShadow: isTopScore ? '0 0 0 1px var(--accent) inset' : 'none',
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.05rem' }}>
+                <span style={{ width: '28px', textAlign: 'center', fontSize: '1.2rem' }}>
+                  {MEDALS[i] ?? `${i + 1}`}
+                </span>
+                {p.displayName}
+              </span>
+              <span
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontWeight: 700,
+                  fontSize: '1.3rem',
+                  color: isTopScore ? 'var(--accent)' : 'var(--ink)',
+                }}
+              >
+                {score}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
