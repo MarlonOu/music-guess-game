@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import type { GameMode } from '../../lib/types/match';
 import { roomRepository } from '../../lib/repository/roomRepository';
@@ -10,10 +10,22 @@ import { getGlobalAudioController } from '../../lib/audio/globalAudioController'
 type PendingAction = 'create' | 'join' | null;
 
 export default function OnlinePage() {
+  return (
+    <Suspense>
+      <OnlinePageInner />
+    </Suspense>
+  );
+}
+
+function OnlinePageInner() {
   const router = useRouter();
-  const [pending, setPending] = useState<PendingAction>(null);
+  const searchParams = useSearchParams();
+  // 從 QR Code 掃描進來的連結會帶 ?join=房號，自動代入「加入房間」表單並直接展開，
+  // 不用讓使用者還要先點一次「加入房間」按鈕、再手動打房號——這正是 QR Code 想省掉的那一步。
+  const joinCodeFromUrl = searchParams.get('join')?.trim().toUpperCase() ?? '';
+  const [pending, setPending] = useState<PendingAction>(joinCodeFromUrl ? 'join' : null);
   const [displayName, setDisplayName] = useState('');
-  const [joinCode, setJoinCode] = useState('');
+  const [joinCode, setJoinCode] = useState(joinCodeFromUrl);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

@@ -28,12 +28,12 @@ export interface SongRepository {
 export interface ImportRowResult {
   row: number;
   title: string;
-  status: 'created' | 'updated' | 'error';
+  status: 'created' | 'updated' | 'error' | 'duplicate';
   error?: string;
 }
 
 export interface ImportSummary {
-  summary: { created: number; updated: number; errors: number };
+  summary: { created: number; updated: number; duplicates: number; errors: number };
   results: ImportRowResult[];
 }
 

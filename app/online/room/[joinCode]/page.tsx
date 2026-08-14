@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import QRCode from 'qrcode';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import type { RoomState, RoomMessage } from '../../../../lib/types/room';
@@ -263,6 +264,55 @@ interface RoomViewProps {
   onRoomUpdate: (room: RoomState) => void;
 }
 
+/**
+ * 顯示可掃描加入房間的 QR Code，讓朋友不用手動輸入 6 碼房號——手機打字麻煩，
+ * 直接掃碼帶到 /online?join=房號，加入頁面會自動代入房號，只需要輸入暱稱即可。
+ * 預設收合（多人在同一個實體空間才用得到，線上分散的朋友還是文字房號比較方便分享）。
+ */
+function QrJoinSection({ joinCode }: { joinCode: string }) {
+  const [open, setOpen] = useState(false);
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || typeof window === 'undefined') return;
+    const joinUrl = `${window.location.origin}/online?join=${joinCode}`;
+    QRCode.toDataURL(joinUrl, { width: 220, margin: 1 })
+      .then(setDataUrl)
+      .catch((err) => setError(err instanceof Error ? err.message : '產生 QR Code 失敗'));
+  }, [open, joinCode]);
+
+  return (
+    <section style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          alignSelf: 'flex-start',
+          padding: '8px 16px',
+          borderRadius: '999px',
+          border: '1px solid var(--groove)',
+          background: 'transparent',
+          color: 'var(--ink-dim)',
+          fontSize: '0.85rem',
+        }}
+      >
+        {open ? '收合 QR Code ▲' : '📷 顯示 QR Code 讓朋友掃描加入 ▼'}
+      </button>
+      {open && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', padding: '12px' }}>
+          {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
+          {dataUrl && (
+            // eslint-disable-next-line @next/next/no-img-element -- data URL 是本機即時產生的圖片，不是需要 Next Image 最佳化的外部/靜態資源
+            <img src={dataUrl} alt={`掃描加入房間 ${joinCode}`} width={220} height={220} style={{ borderRadius: '8px' }} />
+          )}
+          <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>掃描後會自動帶入房號，只需要再輸入暱稱</span>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function LobbyView({ room, playerId, isHost, onError, onRoomUpdate }: RoomViewProps) {
   const [artists, setArtists] = useState<Artist[]>([]);
   const [themes, setThemes] = useState<Theme[]>([]);
@@ -330,6 +380,8 @@ function LobbyView({ room, playerId, isHost, onError, onRoomUpdate }: RoomViewPr
           ))}
         </div>
       </section>
+
+      <QrJoinSection joinCode={room.joinCode} />
 
       {isHost ? (
         <>

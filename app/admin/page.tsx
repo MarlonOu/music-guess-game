@@ -1,10 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Papa from 'papaparse';
 import Link from 'next/link';
 import type { Song } from '../../lib/types/song';
 import type { Artist, ArtistGender, Theme } from '../../lib/types/theme';
 import { songRepository, type ImportSummary } from '../../lib/repository/songRepository';
+import { SONG_CSV_COLUMNS } from '../../lib/csv/songCsv';
 
 const GENDER_OPTIONS: { value: ArtistGender; label: string }[] = [
   { value: 'MALE', label: '男歌手' },
@@ -624,6 +626,247 @@ function YouTubeSearchAccordion({ onPick }: { onPick: (result: YouTubePrefill) =
   );
 }
 
+interface PlaylistSongResult {
+  videoId: string;
+  title: string;
+  channelTitle: string;
+  thumbnailUrl: string;
+  durationSec: number;
+  embeddable: boolean;
+  unavailable: boolean;
+}
+
+interface PlaylistRowState extends PlaylistSongResult {
+  selected: boolean;
+  artistName: string;
+}
+
+/**
+ * 從 YouTube 播放清單網址批次匯入歌曲。讀取整個清單後先讓管理者勾選、確認/修改每首歌對應的
+ * 歌手名稱（預設用影片頻道名稱猜測，常常就是正確答案，但翻唱/合輯頻道需要手動修正），
+ * 而不是直接無腦全部匯入——播放清單裡常常混雜非目標內容（純音樂視覺化影片、幕後花絮等），
+ * 讓管理者有機會篩選比較安全。實際寫入資料庫的邏輯直接複用既有的 CSV 匯入 API，
+ * 不重新實作一套寫入邏輯，避免兩邊行為兜不起來。
+ */
+function YouTubePlaylistImportAccordion({ onImported, onNotice }: { onImported: () => void; onNotice: (msg: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [url, setUrl] = useState('');
+  const [rows, setRows] = useState<PlaylistRowState[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [truncated, setTruncated] = useState(false);
+
+  async function handleFetch() {
+    if (url.trim().length === 0) return;
+    setLoading(true);
+    setError(null);
+    setRows([]);
+    try {
+      const res = await fetch(`/api/youtube-playlist?url=${encodeURIComponent(url.trim())}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? '讀取播放清單失敗');
+        return;
+      }
+      const results: PlaylistSongResult[] = data.results ?? [];
+      setRows(
+        results.map((r) => ({
+          ...r,
+          // 不可用（私人/已刪除）或關閉外部嵌入的項目預設不勾選，避免匯入完全沒辦法在遊戲內播放的歌曲
+          selected: !r.unavailable && r.embeddable,
+          artistName: r.channelTitle,
+        }))
+      );
+      setTruncated(Boolean(data.truncated));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '讀取播放清單失敗');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function toggleAll(selected: boolean) {
+    setRows((prev) => prev.map((r) => ({ ...r, selected: r.unavailable ? false : selected })));
+  }
+
+  async function handleImportSelected() {
+    const selectedRows = rows.filter((r) => r.selected);
+    if (selectedRows.length === 0) return;
+    setImporting(true);
+    setError(null);
+    try {
+      // 直接複用既有的 CSV 匯入 API，不另外實作一套寫入邏輯；用 Papa.unparse 而非手動字串拼接，
+      // 正確處理標題／頻道名稱裡可能包含逗號、引號等字元，避免手動拼接 CSV 產生格式錯誤。
+      const csv = Papa.unparse({
+        fields: [...SONG_CSV_COLUMNS],
+        data: selectedRows.map((r) => [r.title, r.artistName.trim() || '(未知歌手)', r.videoId, String(r.durationSec), '', '']),
+      });
+      const result = await songRepository.importSongsCsv(csv);
+      if (!result.ok || !result.data) {
+        setError(result.error ?? '匯入失敗');
+        return;
+      }
+      const { created, updated, duplicates, errors } = result.data.summary;
+      onNotice(
+        `播放清單匯入完成：新增 ${created} 首、更新 ${updated} 首${duplicates > 0 ? `、略過重複 ${duplicates} 首` : ''}${errors > 0 ? `、失敗 ${errors} 列` : ''}`
+      );
+      onImported();
+      setRows([]);
+      setUrl('');
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  const selectedCount = rows.filter((r) => r.selected).length;
+
+  return (
+    <div style={{ border: '1px solid var(--groove)', borderRadius: '10px', overflow: 'hidden' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: '100%',
+          textAlign: 'left',
+          padding: '12px 16px',
+          background: 'var(--bg)',
+          border: 'none',
+          color: 'var(--ink)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          cursor: 'pointer',
+          fontSize: '0.95rem',
+        }}
+      >
+        <span>從 YouTube 播放清單批次匯入</span>
+        <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>{open ? '收合 ▲' : '展開 ▼'}</span>
+      </button>
+
+      {open && (
+        <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid var(--groove)' }}>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleFetch();
+                }
+              }}
+              placeholder="貼上播放清單網址，例如 https://www.youtube.com/playlist?list=..."
+              style={{ ...inputStyle, flex: 1 }}
+            />
+            <button type="button" onClick={handleFetch} disabled={loading} style={editButtonStyle}>
+              {loading ? '讀取中…' : '讀取清單'}
+            </button>
+          </div>
+          {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
+          {truncated && (
+            <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+              這個播放清單超過一次能讀取的上限，只載入了前面一部分，其餘需要分次匯入。
+            </p>
+          )}
+
+          {rows.length > 0 && (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>
+                  共 {rows.length} 首，已選 {selectedCount} 首
+                </span>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button type="button" onClick={() => toggleAll(true)} style={editButtonStyle}>
+                    全選
+                  </button>
+                  <button type="button" onClick={() => toggleAll(false)} style={editButtonStyle}>
+                    取消全選
+                  </button>
+                </div>
+              </div>
+
+              <ul
+                style={{
+                  listStyle: 'none',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px',
+                  maxHeight: '420px',
+                  overflowY: 'auto',
+                  overscrollBehavior: 'contain',
+                }}
+              >
+                {rows.map((r, idx) => (
+                  <li
+                    key={r.videoId}
+                    style={{
+                      display: 'flex',
+                      gap: '10px',
+                      alignItems: 'center',
+                      padding: '8px 10px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--groove)',
+                      opacity: r.unavailable ? 0.5 : 1,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={r.selected}
+                      disabled={r.unavailable}
+                      onChange={(e) =>
+                        setRows((prev) => prev.map((row, i) => (i === idx ? { ...row, selected: e.target.checked } : row)))
+                      }
+                    />
+                    {r.thumbnailUrl && (
+                      // eslint-disable-next-line @next/next/no-img-element -- 縮圖來自 YouTube 外部網域，非本地靜態資源，不適合用 next/image
+                      <img src={r.thumbnailUrl} alt="" width={48} height={36} style={{ borderRadius: '4px', flexShrink: 0 }} />
+                    )}
+                    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <span style={{ fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {r.title}
+                      </span>
+                      {r.unavailable ? (
+                        <span style={{ color: 'var(--error)', fontSize: '0.75rem' }}>影片已私人化或刪除，無法匯入</span>
+                      ) : !r.embeddable ? (
+                        <span style={{ color: 'var(--error)', fontSize: '0.75rem' }}>擁有者關閉外部嵌入播放，遊戲內會無聲</span>
+                      ) : (
+                        <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem' }}>{formatDuration(r.durationSec)}</span>
+                      )}
+                    </div>
+                    <input
+                      value={r.artistName}
+                      onChange={(e) =>
+                        setRows((prev) => prev.map((row, i) => (i === idx ? { ...row, artistName: e.target.value } : row)))
+                      }
+                      placeholder="歌手名稱"
+                      disabled={r.unavailable}
+                      style={{ ...inputStyle, width: '140px', flexShrink: 0 }}
+                    />
+                  </li>
+                ))}
+              </ul>
+
+              <button
+                type="button"
+                onClick={handleImportSelected}
+                disabled={importing || selectedCount === 0}
+                style={{ ...buttonStyle, alignSelf: 'flex-start' }}
+              >
+                {importing ? '匯入中…' : `批次匯入所選的 ${selectedCount} 首`}
+              </button>
+              <p style={{ color: 'var(--ink-dim)', fontSize: '0.75rem' }}>
+                歌手名稱預設取自影片頻道名稱，翻唱／合輯／官方頻道名稱常常跟實際歌手不同，匯入前建議逐一確認或修正。
+              </p>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 interface SongFormState {
   title: string;
   artistId: string;
@@ -668,8 +911,10 @@ function ImportExportBar({
         return;
       }
       setLastResult(result.data);
-      const { created, updated, errors } = result.data.summary;
-      onNotice(`匯入完成：新增 ${created} 首、更新 ${updated} 首${errors > 0 ? `、失敗 ${errors} 列` : ''}`);
+      const { created, updated, duplicates, errors } = result.data.summary;
+      onNotice(
+        `匯入完成：新增 ${created} 首、更新 ${updated} 首${duplicates > 0 ? `、略過重複 ${duplicates} 首` : ''}${errors > 0 ? `、失敗 ${errors} 列` : ''}`
+      );
       onImported();
     } finally {
       setImporting(false);
@@ -704,9 +949,21 @@ function ImportExportBar({
         <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleFileChange} style={{ display: 'none' }} />
         <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
           欄位：title, artist, youtubeVideoId, durationSec, themes（用 ; 分隔多個）, lyrics。
-          同一個 youtubeVideoId 視為同一首歌，已存在會被更新，不會重複新增。
+          同一個 youtubeVideoId 視為同一首歌，已存在會被更新；youtubeVideoId 不同但歌名＋歌手都相符時視為重複，會略過不匯入。
         </span>
       </div>
+
+      {lastResult && lastResult.results.some((r) => r.status === 'duplicate') && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '160px', overflowY: 'auto' }}>
+          {lastResult.results
+            .filter((r) => r.status === 'duplicate')
+            .map((r) => (
+              <p key={r.row} style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+                第 {r.row} 列（{r.title}）略過：{r.error}
+              </p>
+            ))}
+        </div>
+      )}
 
       {lastResult && lastResult.results.some((r) => r.status === 'error') && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '160px', overflowY: 'auto' }}>
@@ -763,6 +1020,8 @@ function SongSection({
       <ImportExportBar onImported={onChanged} onError={onError} onNotice={onNotice} />
 
       <YouTubeSearchAccordion onPick={setPrefill} />
+
+      <YouTubePlaylistImportAccordion onImported={onChanged} onNotice={onNotice} />
 
       <SongForm
         key={`${editing?.id ?? 'new'}-${artistsKey}-${themesKey}-${prefill?.videoId ?? ''}`}

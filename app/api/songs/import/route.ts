@@ -6,12 +6,19 @@ import { THEME_LIST_SEPARATOR } from '../../../../lib/csv/songCsv';
 interface ImportRowResult {
   row: number;
   title: string;
-  status: 'created' | 'updated' | 'error';
+  status: 'created' | 'updated' | 'error' | 'duplicate';
   error?: string;
 }
 
 // POST /api/songs/import → 匯入 CSV（純文字 body，Content-Type: text/csv）
-// 去重規則：同一個 youtubeVideoId 視為同一首歌，已存在就更新其餘欄位，不存在才新增；
+// 去重規則：
+// 1. 同一個 youtubeVideoId 視為同一首歌，已存在就更新其餘欄位，不存在才新增；
+// 2. youtubeVideoId 對不上時，再比對「歌名 + 歌手」（不分大小寫、去頭尾空白）——
+//    這是為了抓出「同一首歌被上傳成不同 YouTube 影片」的情況（重新上傳、MV 版跟歌詞版等），
+//    避免因為 videoId 不同就被誤判成兩首不同的歌，題庫裡出現重複。比對歌名時一併要求歌手
+//    也相符，而不是只比歌名，避免不同歌手的同名歌曲被誤判成重複（例如兩位歌手都有一首「遺憾」）。
+//    比對到的話標記為 duplicate 並跳過，不自動覆蓋既有資料的 youtubeVideoId，
+//    由管理者自行決定是否要手動處理（可能是想保留原本的版本）。
 // 歌手／主題用名稱比對（不分大小寫、去頭尾空白），找不到就自動建立，不會因為名稱對不上而整列失敗。
 export async function POST(request: NextRequest) {
   try {
@@ -124,20 +131,35 @@ export async function POST(request: NextRequest) {
             },
           });
           results.push({ row: rowNumber, title, status: 'updated' });
-        } else {
-          await prisma.song.create({
-            data: {
-              id: crypto.randomUUID(),
-              title,
-              artistId,
-              youtubeVideoId,
-              durationSec,
-              lyrics,
-              themes: themeIds.length > 0 ? { create: themeIds.map((themeId) => ({ themeId })) } : undefined,
-            },
-          });
-          results.push({ row: rowNumber, title, status: 'created' });
+          continue;
         }
+
+        // youtubeVideoId 沒對上既有資料，再比對「歌名 + 歌手」是否已存在（同一首歌的不同影片來源）
+        const duplicateByTitle = await prisma.song.findFirst({
+          where: { artistId, title: { equals: title, mode: 'insensitive' } },
+        });
+        if (duplicateByTitle) {
+          results.push({
+            row: rowNumber,
+            title,
+            status: 'duplicate',
+            error: `已有同名同歌手的歌曲存在（現有 youtubeVideoId：${duplicateByTitle.youtubeVideoId}），未匯入，如要更新請到歌曲管理手動編輯`,
+          });
+          continue;
+        }
+
+        await prisma.song.create({
+          data: {
+            id: crypto.randomUUID(),
+            title,
+            artistId,
+            youtubeVideoId,
+            durationSec,
+            lyrics,
+            themes: themeIds.length > 0 ? { create: themeIds.map((themeId) => ({ themeId })) } : undefined,
+          },
+        });
+        results.push({ row: rowNumber, title, status: 'created' });
       } catch (err) {
         console.error(`[POST /api/songs/import] 第 ${rowNumber} 列匯入失敗：`, err);
         results.push({ row: rowNumber, title, status: 'error', error: '寫入資料庫失敗' });
@@ -147,6 +169,7 @@ export async function POST(request: NextRequest) {
     const summary = {
       created: results.filter((r) => r.status === 'created').length,
       updated: results.filter((r) => r.status === 'updated').length,
+      duplicates: results.filter((r) => r.status === 'duplicate').length,
       errors: results.filter((r) => r.status === 'error').length,
     };
 
