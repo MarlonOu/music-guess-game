@@ -201,8 +201,19 @@ function JoinPrompt({ joinCode, onJoined }: { joinCode: string; onJoined: (playe
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 跟 /online 頁面同樣的道理：先背景把播放器建好，等一下 handleSubmit 裡的 unlock() 呼叫
+  // 才能幾乎瞬間完成、真正落在使用者送出表單的手勢有效期內（見 AudioController.unlock() 的說明）。
+  // 這個表單是「有人直接分享房間連結、跳過 /online 首頁」時的補加入路徑，開放中途加入後
+  // 這個路徑會變得更常見（比賽進行中把連結傳給朋友），一樣需要做音訊解鎖，不然這批玩家
+  // 進房間後會遇到「手機第一首歌沒聲音」的問題。
+  useEffect(() => {
+    getGlobalAudioController().preload();
+  }, []);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // 真正的使用者手勢（表單送出），在任何 await 之前立刻呼叫，不等待其完成。
+    getGlobalAudioController().unlock();
     const trimmed = displayName.trim();
     if (trimmed.length === 0) {
       setError('請輸入暱稱');

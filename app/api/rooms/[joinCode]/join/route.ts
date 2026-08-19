@@ -16,8 +16,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!room) {
       return NextResponse.json({ error: '找不到這個房間，請確認房號是否正確' }, { status: 404 });
     }
-    if (room.status !== 'lobby') {
-      return NextResponse.json({ error: '這場比賽已經開始，暫時無法加入，請等房主開始下一輪' }, { status: 409 });
+    if (room.status === 'finished') {
+      return NextResponse.json({ error: '這場比賽已經結束' }, { status: 409 });
     }
 
     const trimmedName = displayName.trim();
