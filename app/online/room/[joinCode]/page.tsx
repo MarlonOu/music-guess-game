@@ -671,83 +671,103 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
         第 {room.currentRoundIndex + 1} / {room.roundCount} 題
       </span>
 
-      {countdown > 0 && (
-        <p style={{ fontFamily: 'var(--font-display)', fontSize: '3rem', color: 'var(--accent)' }}>{countdown}</p>
-      )}
-
-      {countdown === 0 && room.currentQuestion?.renderType === 'text-lyric' && (
-        <div
-          style={{
-            padding: '32px',
-            borderRadius: '16px',
-            background: 'var(--bg-raised)',
-            border: '1px solid var(--groove)',
-            fontFamily: 'var(--font-display)',
-            fontSize: '1.4rem',
-            textAlign: 'center',
-            maxWidth: '480px',
-          }}
-        >
-          {room.currentQuestion.lyricLineText || '（此題無可用歌詞）'}
-        </div>
-      )}
-
-      {countdown === 0 &&
-        (room.currentQuestion?.renderType === 'audio-intro' || room.currentQuestion?.renderType === 'audio-clip') && (
-          <AudioStatusIndicator status={audioStatus} />
+      {/*
+        這個區塊在「倒數中」「播放中」「已公布答案」幾種狀態下，內容高度差異很大
+        （純數字倒數 vs 音訊播放動畫+投票按鈕 vs 公布答案文字），如果不固定高度，
+        下面的計分板、聊天室會隨著換狀態上下跳動，體驗很差。用固定的 minHeight
+        把這個區塊的高度鎖住，內容用 justifyContent 置中，不管哪種狀態下面的
+        元素位置都不會跟著移動。這個高度是抓「播放中＋投票按鈕＋投票提示」這個
+        最高的組合再留一點餘裕，如果之後又加了新的狀態內容，記得回來調整這個數字。
+      */}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '20px',
+          minHeight: '300px',
+          width: '100%',
+        }}
+      >
+        {countdown > 0 && (
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: '3rem', color: 'var(--accent)' }}>{countdown}</p>
         )}
 
-      {countdown === 0 && !room.revealed && (
-        <p style={{ color: 'var(--ink-dim)', fontSize: '0.9rem', textAlign: 'center' }}>
-          在下方聊天室打歌名搶答，答對自動得分並公布答案
-        </p>
-      )}
+        {countdown === 0 && room.currentQuestion?.renderType === 'text-lyric' && (
+          <div
+            style={{
+              padding: '32px',
+              borderRadius: '16px',
+              background: 'var(--bg-raised)',
+              border: '1px solid var(--groove)',
+              fontFamily: 'var(--font-display)',
+              fontSize: '1.4rem',
+              textAlign: 'center',
+              maxWidth: '480px',
+            }}
+          >
+            {room.currentQuestion.lyricLineText || '（此題無可用歌詞）'}
+          </div>
+        )}
 
-      {countdown === 0 && !room.revealed && (
-        <button
-          onClick={handleVoteSkip}
-          disabled={voting}
-          style={{
-            padding: '8px 20px',
-            borderRadius: '999px',
-            border: room.skipVotePlayerIds.includes(playerId) ? '1px solid var(--accent)' : '1px solid var(--groove)',
-            background: room.skipVotePlayerIds.includes(playerId) ? 'var(--bg-raised)' : 'transparent',
-            color: room.skipVotePlayerIds.includes(playerId) ? 'var(--accent)' : 'var(--ink-dim)',
-            fontSize: '0.9rem',
-          }}
-        >
-          {voting
-            ? '處理中…'
-            : room.skipVotePlayerIds.includes(playerId)
-              ? `已投票跳題（${room.skipVotePlayerIds.length}/${room.players.length}）· 點我收回`
-              : `投票跳題（${room.skipVotePlayerIds.length}/${room.players.length}）`}
-        </button>
-      )}
-
-      {countdown === 0 && !room.revealed && room.skipVotePlayerIds.length > 0 && (
-        <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', textAlign: 'center' }}>
-          全員都投票跳題，這題就會流局並直接公布答案
-        </p>
-      )}
-
-      {room.revealed && room.currentQuestion?.correctTitle && (
-        <>
-          <p style={{ color: 'var(--accent)', fontWeight: 600, fontSize: '1.4rem', textAlign: 'center' }}>
-            {room.currentQuestion.correctTitle}
-            {room.currentSongArtist && (
-              <span style={{ color: 'var(--ink-dim)', fontWeight: 400, fontSize: '1rem' }}>
-                {' '}– {room.currentSongArtist}
-              </span>
-            )}
-          </p>
-          {room.currentSongThemeLabels.length > 0 && (
-            <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
-              主題：{room.currentSongThemeLabels.join('、')}
-            </p>
+        {countdown === 0 &&
+          (room.currentQuestion?.renderType === 'audio-intro' || room.currentQuestion?.renderType === 'audio-clip') && (
+            <AudioStatusIndicator status={audioStatus} />
           )}
-          <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>{AUTO_NEXT_SEC} 秒後自動進下一題</p>
-        </>
-      )}
+
+        {countdown === 0 && !room.revealed && (
+          <p style={{ color: 'var(--ink-dim)', fontSize: '0.9rem', textAlign: 'center' }}>
+            在下方聊天室打歌名搶答，答對自動得分並公布答案
+          </p>
+        )}
+
+        {countdown === 0 && !room.revealed && (
+          <button
+            onClick={handleVoteSkip}
+            disabled={voting}
+            style={{
+              padding: '8px 20px',
+              borderRadius: '999px',
+              border: room.skipVotePlayerIds.includes(playerId) ? '1px solid var(--accent)' : '1px solid var(--groove)',
+              background: room.skipVotePlayerIds.includes(playerId) ? 'var(--bg-raised)' : 'transparent',
+              color: room.skipVotePlayerIds.includes(playerId) ? 'var(--accent)' : 'var(--ink-dim)',
+              fontSize: '0.9rem',
+            }}
+          >
+            {voting
+              ? '處理中…'
+              : room.skipVotePlayerIds.includes(playerId)
+                ? `已投票跳題（${room.skipVotePlayerIds.length}/${room.players.length}）· 點我收回`
+                : `投票跳題（${room.skipVotePlayerIds.length}/${room.players.length}）`}
+          </button>
+        )}
+
+        {countdown === 0 && !room.revealed && room.skipVotePlayerIds.length > 0 && (
+          <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', textAlign: 'center' }}>
+            全員都投票跳題，這題就會流局並直接公布答案
+          </p>
+        )}
+
+        {room.revealed && room.currentQuestion?.correctTitle && (
+          <>
+            <p style={{ color: 'var(--accent)', fontWeight: 600, fontSize: '1.4rem', textAlign: 'center' }}>
+              {room.currentQuestion.correctTitle}
+              {room.currentSongArtist && (
+                <span style={{ color: 'var(--ink-dim)', fontWeight: 400, fontSize: '1rem' }}>
+                  {' '}– {room.currentSongArtist}
+                </span>
+              )}
+            </p>
+            {room.currentSongThemeLabels.length > 0 && (
+              <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+                主題：{room.currentSongThemeLabels.join('、')}
+              </p>
+            )}
+            <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>{AUTO_NEXT_SEC} 秒後自動進下一題</p>
+          </>
+        )}
+      </div>
 
       <ScoreList players={room.players} />
 
