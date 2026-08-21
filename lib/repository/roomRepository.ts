@@ -1,5 +1,6 @@
 import type { RoomState, RoomMessage } from '../types/room';
 import type { GameMode } from '../types/match';
+import { recordServerTime } from '../client/serverClock';
 
 export interface RepositoryResult<T> {
   ok: boolean;
@@ -62,9 +63,16 @@ export const roomRepository: RoomRepository = {
   },
 
   async getState(joinCode) {
+    const requestSentAtMs = Date.now();
     const res = await fetch(`/api/rooms/${joinCode}`);
+    const responseReceivedAtMs = Date.now();
     if (!res.ok) return { ok: false, error: await parseErrorMessage(res, '房間狀態查詢失敗') };
     const data = await res.json();
+    // 每次輪詢順便校正一次裝置時鐘跟伺服器時鐘的偏移量（見 lib/client/serverClock.ts），
+    // 這樣倒數／換題時機的計算才不會因為某台裝置系統時鐘不準而固定跑掉。
+    if (typeof data.serverTime === 'string') {
+      recordServerTime(data.serverTime, requestSentAtMs, responseReceivedAtMs);
+    }
     return { ok: true, data: data.room as RoomState };
   },
 

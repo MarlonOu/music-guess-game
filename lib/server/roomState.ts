@@ -106,6 +106,10 @@ export async function loadRoomState(joinCode: string): Promise<RoomState | null>
     currentSongThemeLabels,
     revealed: room.revealed,
     skipVotePlayerIds: room.skipVotePlayerIds,
+    lastRevealedTitle: room.lastRevealedTitle,
+    lastRevealedArtist: room.lastRevealedArtist,
+    lastRevealedThemeLabels: room.lastRevealedThemeLabels,
+    lastRevealedAt: room.lastRevealedAt ? room.lastRevealedAt.toISOString() : null,
     roundStartedAt: room.roundStartedAt ? room.roundStartedAt.toISOString() : null,
     hostPlayerId: room.hostPlayerId,
     players: room.players.map((p: { id: string; displayName: string; score: number }) => ({

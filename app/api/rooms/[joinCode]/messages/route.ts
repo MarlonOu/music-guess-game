@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../../../../lib/db';
 import { isAnswerCorrect } from '../../../../../lib/engine/answerUtils';
+import { advanceRoundAfterReveal } from '../../../../../lib/server/advanceRound';
 import type { RoomMessage } from '../../../../../lib/types/room';
 
 function toMessage(row: {
@@ -47,7 +48,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 }
 
 // POST /api/rooms/:joinCode/messages → 傳送聊天訊息；若房間正在進行中且該題尚未公布答案，
-// 會自動比對訊息內容是否等於正確歌名，答對者立刻得分並公布答案（第一個答對的人算數）。
+// 會自動比對訊息內容是否等於正確歌名，答對者立刻得分，且伺服器當下就直接把房間推進到下一題
+// 並排定好精確的開始時間（見 advanceRoundAfterReveal），不需要等額外的計時器或 API 呼叫。
 export async function POST(request: NextRequest, { params }: { params: Promise<{ joinCode: string }> }) {
   const { joinCode } = await params;
   try {
@@ -72,9 +74,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       const songId = room.songQueue[room.currentRoundIndex];
       const song = await prisma.song.findUnique({ where: { id: songId } });
       if (song && isAnswerCorrect(text, song.title)) {
-        isCorrectAnswer = true;
-        await prisma.room.update({ where: { id: room.id }, data: { revealed: true } });
-        await prisma.roomPlayer.update({ where: { id: player.id }, data: { score: { increment: 1 } } });
+        // advanceRoundAfterReveal 用樂觀鎖保護：只有「這次呼叫讀到的還是當下真正那一輪」
+        // 才會真的觸發轉換（回傳 true）。避免兩個人幾乎同時答對時，兩邊都以為自己是第一個、
+        // 都加分、都各自把房間推進一次（等於直接跳過一整題）。
+        const advanced = await advanceRoundAfterReveal(room.id, room.currentRoundIndex);
+        if (advanced) {
+          isCorrectAnswer = true;
+          await prisma.roomPlayer.update({ where: { id: player.id }, data: { score: { increment: 1 } } });
+        }
       }
     }
 

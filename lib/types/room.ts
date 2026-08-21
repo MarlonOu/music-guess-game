@@ -48,6 +48,18 @@ export interface RoomState {
   revealed: boolean;
   /** 目前這題已投票「跳過」的玩家 id 清單，換題時重置為空陣列 */
   skipVotePlayerIds: string[];
+  /**
+   * 上一題被公布時的答案快照（答對或全員投票流局的當下存的），供客戶端在「這題結束、
+   * 下一題正式開始前」這段過渡期間顯示用——因為答對/流局的當下伺服器已經立刻把
+   * currentRoundIndex 推進到下一題（見 lib/server/advanceRound.ts），currentQuestion
+   * 這時已經指向新的一題，要顯示「剛剛那題的答案」就得看這幾個欄位而不是 currentQuestion。
+   * lastRevealedAt 是絕對時間戳，客戶端依「現在距離 lastRevealedAt 多久」判斷是否還在
+   * 顯示答案的過渡期間（REVEAL_DISPLAY_SEC 秒內），不依賴任何本地計時器。
+   */
+  lastRevealedTitle: string | null;
+  lastRevealedArtist: string | null;
+  lastRevealedThemeLabels: string[];
+  lastRevealedAt: string | null;
   /** 目前這題開始播放的時間戳（ISO 字串），供各玩家端計算該從第幾秒接著播放做同步近似 */
   roundStartedAt: string | null;
   hostPlayerId: string;

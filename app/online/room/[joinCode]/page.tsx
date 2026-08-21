@@ -11,6 +11,8 @@ import { roomRepository } from '../../../../lib/repository/roomRepository';
 import { songRepository } from '../../../../lib/repository/songRepository';
 import { AudioController, type AudioPlaybackStatus } from '../../../../lib/audio/audioController';
 import { getGlobalAudioController } from '../../../../lib/audio/globalAudioController';
+import { estimateServerNow } from '../../../../lib/client/serverClock';
+import { COUNTDOWN_SEC, REVEAL_DISPLAY_MS } from '../../../../lib/constants/roomTiming';
 import { ArtistFilter } from '../../../../components/filter/ArtistFilter';
 import { ThemeFilter } from '../../../../components/filter/ThemeFilter';
 import { AudioStatusIndicator } from '../../../../components/game/AudioStatusIndicator';
@@ -21,13 +23,12 @@ const MODES: { code: GameMode; label: string }[] = [
   { code: 'LYRIC_LINE', label: '歌詞猜歌' },
 ];
 
-// 房間狀態改為 1 秒輪詢一次（原本 1.5 秒）；更重要的優化是「自己做的動作」不再等下一次輪詢，
-// 送出後立刻套用伺服器回傳的最新狀態，這才是先前感覺到延遲的主因。
-const POLL_INTERVAL_MS = 1000;
-// 每題播放前的倒數秒數，所有玩家依同一個 roundStartedAt 時間戳計算，盡量讓大家幾乎同時開始聽
-const COUNTDOWN_SEC = 3;
-// 答案公布後，幾秒內沒有房主手動操作就自動進下一題
-const AUTO_NEXT_SEC = 3;
+// 房間狀態輪詢間隔。這是「發現伺服器狀態變了」唯一還剩下的延遲來源——換題本身已經改成
+// 伺服器端答對/流局當下就立刻算好、排定好開始時間（見 lib/server/advanceRound.ts），
+// 不再依賴任何客戶端的本地計時器或額外一次 API 往返，所以能壓縮的只剩「多快發現」這一段。
+// 也因為「自己做的動作」（送出猜題、投票）都是送出後立刻套用伺服器回傳的最新狀態，
+// 不等下一次輪詢，這裡的間隔主要只影響「看別人的動作」的即時感，可以放心調快。
+const POLL_INTERVAL_MS = 600;
 
 export default function OnlineRoomPage() {
   const params = useParams<{ joinCode: string }>();
@@ -541,25 +542,14 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
   const [audioController, setAudioController] = useState<AudioController | null>(null);
   // 倒數中顯示的秒數；0 代表倒數已結束、正常播放中
   const [countdown, setCountdown] = useState(0);
+  // 是否還在「上一題答案公布」的過渡期間內（見下面 tick() 依 room.lastRevealedAt 這個絕對
+  // 時間戳計算），這段期間顯示上一題的答案，不顯示新一題的倒數／播放內容
+  const [showingLastReveal, setShowingLastReveal] = useState(false);
   // 訂閱 AudioController 的播放狀態回呼，用來畫出跟單機模式一致的載入中／播放中／已暫停／
   // 播放完畢／失敗動畫（見 AudioStatusIndicator）。狀態在每題開始時會被 stop() 重置為 'idle'。
   const [audioStatus, setAudioStatus] = useState<AudioPlaybackStatus>('idle');
-  const autoNextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playedRoundRef = useRef<number>(-1);
   const [voting, setVoting] = useState(false);
-
-  async function handleNext() {
-    if (autoNextTimerRef.current) {
-      clearTimeout(autoNextTimerRef.current);
-      autoNextTimerRef.current = null;
-    }
-    const result = await roomRepository.next(room.joinCode, playerId);
-    if (!result.ok) {
-      onError(result.error ?? '推進題目失敗');
-      return;
-    }
-    if (result.data) onRoomUpdate(result.data);
-  }
 
   async function handleEnd() {
     if (!window.confirm('確定要提前結束這場比賽嗎？')) return;
@@ -599,27 +589,51 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
       controller.setOnStatusChange(undefined);
       // 停止播放（但不呼叫 dispose()——這是全域共用實例，播放器本身要留給下一場遊戲／
       // 下一個房間繼續使用，只是「這一輪的播放」要在離開這個畫面時停掉）。
-      // 這是先前「離開房間後音樂還在播」的成因：這裡以前只取消訂閱狀態回呼，忘了真的停止播放，
-      // 玩家點離開、切到 finished 畫面、或整個房間頁面卸載時，播放器完全沒被通知要停下來。
       controller.stop();
     };
   }, []);
 
-  // 每題開始都先倒數 COUNTDOWN_SEC 秒（所有玩家依同一個 roundStartedAt 計算，倒數結束的時間點一致），
-  // 倒數結束才真正呼叫 play()；換題（currentRoundIndex 改變）時重置。
-  // 用 200ms 的輪詢計算「現在該顯示第幾秒倒數」，跟房間狀態的輪詢頻率無關，倒數動畫才會平順。
+  // 這個 effect 同時負責兩件事，理由是兩者都得依同一組絕對時間戳、用同一個 200ms 的 tick
+  // 計算，拆成兩個 effect 反而會有兩邊時間算不準對不齊的風險：
   //
-  // 播放長度：不再設自動停止時間（不傳 durationSec 給 play()），讓歌曲完整播放到結束為止，
-  // 直到玩家答對公布答案（見下面 revealed 的 effect 會呼叫 stop()）或房主手動進下一題。
+  // 1. 「上一題答案公布」的過渡期間（room.lastRevealedAt 起 REVEAL_DISPLAY_MS 毫秒內）：
+  //    顯示上一題答案，不做任何倒數/播放動作。這段期間的長度、要不要顯示，完全由伺服器
+  //    透過 lastRevealedAt 這個絕對時間戳決定，客戶端只是照時間戳計算「現在在不在這段期間內」，
+  //    不管客戶端是剛好答對的那個人、旁觀的其他玩家、還是輪詢比較慢才發現的人，算出來的結果
+  //    都一樣——這是關鍵：換題不再依賴「房主端的本地計時器跑完才觸發」，而是伺服器在答對/
+  //    流局那一刻就已經把下一題的開始時間排定好了（見 lib/server/advanceRound.ts），
+  //    這裡單純是「讀時間戳、決定畫面」，沒有任何一方需要再多打一次 API 才能讓遊戲往下走。
+  //
+  // 2. 過渡期間結束後：跟以前一樣，倒數 COUNTDOWN_SEC 秒、時間到呼叫 play()，
+  //    晚進這一題的玩家（含剛結束過渡期間的所有玩家）用 elapsedSec 接續播放而非從頭開始。
+  //
+  // 換題（currentRoundIndex 改變）或答案公布（lastRevealedAt 改變）時整個重置。
   useEffect(() => {
     playedRoundRef.current = -1;
     audioController?.stop();
 
-    if (!room.roundStartedAt) return;
-    const audioStartAt = new Date(room.roundStartedAt).getTime() + COUNTDOWN_SEC * 1000;
+    const roundStartAtMs = room.roundStartedAt ? new Date(room.roundStartedAt).getTime() : null;
+    const lastRevealedAtMs = room.lastRevealedAt ? new Date(room.lastRevealedAt).getTime() : null;
+    const audioStartAtMs = roundStartAtMs !== null ? roundStartAtMs + COUNTDOWN_SEC * 1000 : null;
 
     const tick = () => {
-      const msLeft = audioStartAt - Date.now();
+      // 用校正過的估計伺服器時間，而不是裝置自己的 Date.now()——理由見 lib/client/serverClock.ts，
+      // 否則系統時鐘不準的裝置，倒數／換題時機會固定跑掉（不是網路延遲那種浮動誤差，
+      // 是每次都固定差同樣一截，因為裝置時鐘本身就跟真實時間差了那麼多）。
+      const now = estimateServerNow();
+
+      if (lastRevealedAtMs !== null && now - lastRevealedAtMs < REVEAL_DISPLAY_MS) {
+        setShowingLastReveal(true);
+        setCountdown(0);
+        return;
+      }
+      setShowingLastReveal(false);
+
+      if (audioStartAtMs === null) {
+        setCountdown(0);
+        return;
+      }
+      const msLeft = audioStartAtMs - now;
       if (msLeft > 0) {
         setCountdown(Math.ceil(msLeft / 1000));
         return;
@@ -646,24 +660,7 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
     const timer = setInterval(tick, 200);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audioController, room.currentRoundIndex, room.roundStartedAt]);
-
-  // 答案公布（revealed 從 false 變 true）時停止播放，避免繼續播放蓋過大家的討論；
-  // 房主端額外啟動一個 AUTO_NEXT_SEC 秒的計時器，時間到自動進下一題（非房主不觸發，避免多人同時搶著呼叫 API）。
-  useEffect(() => {
-    if (!room.revealed) return;
-    audioController?.stop();
-
-    if (!isHost) return;
-    autoNextTimerRef.current = setTimeout(() => {
-      handleNext();
-    }, AUTO_NEXT_SEC * 1000);
-
-    return () => {
-      if (autoNextTimerRef.current) clearTimeout(autoNextTimerRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audioController, room.revealed, room.currentRoundIndex, isHost]);
+  }, [audioController, room.currentRoundIndex, room.roundStartedAt, room.lastRevealedAt]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', width: '100%', maxWidth: '480px' }}>
@@ -690,81 +687,83 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
           width: '100%',
         }}
       >
-        {countdown > 0 && (
-          <p style={{ fontFamily: 'var(--font-display)', fontSize: '3rem', color: 'var(--accent)' }}>{countdown}</p>
-        )}
-
-        {countdown === 0 && room.currentQuestion?.renderType === 'text-lyric' && (
-          <div
-            style={{
-              padding: '32px',
-              borderRadius: '16px',
-              background: 'var(--bg-raised)',
-              border: '1px solid var(--groove)',
-              fontFamily: 'var(--font-display)',
-              fontSize: '1.4rem',
-              textAlign: 'center',
-              maxWidth: '480px',
-            }}
-          >
-            {room.currentQuestion.lyricLineText || '（此題無可用歌詞）'}
-          </div>
-        )}
-
-        {countdown === 0 &&
-          (room.currentQuestion?.renderType === 'audio-intro' || room.currentQuestion?.renderType === 'audio-clip') && (
-            <AudioStatusIndicator status={audioStatus} />
-          )}
-
-        {countdown === 0 && !room.revealed && (
-          <p style={{ color: 'var(--ink-dim)', fontSize: '0.9rem', textAlign: 'center' }}>
-            在下方聊天室打歌名搶答，答對自動得分並公布答案
-          </p>
-        )}
-
-        {countdown === 0 && !room.revealed && (
-          <button
-            onClick={handleVoteSkip}
-            disabled={voting}
-            style={{
-              padding: '8px 20px',
-              borderRadius: '999px',
-              border: room.skipVotePlayerIds.includes(playerId) ? '1px solid var(--accent)' : '1px solid var(--groove)',
-              background: room.skipVotePlayerIds.includes(playerId) ? 'var(--bg-raised)' : 'transparent',
-              color: room.skipVotePlayerIds.includes(playerId) ? 'var(--accent)' : 'var(--ink-dim)',
-              fontSize: '0.9rem',
-            }}
-          >
-            {voting
-              ? '處理中…'
-              : room.skipVotePlayerIds.includes(playerId)
-                ? `已投票跳題（${room.skipVotePlayerIds.length}/${room.players.length}）· 點我收回`
-                : `投票跳題（${room.skipVotePlayerIds.length}/${room.players.length}）`}
-          </button>
-        )}
-
-        {countdown === 0 && !room.revealed && room.skipVotePlayerIds.length > 0 && (
-          <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', textAlign: 'center' }}>
-            全員都投票跳題，這題就會流局並直接公布答案
-          </p>
-        )}
-
-        {room.revealed && room.currentQuestion?.correctTitle && (
+        {showingLastReveal ? (
           <>
             <p style={{ color: 'var(--accent)', fontWeight: 600, fontSize: '1.4rem', textAlign: 'center' }}>
-              {room.currentQuestion.correctTitle}
-              {room.currentSongArtist && (
+              {room.lastRevealedTitle}
+              {room.lastRevealedArtist && (
                 <span style={{ color: 'var(--ink-dim)', fontWeight: 400, fontSize: '1rem' }}>
-                  {' '}– {room.currentSongArtist}
+                  {' '}– {room.lastRevealedArtist}
                 </span>
               )}
             </p>
-            {room.currentSongThemeLabels.length > 0 && (
+            {room.lastRevealedThemeLabels.length > 0 && (
               <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
-                主題：{room.currentSongThemeLabels.join('、')}
+                主題：{room.lastRevealedThemeLabels.join('、')}
               </p>
             )}
-            <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>{AUTO_NEXT_SEC} 秒後自動進下一題</p>
+            <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>即將進入下一題…</p>
+          </>
+        ) : (
+          <>
+            {countdown > 0 && (
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: '3rem', color: 'var(--accent)' }}>{countdown}</p>
+            )}
+
+            {countdown === 0 && room.currentQuestion?.renderType === 'text-lyric' && (
+              <div
+                style={{
+                  padding: '32px',
+                  borderRadius: '16px',
+                  background: 'var(--bg-raised)',
+                  border: '1px solid var(--groove)',
+                  fontFamily: 'var(--font-display)',
+                  fontSize: '1.4rem',
+                  textAlign: 'center',
+                  maxWidth: '480px',
+                }}
+              >
+                {room.currentQuestion.lyricLineText || '（此題無可用歌詞）'}
+              </div>
+            )}
+
+            {countdown === 0 &&
+              (room.currentQuestion?.renderType === 'audio-intro' || room.currentQuestion?.renderType === 'audio-clip') && (
+                <AudioStatusIndicator status={audioStatus} />
+              )}
+
+            {countdown === 0 && (
+              <p style={{ color: 'var(--ink-dim)', fontSize: '0.9rem', textAlign: 'center' }}>
+                在下方聊天室打歌名搶答，答對自動得分並公布答案
+              </p>
+            )}
+
+            {countdown === 0 && (
+              <button
+                onClick={handleVoteSkip}
+                disabled={voting}
+                style={{
+                  padding: '8px 20px',
+                  borderRadius: '999px',
+                  border: room.skipVotePlayerIds.includes(playerId) ? '1px solid var(--accent)' : '1px solid var(--groove)',
+                  background: room.skipVotePlayerIds.includes(playerId) ? 'var(--bg-raised)' : 'transparent',
+                  color: room.skipVotePlayerIds.includes(playerId) ? 'var(--accent)' : 'var(--ink-dim)',
+                  fontSize: '0.9rem',
+                }}
+              >
+                {voting
+                  ? '處理中…'
+                  : room.skipVotePlayerIds.includes(playerId)
+                    ? `已投票跳題（${room.skipVotePlayerIds.length}/${room.players.length}）· 點我收回`
+                    : `投票跳題（${room.skipVotePlayerIds.length}/${room.players.length}）`}
+              </button>
+            )}
+
+            {countdown === 0 && room.skipVotePlayerIds.length > 0 && (
+              <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', textAlign: 'center' }}>
+                全員都投票跳題，這題就會流局並直接公布答案
+              </p>
+            )}
           </>
         )}
       </div>

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../../../../lib/db';
 import { loadRoomState } from '../../../../../lib/server/roomState';
+import { advanceRoundAfterReveal } from '../../../../../lib/server/advanceRound';
 
 // POST /api/rooms/:joinCode/vote-skip → 任一玩家投票／收回投票「跳過這一題」。
-// 全房間玩家（含房主自己）都投了票，視為這題流局：直接公布答案（revealed=true），
-// 但不計分——之後跟答對自動公布的流程完全一樣，等 AUTO_NEXT_SEC 秒由房主端自動推進下一題。
+// 全房間玩家（含房主自己）都投了票，視為這題流局：伺服器立刻推進到下一題並排好開始時間
+// （不計分，流程細節見 advanceRoundAfterReveal）。
 export async function POST(request: NextRequest, { params }: { params: Promise<{ joinCode: string }> }) {
   const { joinCode } = await params;
   try {
@@ -45,11 +46,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     await prisma.room.update({
       where: { id: room.id },
-      data: {
-        skipVotePlayerIds: nextVotes,
-        ...(allVoted ? { revealed: true } : {}),
-      },
+      data: { skipVotePlayerIds: nextVotes },
     });
+
+    if (allVoted) {
+      await advanceRoundAfterReveal(room.id, room.currentRoundIndex);
+    }
 
     const state = await loadRoomState(room.joinCode);
     return NextResponse.json({ room: state });

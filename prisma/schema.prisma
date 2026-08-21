@@ -85,6 +85,14 @@ model Room {
   skipVotePlayerIds String[] @default([]) @map("skip_vote_player_ids")
   /// 目前這題開始播放的時間戳，供各玩家端計算「該從第幾秒接著播放」做同步近似
   roundStartedAt  DateTime? @map("round_started_at")
+  /// 上一題被公布時的答案快照（歌名／歌手／符合篩選的主題），供客戶端在「答對/流局後、
+  /// 下一題正式開始前」這段過渡期間顯示用。因為答對/流局的當下伺服器會立刻把房間狀態
+  /// 推進到下一題（見 lib/server/advanceRound.ts），currentQuestion 這時已經指向新的一題，
+  /// 舊題目的答案要顯示什麼就得靠這幾個欄位，而不是像以前那樣等一段時間才觸發换題。
+  lastRevealedTitle       String?   @map("last_revealed_title")
+  lastRevealedArtist      String?   @map("last_revealed_artist")
+  lastRevealedThemeLabels String[]  @default([]) @map("last_revealed_theme_labels")
+  lastRevealedAt          DateTime? @map("last_revealed_at")
   hostPlayerId    String   @map("host_player_id")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
