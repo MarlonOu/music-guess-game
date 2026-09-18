@@ -626,6 +626,172 @@ function YouTubeSearchAccordion({ onPick }: { onPick: (result: YouTubePrefill) =
   );
 }
 
+interface AppleMusicSearchResult {
+  trackId: string;
+  trackName: string;
+  artistName: string;
+  artworkUrl: string;
+  durationSec: number;
+  previewUrl: string;
+}
+
+interface AppleMusicPrefill {
+  trackId: string;
+  previewUrl: string;
+  durationSec: number;
+}
+
+/**
+ * 跟 YouTubeSearchAccordion 同樣的獨立搜尋區塊設計：搜尋跟「填哪首歌」解耦，選定結果後
+ * 透過 onPick 把資料往下傳給表單。這是優先來源（見 resolvePlaybackTarget.ts 的說明），
+ * 建議每首歌都盡量補上這個來源，才能解決控制中心洩漏歌名答案的問題。
+ */
+function AppleMusicSearchAccordion({ onPick }: { onPick: (result: AppleMusicPrefill) => void }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<AppleMusicSearchResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pickedTrackId, setPickedTrackId] = useState<string | null>(null);
+  const [previewTrackId, setPreviewTrackId] = useState<string | null>(null);
+
+  async function handleSearch() {
+    if (query.trim().length === 0) return;
+    setPreviewTrackId(null);
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/apple-music-search?q=${encodeURIComponent(query.trim())}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? 'Apple Music 搜尋失敗');
+        setResults([]);
+        return;
+      }
+      setResults(data.results ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Apple Music 搜尋失敗');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{ border: '1px solid var(--groove)', borderRadius: '10px', overflow: 'hidden' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: '100%',
+          textAlign: 'left',
+          padding: '12px 16px',
+          background: 'var(--bg)',
+          border: 'none',
+          color: 'var(--ink)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          cursor: 'pointer',
+          fontSize: '0.95rem',
+        }}
+      >
+        <span>從 Apple Music 搜尋試聽來源（建議優先使用）</span>
+        <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>{open ? '收合 ▲' : '展開 ▼'}</span>
+      </button>
+
+      {open && (
+        <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid var(--groove)' }}>
+          <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+            Apple Music 官方試聽片段用同源 &lt;audio&gt; 播放，不會有控制中心洩漏歌名的問題（YouTube 是跨網域第三方播放器，這點沒辦法完全避免）。
+          </p>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleSearch();
+                }
+              }}
+              placeholder="搜尋關鍵字，例如「晴天 周杰倫」"
+              style={{ ...inputStyle, flex: 1 }}
+            />
+            <button type="button" onClick={handleSearch} disabled={loading} style={editButtonStyle}>
+              {loading ? '搜尋中…' : '搜尋'}
+            </button>
+          </div>
+          {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
+          {results.length > 0 && (
+            <ul
+              style={{
+                listStyle: 'none',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px',
+                maxHeight: '420px',
+                overflowY: 'auto',
+                overscrollBehavior: 'contain',
+              }}
+            >
+              {results.map((r) => (
+                <li
+                  key={r.trackId}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                    padding: '6px',
+                    borderRadius: '8px',
+                    border: pickedTrackId === r.trackId ? '1px solid var(--accent)' : '1px solid var(--groove)',
+                    background: pickedTrackId === r.trackId ? 'var(--bg-raised)' : 'transparent',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {r.artworkUrl && (
+                      // eslint-disable-next-line @next/next/no-img-element -- 外部 Apple 封面圖，非本地靜態資源，不適用 next/image 最佳化
+                      <img src={r.artworkUrl} alt="" width={45} height={45} style={{ borderRadius: '4px', flexShrink: 0 }} />
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {r.trackName}
+                      </p>
+                      <p style={{ fontSize: '0.75rem', color: 'var(--ink-dim)' }}>
+                        {r.artistName}
+                        {r.durationSec > 0 && ` · ${formatDuration(r.durationSec)}`}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewTrackId((cur) => (cur === r.trackId ? null : r.trackId))}
+                      style={{ ...editButtonStyle, flexShrink: 0 }}
+                    >
+                      {previewTrackId === r.trackId ? '收起試聽' : '試聽'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPickedTrackId(r.trackId);
+                        onPick({ trackId: r.trackId, previewUrl: r.previewUrl, durationSec: r.durationSec });
+                      }}
+                      style={{ ...editButtonStyle, flexShrink: 0 }}
+                    >
+                      使用
+                    </button>
+                  </div>
+                  {previewTrackId === r.trackId && (
+                    <audio controls autoPlay src={r.previewUrl} style={{ width: '100%' }} />
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface PlaylistSongResult {
   videoId: string;
   title: string;
@@ -700,7 +866,16 @@ function YouTubePlaylistImportAccordion({ onImported, onNotice }: { onImported: 
       // 正確處理標題／頻道名稱裡可能包含逗號、引號等字元，避免手動拼接 CSV 產生格式錯誤。
       const csv = Papa.unparse({
         fields: [...SONG_CSV_COLUMNS],
-        data: selectedRows.map((r) => [r.title, r.artistName.trim() || '(未知歌手)', r.videoId, String(r.durationSec), '', '']),
+        data: selectedRows.map((r) => [
+          r.title,
+          r.artistName.trim() || '(未知歌手)',
+          r.videoId,
+          '',
+          '',
+          String(r.durationSec),
+          '',
+          '',
+        ]),
       });
       const result = await songRepository.importSongsCsv(csv);
       if (!result.ok || !result.data) {
@@ -871,6 +1046,8 @@ interface SongFormState {
   title: string;
   artistId: string;
   youtubeVideoId: string;
+  appleMusicTrackId: string;
+  appleMusicPreviewUrl: string;
   durationSec: string;
   lyrics: string;
   themeIds: string[];
@@ -880,6 +1057,8 @@ const EMPTY_SONG_FORM: SongFormState = {
   title: '',
   artistId: '',
   youtubeVideoId: '',
+  appleMusicTrackId: '',
+  appleMusicPreviewUrl: '',
   durationSec: '',
   lyrics: '',
   themeIds: [],
@@ -948,8 +1127,9 @@ function ImportExportBar({
         </button>
         <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleFileChange} style={{ display: 'none' }} />
         <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
-          欄位：title, artist, youtubeVideoId, durationSec, themes（用 ; 分隔多個）, lyrics。
-          同一個 youtubeVideoId 視為同一首歌，已存在會被更新；youtubeVideoId 不同但歌名＋歌手都相符時視為重複，會略過不匯入。
+          欄位：title, artist, youtubeVideoId, appleMusicTrackId, appleMusicPreviewUrl, durationSec,
+          themes（用 ; 分隔多個）, lyrics。youtubeVideoId／appleMusicPreviewUrl 至少要有一欄有值。
+          兩者其中一個對到既有資料會被更新；都對不上、但歌名＋歌手都相符時視為重複，會略過不匯入。
         </span>
       </div>
 
@@ -992,6 +1172,7 @@ function SongSection({
   const [filterArtistId, setFilterArtistId] = useState<string>('');
   const [filterThemeId, setFilterThemeId] = useState<string>('');
   const [prefill, setPrefill] = useState<YouTubePrefill | null>(null);
+  const [applePrefill, setApplePrefill] = useState<AppleMusicPrefill | null>(null);
   // 目前正在試聽的歌曲，一次只展開一個避免畫面雜亂
   const [previewSongId, setPreviewSongId] = useState<string | null>(null);
 
@@ -1021,23 +1202,28 @@ function SongSection({
 
       <YouTubeSearchAccordion onPick={setPrefill} />
 
+      <AppleMusicSearchAccordion onPick={setApplePrefill} />
+
       <YouTubePlaylistImportAccordion onImported={onChanged} onNotice={onNotice} />
 
       <SongForm
-        key={`${editing?.id ?? 'new'}-${artistsKey}-${themesKey}-${prefill?.videoId ?? ''}`}
+        key={`${editing?.id ?? 'new'}-${artistsKey}-${themesKey}-${prefill?.videoId ?? ''}-${applePrefill?.trackId ?? ''}`}
         editing={editing}
         artists={artists}
         themes={themes}
         existingSongs={songs}
         prefill={prefill}
+        applePrefill={applePrefill}
         onCancel={() => {
           setEditing(null);
           setPrefill(null);
+          setApplePrefill(null);
         }}
         onSaved={(msg) => {
           onNotice(msg);
           setEditing(null);
           setPrefill(null);
+          setApplePrefill(null);
           onChanged();
         }}
       />
@@ -1106,7 +1292,12 @@ function SongSection({
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {s.title}
                 <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', marginLeft: '8px' }}>
-                  {artistName(s.artistId)} · {s.youtubeVideoId}
+                  {artistName(s.artistId)}
+                  {s.appleMusicPreviewUrl && ' · 🍎 Apple Music'}
+                  {s.youtubeVideoId && ' · ▶ YouTube'}
+                  {!s.appleMusicPreviewUrl && !s.youtubeVideoId && (
+                    <span style={{ color: 'var(--error)' }}> · ⚠ 沒有可播放來源</span>
+                  )}
                 </span>
               </span>
               <span style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
@@ -1136,7 +1327,10 @@ function SongSection({
                 </button>
               </span>
             </div>
-            {previewSongId === s.id && (
+            {previewSongId === s.id && s.appleMusicPreviewUrl && (
+              <audio controls autoPlay src={s.appleMusicPreviewUrl} style={{ width: '100%' }} />
+            )}
+            {previewSongId === s.id && !s.appleMusicPreviewUrl && s.youtubeVideoId && (
               <iframe
                 width="100%"
                 height="220"
@@ -1163,6 +1357,7 @@ function SongForm({
   themes,
   existingSongs,
   prefill,
+  applePrefill,
   onCancel,
   onSaved,
 }: {
@@ -1171,6 +1366,7 @@ function SongForm({
   themes: Theme[];
   existingSongs: Song[];
   prefill: YouTubePrefill | null;
+  applePrefill: AppleMusicPrefill | null;
   onCancel: () => void;
   onSaved: (msg: string) => void;
 }) {
@@ -1179,8 +1375,10 @@ function SongForm({
       ? {
           title: editing.title,
           artistId: editing.artistId,
-          youtubeVideoId: prefill?.videoId ?? editing.youtubeVideoId,
-          durationSec: String(prefill?.durationSec ?? editing.durationSec),
+          youtubeVideoId: prefill?.videoId ?? editing.youtubeVideoId ?? '',
+          appleMusicTrackId: applePrefill?.trackId ?? editing.appleMusicTrackId ?? '',
+          appleMusicPreviewUrl: applePrefill?.previewUrl ?? editing.appleMusicPreviewUrl ?? '',
+          durationSec: String(prefill?.durationSec ?? applePrefill?.durationSec ?? editing.durationSec),
           lyrics: editing.lyrics,
           themeIds: editing.themeIds,
         }
@@ -1188,7 +1386,13 @@ function SongForm({
           ...EMPTY_SONG_FORM,
           artistId: artists[0]?.id ?? NEW_ARTIST_OPTION,
           youtubeVideoId: prefill?.videoId ?? '',
-          durationSec: prefill?.durationSec ? String(prefill.durationSec) : '',
+          appleMusicTrackId: applePrefill?.trackId ?? '',
+          appleMusicPreviewUrl: applePrefill?.previewUrl ?? '',
+          durationSec: prefill?.durationSec
+            ? String(prefill.durationSec)
+            : applePrefill?.durationSec
+              ? String(applePrefill.durationSec)
+              : '',
         }
   );
   // 下拉選單選到「+ 新增歌手…」時，改用這個文字輸入直接打字建立新歌手，
@@ -1203,10 +1407,14 @@ function SongForm({
 
     const title = form.title.trim();
     const youtubeVideoId = form.youtubeVideoId.trim();
+    const appleMusicTrackId = form.appleMusicTrackId.trim();
+    const appleMusicPreviewUrl = form.appleMusicPreviewUrl.trim();
 
-    // 缺漏檢查：先擋掉基本必填欄位，避免漏填就送出（例如剛剛的 key 重複問題就是資料沒檢查乾淨造成的連鎖症狀）
-    if (title.length === 0 || !form.artistId || youtubeVideoId.length === 0) {
-      setFormError('歌名、歌手、YouTube videoId 為必填');
+    // 缺漏檢查：先擋掉基本必填欄位，避免漏填就送出（例如剛剛的 key 重複問題就是資料沒檢查乾淨造成的連鎖症狀）。
+    // YouTube／Apple Music 兩種來源至少要有一個，不強制兩個都填——建議優先填 Apple Music
+    // （控制中心不會洩漏歌名，見 AppleMusicSearchAccordion 上方的說明），但沒有硬性要求。
+    if (title.length === 0 || !form.artistId || (youtubeVideoId.length === 0 && appleMusicPreviewUrl.length === 0)) {
+      setFormError('歌名、歌手為必填，且 YouTube videoId／Apple Music 試聽網址至少要有一個');
       return;
     }
     if (form.artistId === NEW_ARTIST_OPTION && newArtistName.trim().length === 0) {
@@ -1220,12 +1428,21 @@ function SongForm({
       return;
     }
 
-    // 重複檢查：同一支 YouTube 影片已經收錄過（不論掛在哪位歌手底下），
-    // 或同一位歌手底下已經有同名歌曲，兩種都視為重複，擋下並提示，不靜默覆蓋或重複新增。
+    // 重複檢查：同一個播放來源（YouTube 影片或 Apple Music 試聽）已經收錄過（不論掛在哪位歌手底下），
+    // 或同一位歌手底下已經有同名歌曲，都視為重複，擋下並提示，不靜默覆蓋或重複新增。
     const otherSongs = existingSongs.filter((s) => s.id !== editing?.id);
-    const duplicateVideo = otherSongs.find((s) => s.youtubeVideoId === youtubeVideoId);
+    const duplicateVideo = youtubeVideoId
+      ? otherSongs.find((s) => s.youtubeVideoId === youtubeVideoId)
+      : undefined;
     if (duplicateVideo) {
       setFormError(`此 YouTube 影片已經收錄在題庫中（《${duplicateVideo.title}》），請確認是否重複`);
+      return;
+    }
+    const duplicateApple = appleMusicPreviewUrl
+      ? otherSongs.find((s) => s.appleMusicPreviewUrl === appleMusicPreviewUrl)
+      : undefined;
+    if (duplicateApple) {
+      setFormError(`此 Apple Music 試聽片段已經收錄在題庫中（《${duplicateApple.title}》），請確認是否重複`);
       return;
     }
     if (form.artistId !== NEW_ARTIST_OPTION) {
@@ -1251,7 +1468,9 @@ function SongForm({
     const payload = {
       title,
       artistId,
-      youtubeVideoId,
+      youtubeVideoId: youtubeVideoId || undefined,
+      appleMusicTrackId: appleMusicTrackId || undefined,
+      appleMusicPreviewUrl: appleMusicPreviewUrl || undefined,
       durationSec,
       lyrics: form.lyrics,
       themeIds: form.themeIds,
@@ -1303,9 +1522,23 @@ function SongForm({
 
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         <input
+          value={form.appleMusicPreviewUrl}
+          onChange={(e) => setForm((f) => ({ ...f, appleMusicPreviewUrl: e.target.value }))}
+          placeholder="Apple Music 試聽網址（建議優先填，或由上方搜尋帶入）"
+          style={{ ...inputStyle, flex: 2, minWidth: '200px' }}
+        />
+        <input
+          value={form.appleMusicTrackId}
+          onChange={(e) => setForm((f) => ({ ...f, appleMusicTrackId: e.target.value }))}
+          placeholder="Apple Music track id（選填，供之後重新查詢核對用）"
+          style={{ ...inputStyle, flex: 1, minWidth: '140px' }}
+        />
+      </div>
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <input
           value={form.youtubeVideoId}
           onChange={(e) => setForm((f) => ({ ...f, youtubeVideoId: e.target.value }))}
-          placeholder="YouTube videoId（非完整網址，或由上方搜尋帶入）"
+          placeholder="YouTube videoId（非完整網址，或由上方搜尋帶入；沒有 Apple Music 來源時為必填）"
           style={{ ...inputStyle, flex: 2, minWidth: '160px' }}
         />
         <input

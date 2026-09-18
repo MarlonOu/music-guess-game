@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import type { QuestionPayload } from '../../lib/types/question';
 import type { Song } from '../../lib/types/song';
 import type { AudioController, AudioPlaybackStatus } from '../../lib/audio/audioController';
+import { resolvePlaybackTarget } from '../../lib/audio/resolvePlaybackTarget';
 import { AudioStatusIndicator } from './AudioStatusIndicator';
 
 interface QuestionRendererProps {
@@ -28,12 +29,10 @@ export function QuestionRenderer({ question, song, controller }: QuestionRendere
     return () => controller.setOnStatusChange(undefined);
   }, [controller]);
 
-  const startSec = question.renderType === 'audio-intro' ? 0 : question.clipStartSec ?? 0;
-  const durationSec =
-    question.renderType === 'audio-intro' ? question.introEndSec : question.clipDurationSec;
+  const playbackTarget = resolvePlaybackTarget(song, question);
 
   async function handlePlayPause() {
-    if (!controller || question.renderType === 'text-lyric') return;
+    if (!controller || !playbackTarget) return;
     if (status === 'playing') {
       controller.pause();
       return;
@@ -43,12 +42,12 @@ export function QuestionRenderer({ question, song, controller }: QuestionRendere
       return;
     }
     // idle／finished／error 都視為「重新播放」
-    await controller.play(song.youtubeVideoId, startSec, durationSec);
+    await controller.play(playbackTarget.source, playbackTarget.idOrUrl, playbackTarget.startSec, playbackTarget.durationSec);
   }
 
   function handleRestart() {
-    if (!controller || question.renderType === 'text-lyric') return;
-    controller.play(song.youtubeVideoId, startSec, durationSec);
+    if (!controller || !playbackTarget) return;
+    controller.play(playbackTarget.source, playbackTarget.idOrUrl, playbackTarget.startSec, playbackTarget.durationSec);
   }
 
   if (question.renderType === 'text-lyric') {

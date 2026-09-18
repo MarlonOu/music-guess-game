@@ -12,6 +12,13 @@ export type AudioLoadState = 'idle' | 'loading' | 'ready' | 'error';
  */
 export type AudioPlaybackStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'finished' | 'error';
 
+/**
+ * 播放來源。'apple' 優先於 'youtube'——理由見 lib/audio/resolvePlaybackTarget.ts 的說明，
+ * 核心是 Apple Music 試聽用同源 <audio> 元素播放，不像 YouTube IFrame 是跨網域的第三方播放器，
+ * 不會有控制中心洩漏歌名答案的問題。
+ */
+export type AudioSource = 'apple' | 'youtube';
+
 // YouTube IFrame Player API 為第三方全域腳本注入的型別，官方未提供正式型別套件對應此版本，
 // 故以最小必要介面自行宣告，避免引入未經審核的第三方型別定義。
 interface YouTubePlayer {
@@ -69,6 +76,9 @@ const YT_READY_POLL_INTERVAL_MS = 50;
 // 供 unlock() 使用的極短公開影片 id（YouTube 上第一支公開影片，長期穩定存在），
 // 純粹作為播放解鎖的技術性觸發用途，播放時間極短、音量歸零，不構成實質播放內容。
 const UNLOCK_VIDEO_ID = 'jNQXAC9IVRw';
+// 供 unlock() 解鎖 <audio> 元素使用的極短靜音音檔（純合成的靜音 WAV，不含任何受著作權保護的內容），
+// 用來在使用者手勢當下觸發一次真正的 play()，讓瀏覽器記住「這個 <audio> 元素已獲得播放授權」。
+const SILENT_AUDIO_DATA_URI = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQQAAAAAAAA=';
 
 /**
  * 注入 YouTube IFrame API 腳本並等待其就緒。
@@ -122,6 +132,10 @@ function waitForYT(): Promise<void> {
 
 export class AudioController {
   private player: YouTubePlayer | null = null;
+  /** Apple Music 試聽片段用的原生 <audio> 元素；跟 YT.Player 是兩條平行的播放路徑 */
+  private audioEl: HTMLAudioElement | null = null;
+  /** 目前這次播放實際用的是哪個來源，pause()／stop() 等方法需要知道要操作哪一邊 */
+  private activeSource: AudioSource | null = null;
   private loadState: AudioLoadState = 'idle';
   private status: AudioPlaybackStatus = 'idle';
   private onStatusChange: ((status: AudioPlaybackStatus) => void) | undefined;
@@ -170,14 +184,13 @@ export class AudioController {
   /**
    * 覆寫瀏覽器的媒體資訊（手機鎖定畫面／控制中心顯示的曲名／播放狀態）。
    *
-   * 背景：實際播放音樂的是一個跨網域的 YouTube iframe（youtube.com 自己內嵌的播放器），
-   * 我們的程式完全無法讀取或修改它內部的任何東西（跨網域安全限制），包括它可能自己回報給
-   * 作業系統的曲名資訊。這裡能做的，只是在「我們自己的頁面」設定一個通用、不含歌名的媒體
-   * 資訊（Media Session API），多數瀏覽器狀況下會優先採用這個，蓋掉可能洩漏答案的曲名顯示。
+   * 對 YouTube 來源：實際播放音樂的是一個跨網域的 YouTube iframe，我們的程式完全無法讀取或
+   * 修改它內部的任何東西（跨網域安全限制），這裡的設定只是盡力而為的緩解措施，不保證一定蓋得掉
+   * YouTube 自己回報的曲名（如果瀏覽器認定「實際播放媒體的那個 iframe 文件」才是媒體資訊來源，
+   * 我們這邊的設定就蓋不掉，這是跨網域 iframe 的技術限制，前端沒有辦法完全繞過）。
    *
-   * 誠實聲明：這是盡力而為的緩解措施，不保證每支手機、每個瀏覽器版本都 100%有效——
-   * 如果作業系統認定「實際播放媒體的那個 iframe 文件」才是媒體資訊的來源，我們這邊的設定
-   * 就蓋不掉，這是跨網域 iframe 的技術限制，前端沒有辦法完全繞過。
+   * 對 Apple Music 來源：播放用的是我們自己頁面裡的原生 <audio> 元素（同源，不是第三方 iframe），
+   * 這裡的設定會真正生效、可靠地蓋掉曲名——這正是優先選用 Apple Music 來源的核心理由。
    */
   private updateMediaSession(playbackState: 'playing' | 'paused' | 'none'): void {
     if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
@@ -208,6 +221,9 @@ export class AudioController {
    * 於是直接擋下播放。呼叫端應在玩家進入遊戲畫面、但還沒點下第一次播放前就呼叫這個方法暖機，
    * 之後玩家實際點擊播放時，播放器已經就緒，playVideo() 幾乎瞬間完成，落在手勢有效期內。
    *
+   * 只暖機 YouTube 這端：Apple Music 用的原生 <audio> 元素建立是同步、瞬間完成的
+   * （new Audio() 不需要等任何非同步腳本載入），不存在「暖機」這個問題，不用特別處理。
+   *
    * 失敗時只記錄 log、不拋出例外、也不改變 loadState／status——暖機失敗不該讓玩家看到任何錯誤畫面，
    * 之後玩家實際點擊播放時會走原本的 play() 邏輯正常重試。
    */
@@ -227,11 +243,18 @@ export class AudioController {
    * 這個方法要在真正的使用者互動（例如按鈕的 onClick／表單 onSubmit）裡、還沒有任何 await 之前
    * 的第一行呼叫，才能確保這次呼叫仍落在瀏覽器認定的「使用者手勢有效期」內。
    *
-   * 做法：實際載入一小段極短的公開影片並播放、幾乎立刻暫停（且靜音），讓瀏覽器把「這個播放器
-   * 實例」標記為已獲得播放授權——之後同一個實例即使是被 setInterval 這類非使用者手勢的呼叫
-   * 觸發播放，多數瀏覽器仍會允許（這是常見的「播放解鎖」技巧，Howler.js 等音訊函式庫也採用
-   * 類似做法）。影片本身選用 YouTube 上第一支公開影片（jNQXAC9IVRw，YouTube 官方historic
-   * 影片，長期穩定存在），純粹作為技術性的播放觸發用途，播放時間極短且音量歸零，使用者不會聽到。
+   * 同時解鎖 YouTube 與 Apple Music 兩條播放路徑，因為呼叫當下還不知道等一下實際會播到
+   * 哪個來源的歌（取決於題庫裡這首歌有沒有 Apple Music 試聽），兩邊都先解鎖比較保險。
+   *
+   * YouTube 這端做法：實際載入一小段極短的公開影片並播放、幾乎立刻暫停（且靜音），讓瀏覽器把
+   * 「這個播放器實例」標記為已獲得播放授權——之後同一個實例即使是被 setInterval 這類非使用者
+   * 手勢的呼叫觸發播放，多數瀏覽器仍會允許（這是常見的「播放解鎖」技巧，Howler.js 等音訊函式庫
+   * 也採用類似做法）。影片本身選用 YouTube 上第一支公開影片（jNQXAC9IVRw，長期穩定存在），
+   * 純粹作為技術性的播放觸發用途，播放時間極短且音量歸零，使用者不會聽到。
+   *
+   * Apple Music 這端做法：原生 <audio> 元素一樣需要在使用者手勢當下播放過一次才能解鎖，
+   * 用一小段純合成的靜音音檔（不含任何受著作權保護的內容）播放、立刻暫停即可，
+   * 不像 YouTube 需要先等 IFrame API script 載入完成，這段幾乎是瞬間完成。
    *
    * 誠實聲明：瀏覽器的自動播放政策完全由各家廠商自行控制且可能隨版本調整，
    * 任何前端技巧都無法提供 100% 保證，這個方法只是目前能做到最可靠的緩解措施。
@@ -239,13 +262,26 @@ export class AudioController {
   async unlock(): Promise<void> {
     if (this.unlocked) return;
     try {
+      const audio = this.ensureAudioElement();
+      audio.muted = true;
+      audio.src = SILENT_AUDIO_DATA_URI;
+      const appleUnlockPromise = audio
+        .play()
+        .then(() => audio.pause())
+        .catch(() => {
+          // Apple 這端解鎖失敗不影響 YouTube 那端繼續嘗試，兩邊各自獨立、互不阻擋
+        });
+
       await this.ensurePlayer();
       this.safeCallPlayer('setVolume', 0);
       this.safeCallPlayer('loadVideoById', { videoId: UNLOCK_VIDEO_ID, startSeconds: 0 });
       this.safeCallPlayer('playVideo');
-      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      await Promise.all([new Promise((resolve) => setTimeout(resolve, 150)), appleUnlockPromise]);
+
       this.safeCallPlayer('pauseVideo');
       this.safeCallPlayer('setVolume', 100);
+      audio.muted = false;
       this.unlocked = true;
     } catch (err) {
       console.warn('[AudioController] unlock() 失敗，將盡力於實際播放時重試：', err);
@@ -350,6 +386,35 @@ export class AudioController {
     return el;
   }
 
+  /**
+   * 建立（或找到既有的）原生 <audio> 元素，供 Apple Music 試聽片段播放使用。
+   * 跟 YT.Player 不同，這個元素完全在我們自己的掌控中（同源），不用擔心跟 React 的虛擬 DOM
+   * 衝突（不透過 React 渲染，也不會被 YouTube API 那種「整個換成 iframe」的方式操作），
+   * 建立本身也是同步、瞬間完成，不需要暖機。
+   */
+  private ensureAudioElement(): HTMLAudioElement {
+    if (!this.audioEl) {
+      const audio = new Audio();
+      audio.preload = 'auto';
+      audio.addEventListener('ended', () => {
+        if (this.activeSource === 'apple' && this.playing) this.finishPlayback();
+      });
+      audio.addEventListener('error', () => {
+        if (this.activeSource !== 'apple') return;
+        console.error('[AudioController] <audio> 播放 Apple Music 試聽失敗，src=', audio.src);
+        this.loadState = 'error';
+        this.playing = false;
+        this.setStatus('error');
+        if (this.pendingPlayResult) {
+          this.pendingPlayResult.reject(new Error('Apple Music 試聽片段載入失敗'));
+          this.pendingPlayResult = null;
+        }
+      });
+      this.audioEl = audio;
+    }
+    return this.audioEl;
+  }
+
   private async createPlayer(): Promise<void> {
     await loadYouTubeIframeApi();
     await waitForYT();
@@ -398,7 +463,7 @@ export class AudioController {
   /** 片段時長到，系統自動停止播放（非使用者操作），狀態設為 'finished' 供 UI 顯示「播放完畢」 */
   private finishPlayback(): void {
     this.clearStopHandle();
-    this.safeCallPlayer('pauseVideo');
+    this.pauseActiveSource();
     this.playing = false;
     this.remainingMs = null;
     this.segmentStartedAt = null;
@@ -406,25 +471,53 @@ export class AudioController {
     this.updateMediaSession('none');
   }
 
+  /** 依 activeSource 暫停對應的播放器，pause()／stop()／finishPlayback() 共用 */
+  private pauseActiveSource(): void {
+    if (this.activeSource === 'apple') {
+      this.audioEl?.pause();
+    } else {
+      this.safeCallPlayer('pauseVideo');
+    }
+  }
+
   /**
-   * 從頭載入並播放指定 YouTube 影片（videoId）中 startSec 到 startSec + durationSec 的片段。
-   * durationSec 省略時不設自動停止上限，播放至使用者自行暫停為止。
+   * 播放指定來源的音訊片段。
+   * - source='youtube'：idOrUrl 是 YouTube 影片 id，startSec/durationSec 是相對於完整影片的秒數。
+   * - source='apple'：idOrUrl 是 Apple Music 試聽片段的直接可播放網址（appleMusicPreviewUrl）。
+   *   Apple 官方試聽是固定長度（通常 30 秒上下）的片段，不像 YouTube 完整影片可以任意指定
+   *   開始秒數；呼叫端（見 lib/audio/resolvePlaybackTarget.ts）已經把這個限制考慮進去，
+   *   這裡單純負責把收到的 startSec/durationSec 套用在這個 <audio> 元素上。
+   *
+   * durationSec 省略時不設自動停止上限，播放至片段自然結束（'ended' 事件）或使用者自行暫停為止。
    * 呼叫端須在使用者按下「播放」時手動呼叫，不再自動觸發。
    *
-   * 真正等待播放器回報「已開始播放」（onStateChange -> PLAYING）或「出錯」（onError）
-   * 才 resolve／視為失敗，不像先前版本呼叫完 API 就假設成功 —— 否則影片本身的錯誤
-   * （例如嵌入權限關閉）會在呼叫已經回傳「成功」之後才非同步發生，被靜默吃掉。
-   *
-   * 邊界條件：videoId 無效、IFrame API 載入失敗、或逾時未開始播放時，
+   * 邊界條件：來源無效、播放器初始化失敗、或逾時未開始播放時，
    * loadState 設為 'error'，呼叫端需檢查此狀態並顯示對應 UI（不拋出例外中斷遊戲流程）。
    */
-  async play(videoId: string, startSec: number, durationSec?: number): Promise<void> {
+  async play(source: AudioSource, idOrUrl: string, startSec: number, durationSec?: number): Promise<void> {
     this.clearStopHandle();
     this.loadState = 'loading';
     this.setStatus('loading');
-    this.lastVideoId = videoId;
+    this.lastVideoId = idOrUrl;
     this.pendingPlayResult = null;
 
+    // 換來源播放時，把另一邊可能還在播的東西停掉，避免兩邊同時出聲
+    if (this.activeSource && this.activeSource !== source) this.pauseActiveSource();
+    this.activeSource = source;
+
+    if (source === 'apple') {
+      await this.playApple(idOrUrl, startSec, durationSec);
+      return;
+    }
+    await this.playYoutube(idOrUrl, startSec, durationSec);
+  }
+
+  /**
+   * 真正等待播放器回報「已開始播放」（onStateChange -> PLAYING）或「出錯」（onError）
+   * 才 resolve／視為失敗，不像先前版本呼叫完 API 就假設成功 —— 否則影片本身的錯誤
+   * （例如嵌入權限關閉）會在呼叫已經回傳「成功」之後才非同步發生，被靜默吃掉。
+   */
+  private async playYoutube(videoId: string, startSec: number, durationSec?: number): Promise<void> {
     try {
       const player = await this.ensurePlayer();
 
@@ -461,7 +554,49 @@ export class AudioController {
       this.setStatus('playing');
       this.updateMediaSession('playing');
     } catch (err) {
-      console.error('[AudioController] play() 失敗：', err);
+      console.error('[AudioController] playYoutube() 失敗：', err);
+      this.loadState = 'error';
+      this.playing = false;
+      this.setStatus('error');
+    }
+  }
+
+  /**
+   * 播放 Apple Music 試聽片段。相較 YouTube 路徑單純很多：不用等任何非同步腳本載入、
+   * 不用透過 postMessage 跟 iframe 溝通，直接操作原生 <audio> 元素的標準 API 即可。
+   */
+  private async playApple(previewUrl: string, startSec: number, durationSec?: number): Promise<void> {
+    try {
+      const audio = this.ensureAudioElement();
+      if (audio.src !== previewUrl) {
+        audio.src = previewUrl;
+      }
+      audio.muted = false;
+      audio.volume = 1;
+      // 部分瀏覽器（尤其行動裝置）要等 metadata 載入完成才能設定 currentTime，
+      // 設太早會被靜默忽略；readyState >= 1（HAVE_METADATA）代表已經知道片段長度，可以安全設定。
+      if (audio.readyState < 1) {
+        await new Promise<void>((resolve) => {
+          const onLoaded = () => {
+            audio.removeEventListener('loadedmetadata', onLoaded);
+            resolve();
+          };
+          audio.addEventListener('loadedmetadata', onLoaded);
+          // 保險逾時：萬一 loadedmetadata 因為某些瀏覽器怪癖沒觸發，別讓整個 play() 卡死
+          setTimeout(resolve, 2000);
+        });
+      }
+      audio.currentTime = startSec;
+      await audio.play();
+
+      this.loadState = 'ready';
+      this.playing = true;
+      this.remainingMs = durationSec !== undefined ? durationSec * 1000 : null;
+      this.armStopTimer();
+      this.setStatus('playing');
+      this.updateMediaSession('playing');
+    } catch (err) {
+      console.error('[AudioController] playApple() 失敗：', err);
       this.loadState = 'error';
       this.playing = false;
       this.setStatus('error');
@@ -476,7 +611,7 @@ export class AudioController {
       this.remainingMs = Math.max(0, this.remainingMs - elapsed);
     }
     this.clearStopHandle();
-    this.safeCallPlayer('pauseVideo');
+    this.pauseActiveSource();
     this.playing = false;
     this.setStatus('paused');
     this.updateMediaSession('paused');
@@ -488,8 +623,16 @@ export class AudioController {
    * 呼叫端應自行判斷 getLoadState() 是否為 'ready'，錯誤狀態下應改呼叫 play() 重試。
    */
   resume(): void {
-    if (this.playing || !this.player || this.loadState !== 'ready') return;
-    this.safeCallPlayer('playVideo');
+    if (this.playing || this.loadState !== 'ready') return;
+    if (this.activeSource === 'apple') {
+      if (!this.audioEl) return;
+      this.audioEl.play().catch((err) => {
+        console.warn('[AudioController] resume() 的 <audio>.play() 失敗：', err);
+      });
+    } else {
+      if (!this.player) return;
+      this.safeCallPlayer('playVideo');
+    }
     this.playing = true;
     this.armStopTimer();
     this.setStatus('playing');
@@ -499,7 +642,7 @@ export class AudioController {
   /** 完全停止並清除進度（下次需重新呼叫 play() 從頭開始） */
   stop(): void {
     this.clearStopHandle();
-    this.safeCallPlayer('pauseVideo');
+    this.pauseActiveSource();
     this.playing = false;
     this.remainingMs = null;
     this.segmentStartedAt = null;
@@ -512,6 +655,11 @@ export class AudioController {
     this.stop();
     this.safeCallPlayer('destroy');
     this.player = null;
+    if (this.audioEl) {
+      this.audioEl.pause();
+      this.audioEl.src = '';
+      this.audioEl = null;
+    }
     // 清掉我們自己建立、掛在 <body> 底下的容器元素，避免每次 dispose 都留下一個孤兒節點
     // （單機模式每次進遊戲頁面都會建立一個新的 AudioController，長時間下來會累積 DOM 節點）。
     // 注意：線上模式共用的全域實例（getGlobalAudioController()）不會呼叫 dispose()，

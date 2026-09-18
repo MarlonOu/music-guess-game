@@ -2,12 +2,14 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
-import { AudioController, AudioLoadState } from '../../lib/audio/audioController';
+import { AudioController, AudioLoadState, AudioSource } from '../../lib/audio/audioController';
 
 export default function DebugAudioPage() {
   const playerContainerId = useId().replace(/:/g, '-');
   const controllerRef = useRef<AudioController | null>(null);
+  const [source, setSource] = useState<AudioSource>('youtube');
   const [videoId, setVideoId] = useState('dQw4w9WgXcQ');
+  const [previewUrl, setPreviewUrl] = useState('');
   const [startSec, setStartSec] = useState(0);
   const [durationSec, setDurationSec] = useState<number | ''>('');
   const [loadState, setLoadState] = useState<AudioLoadState>('idle');
@@ -22,9 +24,11 @@ export default function DebugAudioPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const idOrUrl = source === 'youtube' ? videoId : previewUrl;
+
   async function handlePlayPause() {
     const controller = controllerRef.current;
-    if (!controller) return;
+    if (!controller || !idOrUrl) return;
 
     if (isPlaying) {
       controller.pause();
@@ -37,28 +41,45 @@ export default function DebugAudioPage() {
       return;
     }
     setHasStarted(true);
-    await controller.play(videoId, startSec, durationSec === '' ? undefined : durationSec);
+    await controller.play(source, idOrUrl, startSec, durationSec === '' ? undefined : durationSec);
     setLoadState(controller.getLoadState());
     setIsPlaying(controller.getIsPlaying());
   }
 
   function handleRestart() {
     const controller = controllerRef.current;
-    if (!controller) return;
+    if (!controller || !idOrUrl) return;
     setHasStarted(true);
-    controller.play(videoId, startSec, durationSec === '' ? undefined : durationSec).then(() => {
+    controller.play(source, idOrUrl, startSec, durationSec === '' ? undefined : durationSec).then(() => {
       setLoadState(controller.getLoadState());
       setIsPlaying(controller.getIsPlaying());
     });
   }
 
-  function handleVideoIdChange(next: string) {
-    setVideoId(next);
+  function handleSourceChange(next: AudioSource) {
+    setSource(next);
     setHasStarted(false);
     setIsPlaying(false);
     setLoadState('idle');
     controllerRef.current?.stop();
   }
+
+  function handleIdOrUrlChange(next: string) {
+    if (source === 'youtube') setVideoId(next);
+    else setPreviewUrl(next);
+    setHasStarted(false);
+    setIsPlaying(false);
+    setLoadState('idle');
+    controllerRef.current?.stop();
+  }
+
+  const inputStyle = {
+    padding: '10px 14px',
+    borderRadius: '10px',
+    border: '1px solid var(--groove)',
+    background: 'var(--bg-raised)',
+    color: 'var(--ink)',
+  };
 
   return (
     <main
@@ -75,23 +96,46 @@ export default function DebugAudioPage() {
         <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem', letterSpacing: '0.1em' }}>
           DEBUG
         </span>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '1.5rem' }}>YouTube 播放測試</h1>
+        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '1.5rem' }}>播放測試（YouTube／Apple Music）</h1>
       </header>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', maxWidth: '360px' }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>YouTube videoId（非完整網址）</span>
-          <input
-            value={videoId}
-            onChange={(e) => handleVideoIdChange(e.target.value.trim())}
-            placeholder="例如 dQw4w9WgXcQ"
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={() => handleSourceChange('youtube')}
             style={{
-              padding: '10px 14px',
-              borderRadius: '10px',
-              border: '1px solid var(--groove)',
-              background: 'var(--bg-raised)',
-              color: 'var(--ink)',
+              ...inputStyle,
+              flex: 1,
+              cursor: 'pointer',
+              borderColor: source === 'youtube' ? 'var(--accent)' : 'var(--groove)',
+              color: source === 'youtube' ? 'var(--accent)' : 'var(--ink)',
             }}
+          >
+            YouTube
+          </button>
+          <button
+            onClick={() => handleSourceChange('apple')}
+            style={{
+              ...inputStyle,
+              flex: 1,
+              cursor: 'pointer',
+              borderColor: source === 'apple' ? 'var(--accent)' : 'var(--groove)',
+              color: source === 'apple' ? 'var(--accent)' : 'var(--ink)',
+            }}
+          >
+            Apple Music
+          </button>
+        </div>
+
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+            {source === 'youtube' ? 'YouTube videoId（非完整網址）' : 'Apple Music 試聽片段網址（appleMusicPreviewUrl）'}
+          </span>
+          <input
+            value={idOrUrl}
+            onChange={(e) => handleIdOrUrlChange(e.target.value.trim())}
+            placeholder={source === 'youtube' ? '例如 dQw4w9WgXcQ' : '例如 https://audio-ssl.itunes.apple.com/.../preview.m4a'}
+            style={inputStyle}
           />
         </label>
 
@@ -103,13 +147,7 @@ export default function DebugAudioPage() {
               min={0}
               value={startSec}
               onChange={(e) => setStartSec(Math.max(0, Number(e.target.value) || 0))}
-              style={{
-                padding: '10px 14px',
-                borderRadius: '10px',
-                border: '1px solid var(--groove)',
-                background: 'var(--bg-raised)',
-                color: 'var(--ink)',
-              }}
+              style={inputStyle}
             />
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
@@ -119,13 +157,7 @@ export default function DebugAudioPage() {
               min={1}
               value={durationSec}
               onChange={(e) => setDurationSec(e.target.value === '' ? '' : Math.max(1, Number(e.target.value)))}
-              style={{
-                padding: '10px 14px',
-                borderRadius: '10px',
-                border: '1px solid var(--groove)',
-                background: 'var(--bg-raised)',
-                color: 'var(--ink)',
-              }}
+              style={inputStyle}
             />
           </label>
         </div>
@@ -136,7 +168,9 @@ export default function DebugAudioPage() {
       </p>
       {loadState === 'error' && (
         <p style={{ color: 'var(--error)', fontSize: '0.875rem' }}>
-          載入失敗：檢查 videoId 是否正確、瀏覽器主控台是否有 YouTube API 相關錯誤（例如 CSP、CORS）
+          載入失敗：{source === 'youtube'
+            ? '檢查 videoId 是否正確、瀏覽器主控台是否有 YouTube API 相關錯誤（例如 CSP、CORS）'
+            : '檢查試聽網址是否正確、有沒有過期（Apple 的試聽網址偶爾會失效，需要重新查詢）'}
         </p>
       )}
 

@@ -7,7 +7,9 @@ function toSong(row: {
   title: string;
   artistId: string;
   audioUrl: string | null;
-  youtubeVideoId: string;
+  youtubeVideoId: string | null;
+  appleMusicTrackId: string | null;
+  appleMusicPreviewUrl: string | null;
   durationSec: number;
   lyrics: string;
   createdAt: Date;
@@ -18,7 +20,9 @@ function toSong(row: {
     title: row.title,
     artistId: row.artistId,
     audioUrl: row.audioUrl ?? undefined,
-    youtubeVideoId: row.youtubeVideoId,
+    youtubeVideoId: row.youtubeVideoId ?? undefined,
+    appleMusicTrackId: row.appleMusicTrackId ?? undefined,
+    appleMusicPreviewUrl: row.appleMusicPreviewUrl ?? undefined,
     durationSec: row.durationSec,
     lyrics: row.lyrics,
     createdAt: row.createdAt.toISOString(),
@@ -60,10 +64,16 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { title, artistId, youtubeVideoId, durationSec, lyrics, themeIds } = body;
+    const { title, artistId, youtubeVideoId, appleMusicTrackId, appleMusicPreviewUrl, durationSec, lyrics, themeIds } = body;
 
-    if (!title || !artistId || !youtubeVideoId) {
-      return NextResponse.json({ error: '缺少必要欄位（title、artistId、youtubeVideoId）' }, { status: 400 });
+    // 至少要有一種可播放來源（YouTube 影片 id 或 Apple Music 試聽網址），兩者缺一不可全無，
+    // 否則這首歌進了題庫也沒辦法播放。優先建議填 Apple Music（見 resolvePlaybackTarget.ts
+    // 說明的控制中心洩漏問題），但沒有強制要求一定要有 Apple Music 來源，維持彈性。
+    if (!title || !artistId || (!youtubeVideoId && !appleMusicPreviewUrl)) {
+      return NextResponse.json(
+        { error: '缺少必要欄位（title、artistId，並且 youtubeVideoId／appleMusicPreviewUrl 至少要有一個）' },
+        { status: 400 }
+      );
     }
 
     const row = await prisma.song.create({
@@ -71,7 +81,9 @@ export async function POST(request: NextRequest) {
         id: crypto.randomUUID(),
         title,
         artistId,
-        youtubeVideoId,
+        youtubeVideoId: youtubeVideoId || null,
+        appleMusicTrackId: appleMusicTrackId || null,
+        appleMusicPreviewUrl: appleMusicPreviewUrl || null,
         durationSec: Number(durationSec) || 0,
         lyrics: lyrics ?? '',
         themes: Array.isArray(themeIds) && themeIds.length > 0

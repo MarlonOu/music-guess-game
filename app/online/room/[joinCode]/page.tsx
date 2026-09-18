@@ -642,17 +642,22 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
       if (playedRoundRef.current === room.currentRoundIndex) return;
       playedRoundRef.current = room.currentRoundIndex;
 
-      if (!audioController || !room.currentSongVideoId || !room.currentQuestion) return;
+      if (!audioController || !room.currentSongSource || !room.currentSongPlaybackId || !room.currentQuestion) return;
       if (room.currentQuestion.renderType === 'text-lyric') return;
 
       // elapsedSec：晚進這一題的玩家（例如中途重新整理頁面）從目前應該播到的秒數接續播放，
       // 而不是從頭開始，盡量跟其他玩家同步；沒有上限時長，會一路播到歌曲本身結束為止。
       const elapsedSec = Math.max(0, -msLeft / 1000);
-      if (room.currentQuestion.renderType === 'audio-intro') {
-        audioController.play(room.currentSongVideoId, elapsedSec);
+      if (room.currentSongSource === 'apple') {
+        // Apple 試聽片段一律從片段開頭起算（已知限制見 lib/audio/resolvePlaybackTarget.ts），
+        // 晚進的玩家用 elapsedSec 直接當作片段內的秒數接續播放，不套用 clipStartSec
+        // （那是相對於完整歌曲算的，對只有 30 秒的試聽片段沒有意義）。
+        audioController.play('apple', room.currentSongPlaybackId, elapsedSec);
+      } else if (room.currentQuestion.renderType === 'audio-intro') {
+        audioController.play('youtube', room.currentSongPlaybackId, elapsedSec);
       } else if (room.currentQuestion.renderType === 'audio-clip') {
         const clipStart = room.currentQuestion.clipStartSec ?? 0;
-        audioController.play(room.currentSongVideoId, clipStart + elapsedSec);
+        audioController.play('youtube', room.currentSongPlaybackId, clipStart + elapsedSec);
       }
     };
 

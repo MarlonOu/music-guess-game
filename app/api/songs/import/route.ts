@@ -12,13 +12,14 @@ interface ImportRowResult {
 
 // POST /api/songs/import → 匯入 CSV（純文字 body，Content-Type: text/csv）
 // 去重規則：
-// 1. 同一個 youtubeVideoId 視為同一首歌，已存在就更新其餘欄位，不存在才新增；
-// 2. youtubeVideoId 對不上時，再比對「歌名 + 歌手」（不分大小寫、去頭尾空白）——
-//    這是為了抓出「同一首歌被上傳成不同 YouTube 影片」的情況（重新上傳、MV 版跟歌詞版等），
-//    避免因為 videoId 不同就被誤判成兩首不同的歌，題庫裡出現重複。比對歌名時一併要求歌手
-//    也相符，而不是只比歌名，避免不同歌手的同名歌曲被誤判成重複（例如兩位歌手都有一首「遺憾」）。
-//    比對到的話標記為 duplicate 並跳過，不自動覆蓋既有資料的 youtubeVideoId，
-//    由管理者自行決定是否要手動處理（可能是想保留原本的版本）。
+// 1. youtubeVideoId 或 appleMusicPreviewUrl 其中一個對上既有資料，視為同一首歌，
+//    已存在就更新其餘欄位，不存在才新增；
+// 2. 兩者都對不上時，再比對「歌名 + 歌手」（不分大小寫、去頭尾空白）——
+//    這是為了抓出「同一首歌被上傳成不同來源」的情況（重新上傳、MV 版跟歌詞版、
+//    或原本只有 YouTube 這次補上 Apple Music 等），避免因為來源不同就被誤判成兩首不同的歌，
+//    題庫裡出現重複。比對歌名時一併要求歌手也相符，避免不同歌手的同名歌曲被誤判成重複。
+//    比對到的話標記為 duplicate 並跳過，不自動覆蓋既有資料，由管理者自行決定是否要手動處理
+//    （可能是想保留原本的版本，或想手動補上另一種來源）。
 // 歌手／主題用名稱比對（不分大小寫、去頭尾空白），找不到就自動建立，不會因為名稱對不上而整列失敗。
 export async function POST(request: NextRequest) {
   try {
@@ -100,12 +101,19 @@ export async function POST(request: NextRequest) {
       const title = (row.title ?? '').trim();
       const artistName = (row.artist ?? '').trim();
       const youtubeVideoId = (row.youtubeVideoId ?? '').trim();
+      const appleMusicTrackId = (row.appleMusicTrackId ?? '').trim();
+      const appleMusicPreviewUrl = (row.appleMusicPreviewUrl ?? '').trim();
       const durationSec = Number(row.durationSec) || 0;
       const lyrics = row.lyrics ?? '';
       const themesCell = row.themes ?? '';
 
-      if (!title || !artistName || !youtubeVideoId) {
-        results.push({ row: rowNumber, title: title || '(空白)', status: 'error', error: '缺少必要欄位（title、artist、youtubeVideoId）' });
+      if (!title || !artistName || (!youtubeVideoId && !appleMusicPreviewUrl)) {
+        results.push({
+          row: rowNumber,
+          title: title || '(空白)',
+          status: 'error',
+          error: '缺少必要欄位（title、artist，並且 youtubeVideoId／appleMusicPreviewUrl 至少要有一個）',
+        });
         continue;
       }
       if (durationSec <= 0) {
@@ -117,7 +125,14 @@ export async function POST(request: NextRequest) {
         const artistId = await resolveArtistId(artistName);
         const themeIds = await resolveThemeIds(themesCell);
 
-        const existingSong = await prisma.song.findFirst({ where: { youtubeVideoId } });
+        const existingSong = await prisma.song.findFirst({
+          where: {
+            OR: [
+              ...(youtubeVideoId ? [{ youtubeVideoId }] : []),
+              ...(appleMusicPreviewUrl ? [{ appleMusicPreviewUrl }] : []),
+            ],
+          },
+        });
 
         if (existingSong) {
           await prisma.song.update({
@@ -127,6 +142,10 @@ export async function POST(request: NextRequest) {
               artistId,
               durationSec,
               lyrics,
+              // CSV 有填才覆蓋，留空不動既有值（避免匯入時漏填某個來源欄位就把原本已有的資料清空）
+              ...(youtubeVideoId ? { youtubeVideoId } : {}),
+              ...(appleMusicTrackId ? { appleMusicTrackId } : {}),
+              ...(appleMusicPreviewUrl ? { appleMusicPreviewUrl } : {}),
               themes: { deleteMany: {}, create: themeIds.map((themeId) => ({ themeId })) },
             },
           });
@@ -134,7 +153,7 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        // youtubeVideoId 沒對上既有資料，再比對「歌名 + 歌手」是否已存在（同一首歌的不同影片來源）
+        // 來源都沒對上既有資料，再比對「歌名 + 歌手」是否已存在（同一首歌換了個播放來源）
         const duplicateByTitle = await prisma.song.findFirst({
           where: { artistId, title: { equals: title, mode: 'insensitive' } },
         });
@@ -143,7 +162,7 @@ export async function POST(request: NextRequest) {
             row: rowNumber,
             title,
             status: 'duplicate',
-            error: `已有同名同歌手的歌曲存在（現有 youtubeVideoId：${duplicateByTitle.youtubeVideoId}），未匯入，如要更新請到歌曲管理手動編輯`,
+            error: '已有同名同歌手的歌曲存在（來源不同），未匯入，如要更新請到歌曲管理手動編輯',
           });
           continue;
         }
@@ -153,7 +172,9 @@ export async function POST(request: NextRequest) {
             id: crypto.randomUUID(),
             title,
             artistId,
-            youtubeVideoId,
+            youtubeVideoId: youtubeVideoId || null,
+            appleMusicTrackId: appleMusicTrackId || null,
+            appleMusicPreviewUrl: appleMusicPreviewUrl || null,
             durationSec,
             lyrics,
             themes: themeIds.length > 0 ? { create: themeIds.map((themeId) => ({ themeId })) } : undefined,

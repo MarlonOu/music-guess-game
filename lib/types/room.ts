@@ -33,8 +33,16 @@ export interface RoomState {
    * 避免透過輪詢 API 提前偷看到答案。status 為 'lobby' 或 'finished' 時為 null。
    */
   currentQuestion: QuestionPayload | null;
-  /** 目前這題要播放的 YouTube 影片 ID，與 currentQuestion 分開存放（QuestionPayload 為本機/線上共用型別，不含播放來源） */
-  currentSongVideoId: string | null;
+  /**
+   * 目前這題要播放的音源。source 決定要用 AudioController 的哪一條播放路徑；
+   * playbackId 依 source 不同意義不同（'youtube' 時是影片 id，'apple' 時是試聽片段網址）。
+   * 挑選邏輯（哪個來源優先）見 lib/audio/resolvePlaybackTarget.ts。
+   * 與 currentQuestion 分開存放（QuestionPayload 為本機/線上共用型別，不含播放來源）。
+   * null 代表沒有可播放的音源（不應該發生，後台表單與匯入都要求至少一種來源存在，
+   * 純粹防呆；也可能是 currentQuestion 本身是純文字歌詞題，不需要播放音訊）。
+   */
+  currentSongSource: 'youtube' | 'apple' | null;
+  currentSongPlaybackId: string | null;
   /**
    * 目前這題答案歌手名稱；跟 currentQuestion.correctTitle 一樣，revealed 為 false 時會被伺服器端遮蔽為 null，
    * 避免透過輪詢 API 提前偷看到答案。

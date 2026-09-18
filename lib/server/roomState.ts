@@ -4,6 +4,7 @@ import type { QuestionPayload } from '../types/question';
 import type { GameMode } from '../types/match';
 import { FIXED_INTRO_DURATION_SEC } from '../engine/modes/introMode';
 import { DEFAULT_CLIP_DURATION_SEC } from '../engine/modes/randomClipMode';
+import { resolvePlaybackTarget } from '../audio/resolvePlaybackTarget';
 
 /**
  * 依房間存好的 songQueue / clipStartSecs / lyricLineIndexes 重建當前題目，
@@ -62,7 +63,8 @@ export async function loadRoomState(joinCode: string): Promise<RoomState | null>
   if (!room) return null;
 
   let currentQuestion: QuestionPayload | null = null;
-  let currentSongVideoId: string | null = null;
+  let currentSongSource: 'youtube' | 'apple' | null = null;
+  let currentSongPlaybackId: string | null = null;
   let currentSongArtist: string | null = null;
   let currentSongThemeLabels: string[] = [];
 
@@ -77,7 +79,11 @@ export async function loadRoomState(joinCode: string): Promise<RoomState | null>
       const lyricLineIndex = room.lyricLineIndexes[room.currentRoundIndex] ?? 0;
       const question = buildQuestionFromRoom(room.mode as GameMode, song, clipStartSec, lyricLineIndex);
       currentQuestion = room.revealed ? question : { ...question, correctTitle: '' };
-      currentSongVideoId = song.youtubeVideoId;
+      // 播放來源／識別碼不受 revealed 影響，跟先前 currentSongVideoId 的行為一致——
+      // 知道「要播哪個音源」不等於知道歌名，本來就一直是這樣公開的，不算洩漏答案。
+      const target = resolvePlaybackTarget(song, question);
+      currentSongSource = target?.source ?? null;
+      currentSongPlaybackId = target?.idOrUrl ?? null;
       // 只有這場房間本來就是「依主題篩選」時才需要小標顯示，且只列出該首歌「符合本場篩選」的主題
       // （一首歌可能同時屬於多個主題，但只有房主選定的那些才跟這場比賽相關）。
       const matchedThemeNames =
@@ -101,7 +107,8 @@ export async function loadRoomState(joinCode: string): Promise<RoomState | null>
     roundCount: room.songQueue.length,
     currentRoundIndex: room.currentRoundIndex,
     currentQuestion,
-    currentSongVideoId,
+    currentSongSource,
+    currentSongPlaybackId,
     currentSongArtist,
     currentSongThemeLabels,
     revealed: room.revealed,

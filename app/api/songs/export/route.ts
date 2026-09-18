@@ -18,14 +18,18 @@ export async function GET() {
     const rows: SongCsvRow[] = songs.map((s: {
       title: string;
       artist: { name: string };
-      youtubeVideoId: string;
+      youtubeVideoId: string | null;
+      appleMusicTrackId: string | null;
+      appleMusicPreviewUrl: string | null;
       durationSec: number;
       themes: { theme: { name: string } }[];
       lyrics: string;
     }) => ({
       title: s.title,
       artist: s.artist.name,
-      youtubeVideoId: s.youtubeVideoId,
+      youtubeVideoId: s.youtubeVideoId ?? '',
+      appleMusicTrackId: s.appleMusicTrackId ?? '',
+      appleMusicPreviewUrl: s.appleMusicPreviewUrl ?? '',
       durationSec: String(s.durationSec),
       themes: s.themes.map((t) => t.theme.name).join(THEME_LIST_SEPARATOR),
       lyrics: s.lyrics,
