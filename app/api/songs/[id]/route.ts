@@ -7,20 +7,32 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
   try {
     const body = await request.json();
-    const { title, artistId, youtubeVideoId, appleMusicTrackId, appleMusicPreviewUrl, durationSec, lyrics, themeIds } = body;
+    const {
+      title,
+      artistId,
+      youtubeVideoId,
+      appleMusicTrackId,
+      appleMusicPreviewUrl,
+      deezerTrackId,
+      deezerPreviewUrl,
+      durationSec,
+      lyrics,
+      themeIds,
+    } = body;
 
     // 如果這次更新有觸碰到任一播放來源欄位，先確認更新後至少還有一種來源存在，
-    // 避免不小心把兩種來源都清空，讓這首歌變成沒辦法播放。
-    if (youtubeVideoId !== undefined || appleMusicPreviewUrl !== undefined) {
+    // 避免不小心把三種來源都清空，讓這首歌變成沒辦法播放。
+    if (youtubeVideoId !== undefined || appleMusicPreviewUrl !== undefined || deezerPreviewUrl !== undefined) {
       const existing = await prisma.song.findUnique({
         where: { id },
-        select: { youtubeVideoId: true, appleMusicPreviewUrl: true },
+        select: { youtubeVideoId: true, appleMusicPreviewUrl: true, deezerPreviewUrl: true },
       });
       const resultingYoutube = youtubeVideoId !== undefined ? youtubeVideoId : existing?.youtubeVideoId;
       const resultingApple = appleMusicPreviewUrl !== undefined ? appleMusicPreviewUrl : existing?.appleMusicPreviewUrl;
-      if (!resultingYoutube && !resultingApple) {
+      const resultingDeezer = deezerPreviewUrl !== undefined ? deezerPreviewUrl : existing?.deezerPreviewUrl;
+      if (!resultingYoutube && !resultingApple && !resultingDeezer) {
         return NextResponse.json(
-          { error: 'youtubeVideoId／appleMusicPreviewUrl 至少要保留一個，不能兩個都清空' },
+          { error: 'youtubeVideoId／appleMusicPreviewUrl／deezerPreviewUrl 至少要保留一個，不能三個都清空' },
           { status: 400 }
         );
       }
@@ -34,6 +46,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         ...(youtubeVideoId !== undefined ? { youtubeVideoId: youtubeVideoId || null } : {}),
         ...(appleMusicTrackId !== undefined ? { appleMusicTrackId: appleMusicTrackId || null } : {}),
         ...(appleMusicPreviewUrl !== undefined ? { appleMusicPreviewUrl: appleMusicPreviewUrl || null } : {}),
+        ...(deezerTrackId !== undefined ? { deezerTrackId: deezerTrackId || null } : {}),
+        ...(deezerPreviewUrl !== undefined ? { deezerPreviewUrl: deezerPreviewUrl || null } : {}),
         ...(durationSec !== undefined ? { durationSec: Number(durationSec) } : {}),
         ...(lyrics !== undefined ? { lyrics } : {}),
         ...(Array.isArray(themeIds)

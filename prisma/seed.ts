@@ -31,6 +31,8 @@ interface SeedSong {
   youtubeVideoId?: string;
   appleMusicTrackId?: string;
   appleMusicPreviewUrl?: string;
+  deezerTrackId?: string;
+  deezerPreviewUrl?: string;
   durationSec: number;
   lyrics: string;
 }
@@ -62,6 +64,8 @@ async function main() {
         youtubeVideoId: song.youtubeVideoId ?? null,
         appleMusicTrackId: song.appleMusicTrackId ?? null,
         appleMusicPreviewUrl: song.appleMusicPreviewUrl ?? null,
+        deezerTrackId: song.deezerTrackId ?? null,
+        deezerPreviewUrl: song.deezerPreviewUrl ?? null,
         durationSec: song.durationSec,
         lyrics: song.lyrics,
       },

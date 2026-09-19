@@ -792,6 +792,169 @@ function AppleMusicSearchAccordion({ onPick }: { onPick: (result: AppleMusicPref
   );
 }
 
+interface DeezerSearchResult {
+  trackId: string;
+  trackName: string;
+  artistName: string;
+  artworkUrl: string;
+  durationSec: number;
+  previewUrl: string;
+}
+
+interface DeezerPrefill {
+  trackId: string;
+  previewUrl: string;
+  durationSec: number;
+}
+
+/**
+ * 跟 AppleMusicSearchAccordion 同樣的設計，搜尋 Deezer 的試聽來源。這是 Apple Music 目錄
+ * 沒收錄這首歌時的第二層備援（見 resolvePlaybackTarget.ts 的優先序說明），建議先搜過
+ * Apple Music、找不到再來這裡搜，兩個目錄不完全重疊，各自會有對方沒有的冷門/地區限定歌曲。
+ */
+function DeezerSearchAccordion({ onPick }: { onPick: (result: DeezerPrefill) => void }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<DeezerSearchResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pickedTrackId, setPickedTrackId] = useState<string | null>(null);
+  const [previewTrackId, setPreviewTrackId] = useState<string | null>(null);
+
+  async function handleSearch() {
+    if (query.trim().length === 0) return;
+    setPreviewTrackId(null);
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/deezer-search?q=${encodeURIComponent(query.trim())}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? 'Deezer 搜尋失敗');
+        setResults([]);
+        return;
+      }
+      setResults(data.results ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Deezer 搜尋失敗');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{ border: '1px solid var(--groove)', borderRadius: '10px', overflow: 'hidden' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: '100%',
+          textAlign: 'left',
+          padding: '12px 16px',
+          background: 'var(--bg)',
+          border: 'none',
+          color: 'var(--ink)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          cursor: 'pointer',
+          fontSize: '0.95rem',
+        }}
+      >
+        <span>從 Deezer 搜尋試聽來源（Apple Music 找不到時的備援）</span>
+        <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>{open ? '收合 ▲' : '展開 ▼'}</span>
+      </button>
+
+      {open && (
+        <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid var(--groove)' }}>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleSearch();
+                }
+              }}
+              placeholder="搜尋關鍵字，例如「晴天 周杰倫」"
+              style={{ ...inputStyle, flex: 1 }}
+            />
+            <button type="button" onClick={handleSearch} disabled={loading} style={editButtonStyle}>
+              {loading ? '搜尋中…' : '搜尋'}
+            </button>
+          </div>
+          {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
+          {results.length > 0 && (
+            <ul
+              style={{
+                listStyle: 'none',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px',
+                maxHeight: '420px',
+                overflowY: 'auto',
+                overscrollBehavior: 'contain',
+              }}
+            >
+              {results.map((r) => (
+                <li
+                  key={r.trackId}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                    padding: '6px',
+                    borderRadius: '8px',
+                    border: pickedTrackId === r.trackId ? '1px solid var(--accent)' : '1px solid var(--groove)',
+                    background: pickedTrackId === r.trackId ? 'var(--bg-raised)' : 'transparent',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {r.artworkUrl && (
+                      // eslint-disable-next-line @next/next/no-img-element -- 外部 Deezer 封面圖，非本地靜態資源，不適用 next/image 最佳化
+                      <img src={r.artworkUrl} alt="" width={45} height={45} style={{ borderRadius: '4px', flexShrink: 0 }} />
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {r.trackName}
+                      </p>
+                      <p style={{ fontSize: '0.75rem', color: 'var(--ink-dim)' }}>
+                        {r.artistName}
+                        {r.durationSec > 0 && ` · ${formatDuration(r.durationSec)}`}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewTrackId((cur) => (cur === r.trackId ? null : r.trackId))}
+                      style={{ ...editButtonStyle, flexShrink: 0 }}
+                    >
+                      {previewTrackId === r.trackId ? '收起試聽' : '試聽'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPickedTrackId(r.trackId);
+                        onPick({ trackId: r.trackId, previewUrl: r.previewUrl, durationSec: r.durationSec });
+                      }}
+                      style={{ ...editButtonStyle, flexShrink: 0 }}
+                    >
+                      使用
+                    </button>
+                  </div>
+                  {previewTrackId === r.trackId && (
+                    <audio controls autoPlay src={r.previewUrl} style={{ width: '100%' }} />
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface PlaylistSongResult {
   videoId: string;
   title: string;
@@ -870,6 +1033,8 @@ function YouTubePlaylistImportAccordion({ onImported, onNotice }: { onImported: 
           r.title,
           r.artistName.trim() || '(未知歌手)',
           r.videoId,
+          '',
+          '',
           '',
           '',
           String(r.durationSec),
@@ -1048,6 +1213,8 @@ interface SongFormState {
   youtubeVideoId: string;
   appleMusicTrackId: string;
   appleMusicPreviewUrl: string;
+  deezerTrackId: string;
+  deezerPreviewUrl: string;
   durationSec: string;
   lyrics: string;
   themeIds: string[];
@@ -1059,6 +1226,8 @@ const EMPTY_SONG_FORM: SongFormState = {
   youtubeVideoId: '',
   appleMusicTrackId: '',
   appleMusicPreviewUrl: '',
+  deezerTrackId: '',
+  deezerPreviewUrl: '',
   durationSec: '',
   lyrics: '',
   themeIds: [],
@@ -1127,9 +1296,10 @@ function ImportExportBar({
         </button>
         <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleFileChange} style={{ display: 'none' }} />
         <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
-          欄位：title, artist, youtubeVideoId, appleMusicTrackId, appleMusicPreviewUrl, durationSec,
-          themes（用 ; 分隔多個）, lyrics。youtubeVideoId／appleMusicPreviewUrl 至少要有一欄有值。
-          兩者其中一個對到既有資料會被更新；都對不上、但歌名＋歌手都相符時視為重複，會略過不匯入。
+          欄位：title, artist, youtubeVideoId, appleMusicTrackId, appleMusicPreviewUrl, deezerTrackId,
+          deezerPreviewUrl, durationSec, themes（用 ; 分隔多個）, lyrics。youtubeVideoId／
+          appleMusicPreviewUrl／deezerPreviewUrl 至少要有一欄有值。其中一個對到既有資料會被更新；
+          都對不上、但歌名＋歌手都相符時視為重複，會略過不匯入。
         </span>
       </div>
 
@@ -1173,11 +1343,12 @@ function SongSection({
   const [filterThemeId, setFilterThemeId] = useState<string>('');
   const [prefill, setPrefill] = useState<YouTubePrefill | null>(null);
   const [applePrefill, setApplePrefill] = useState<AppleMusicPrefill | null>(null);
+  const [deezerPrefill, setDeezerPrefill] = useState<DeezerPrefill | null>(null);
   // 目前正在試聽的歌曲，一次只展開一個避免畫面雜亂
   const [previewSongId, setPreviewSongId] = useState<string | null>(null);
-  // 試聽時要播哪個來源；兩種來源都有的歌曲可以切換比較，判斷 Apple Music 抓到的版本
+  // 試聽時要播哪個來源；有多種來源的歌曲可以切換比較，判斷 Apple Music／Deezer 抓到的版本
   // 跟 YouTube 上的版本是不是同一個（例如原唱版 vs 重生版/Live版這類差異）
-  const [previewSource, setPreviewSource] = useState<'apple' | 'youtube'>('apple');
+  const [previewSource, setPreviewSource] = useState<'apple' | 'deezer' | 'youtube'>('apple');
 
   function artistName(id: string) {
     return artists.find((a) => a.id === id)?.name ?? '（未知歌手）';
@@ -1207,26 +1378,31 @@ function SongSection({
 
       <AppleMusicSearchAccordion onPick={setApplePrefill} />
 
+      <DeezerSearchAccordion onPick={setDeezerPrefill} />
+
       <YouTubePlaylistImportAccordion onImported={onChanged} onNotice={onNotice} />
 
       <SongForm
-        key={`${editing?.id ?? 'new'}-${artistsKey}-${themesKey}-${prefill?.videoId ?? ''}-${applePrefill?.trackId ?? ''}`}
+        key={`${editing?.id ?? 'new'}-${artistsKey}-${themesKey}-${prefill?.videoId ?? ''}-${applePrefill?.trackId ?? ''}-${deezerPrefill?.trackId ?? ''}`}
         editing={editing}
         artists={artists}
         themes={themes}
         existingSongs={songs}
         prefill={prefill}
         applePrefill={applePrefill}
+        deezerPrefill={deezerPrefill}
         onCancel={() => {
           setEditing(null);
           setPrefill(null);
           setApplePrefill(null);
+          setDeezerPrefill(null);
         }}
         onSaved={(msg) => {
           onNotice(msg);
           setEditing(null);
           setPrefill(null);
           setApplePrefill(null);
+          setDeezerPrefill(null);
           onChanged();
         }}
       />
@@ -1297,8 +1473,9 @@ function SongSection({
                 <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', marginLeft: '8px' }}>
                   {artistName(s.artistId)}
                   {s.appleMusicPreviewUrl && ' · 🍎 Apple Music'}
+                  {s.deezerPreviewUrl && ' · 🎵 Deezer'}
                   {s.youtubeVideoId && ' · ▶ YouTube'}
-                  {!s.appleMusicPreviewUrl && !s.youtubeVideoId && (
+                  {!s.appleMusicPreviewUrl && !s.deezerPreviewUrl && !s.youtubeVideoId && (
                     <span style={{ color: 'var(--error)' }}> · ⚠ 沒有可播放來源</span>
                   )}
                 </span>
@@ -1307,9 +1484,9 @@ function SongSection({
                 <button
                   onClick={() => {
                     setPreviewSongId((cur) => (cur === s.id ? null : s.id));
-                    // 每次重新打開試聽，優先選 Apple Music（沒有的話退回 YouTube），
-                    // 跟資料庫實際播放時的來源優先序一致（見 resolvePlaybackTarget.ts）
-                    setPreviewSource(s.appleMusicPreviewUrl ? 'apple' : 'youtube');
+                    // 每次重新打開試聽，依資料庫實際播放時的來源優先序（見 resolvePlaybackTarget.ts）
+                    // 挑一個目前這首歌有的來源：Apple Music → Deezer → YouTube
+                    setPreviewSource(s.appleMusicPreviewUrl ? 'apple' : s.deezerPreviewUrl ? 'deezer' : 'youtube');
                   }}
                   style={editButtonStyle}
                 >
@@ -1335,49 +1512,90 @@ function SongSection({
                 </button>
               </span>
             </div>
-            {previewSongId === s.id && s.appleMusicPreviewUrl && s.youtubeVideoId && (
-              // 兩種來源都有時才顯示切換鈕，方便核對 Apple Music 抓到的版本跟 YouTube 上的
-              // 是不是同一個版本（原唱 vs 重生版/Live版這類差異，批次查詢時很常遇到）
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  onClick={() => setPreviewSource('apple')}
-                  style={{
-                    ...editButtonStyle,
-                    borderColor: previewSource === 'apple' ? 'var(--accent)' : 'var(--groove)',
-                    color: previewSource === 'apple' ? 'var(--accent)' : 'var(--ink)',
-                  }}
-                >
-                  🍎 Apple Music
-                </button>
-                <button
-                  onClick={() => setPreviewSource('youtube')}
-                  style={{
-                    ...editButtonStyle,
-                    borderColor: previewSource === 'youtube' ? 'var(--accent)' : 'var(--groove)',
-                    color: previewSource === 'youtube' ? 'var(--accent)' : 'var(--ink)',
-                  }}
-                >
-                  ▶ YouTube
-                </button>
-              </div>
-            )}
             {previewSongId === s.id &&
-              (previewSource === 'apple' && s.appleMusicPreviewUrl ? (
-                <audio controls autoPlay src={s.appleMusicPreviewUrl} style={{ width: '100%' }} />
-              ) : s.youtubeVideoId ? (
-                <iframe
-                  width="100%"
-                  height="220"
-                  src={`https://www.youtube.com/embed/${s.youtubeVideoId}?autoplay=1`}
-                  title={s.title}
-                  style={{ border: 'none', borderRadius: '8px' }}
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  referrerPolicy="strict-origin-when-cross-origin"
-                  allowFullScreen
-                />
-              ) : s.appleMusicPreviewUrl ? (
-                <audio controls autoPlay src={s.appleMusicPreviewUrl} style={{ width: '100%' }} />
-              ) : null)}
+              [s.appleMusicPreviewUrl, s.deezerPreviewUrl, s.youtubeVideoId].filter(Boolean).length > 1 && (
+                // 兩種以上來源都有時才顯示切換鈕，方便核對不同平台抓到的版本是不是同一個
+                // （原唱 vs 重生版/Live版這類差異，批次查詢時很常遇到）
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {s.appleMusicPreviewUrl && (
+                    <button
+                      onClick={() => setPreviewSource('apple')}
+                      style={{
+                        ...editButtonStyle,
+                        borderColor: previewSource === 'apple' ? 'var(--accent)' : 'var(--groove)',
+                        color: previewSource === 'apple' ? 'var(--accent)' : 'var(--ink)',
+                      }}
+                    >
+                      🍎 Apple Music
+                    </button>
+                  )}
+                  {s.deezerPreviewUrl && (
+                    <button
+                      onClick={() => setPreviewSource('deezer')}
+                      style={{
+                        ...editButtonStyle,
+                        borderColor: previewSource === 'deezer' ? 'var(--accent)' : 'var(--groove)',
+                        color: previewSource === 'deezer' ? 'var(--accent)' : 'var(--ink)',
+                      }}
+                    >
+                      🎵 Deezer
+                    </button>
+                  )}
+                  {s.youtubeVideoId && (
+                    <button
+                      onClick={() => setPreviewSource('youtube')}
+                      style={{
+                        ...editButtonStyle,
+                        borderColor: previewSource === 'youtube' ? 'var(--accent)' : 'var(--groove)',
+                        color: previewSource === 'youtube' ? 'var(--accent)' : 'var(--ink)',
+                      }}
+                    >
+                      ▶ YouTube
+                    </button>
+                  )}
+                </div>
+              )}
+            {previewSongId === s.id &&
+              (() => {
+                // 依目前選定的來源播放；選定的那個來源這首歌剛好沒有時（例如切換過去但這首歌
+                // 沒有 Deezer 來源），依優先序自動退回下一個可用的，不會顯示空白一片。
+                const source =
+                  previewSource === 'apple' && s.appleMusicPreviewUrl
+                    ? 'apple'
+                    : previewSource === 'deezer' && s.deezerPreviewUrl
+                      ? 'deezer'
+                      : previewSource === 'youtube' && s.youtubeVideoId
+                        ? 'youtube'
+                        : s.appleMusicPreviewUrl
+                          ? 'apple'
+                          : s.deezerPreviewUrl
+                            ? 'deezer'
+                            : s.youtubeVideoId
+                              ? 'youtube'
+                              : null;
+
+                if (source === 'apple') {
+                  return <audio controls autoPlay src={s.appleMusicPreviewUrl!} style={{ width: '100%' }} />;
+                }
+                if (source === 'deezer') {
+                  return <audio controls autoPlay src={s.deezerPreviewUrl!} style={{ width: '100%' }} />;
+                }
+                if (source === 'youtube') {
+                  return (
+                    <iframe
+                      width="100%"
+                      height="220"
+                      src={`https://www.youtube.com/embed/${s.youtubeVideoId}?autoplay=1`}
+                      title={s.title}
+                      style={{ border: 'none', borderRadius: '8px' }}
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      referrerPolicy="strict-origin-when-cross-origin"
+                      allowFullScreen
+                    />
+                  );
+                }
+                return null;
+              })()}
           </li>
         ))}
       </ul>
@@ -1394,6 +1612,7 @@ function SongForm({
   existingSongs,
   prefill,
   applePrefill,
+  deezerPrefill,
   onCancel,
   onSaved,
 }: {
@@ -1403,6 +1622,7 @@ function SongForm({
   existingSongs: Song[];
   prefill: YouTubePrefill | null;
   applePrefill: AppleMusicPrefill | null;
+  deezerPrefill: DeezerPrefill | null;
   onCancel: () => void;
   onSaved: (msg: string) => void;
 }) {
@@ -1414,7 +1634,11 @@ function SongForm({
           youtubeVideoId: prefill?.videoId ?? editing.youtubeVideoId ?? '',
           appleMusicTrackId: applePrefill?.trackId ?? editing.appleMusicTrackId ?? '',
           appleMusicPreviewUrl: applePrefill?.previewUrl ?? editing.appleMusicPreviewUrl ?? '',
-          durationSec: String(prefill?.durationSec ?? applePrefill?.durationSec ?? editing.durationSec),
+          deezerTrackId: deezerPrefill?.trackId ?? editing.deezerTrackId ?? '',
+          deezerPreviewUrl: deezerPrefill?.previewUrl ?? editing.deezerPreviewUrl ?? '',
+          durationSec: String(
+            prefill?.durationSec ?? applePrefill?.durationSec ?? deezerPrefill?.durationSec ?? editing.durationSec
+          ),
           lyrics: editing.lyrics,
           themeIds: editing.themeIds,
         }
@@ -1424,11 +1648,15 @@ function SongForm({
           youtubeVideoId: prefill?.videoId ?? '',
           appleMusicTrackId: applePrefill?.trackId ?? '',
           appleMusicPreviewUrl: applePrefill?.previewUrl ?? '',
+          deezerTrackId: deezerPrefill?.trackId ?? '',
+          deezerPreviewUrl: deezerPrefill?.previewUrl ?? '',
           durationSec: prefill?.durationSec
             ? String(prefill.durationSec)
             : applePrefill?.durationSec
               ? String(applePrefill.durationSec)
-              : '',
+              : deezerPrefill?.durationSec
+                ? String(deezerPrefill.durationSec)
+                : '',
         }
   );
   // 下拉選單選到「+ 新增歌手…」時，改用這個文字輸入直接打字建立新歌手，
@@ -1445,12 +1673,18 @@ function SongForm({
     const youtubeVideoId = form.youtubeVideoId.trim();
     const appleMusicTrackId = form.appleMusicTrackId.trim();
     const appleMusicPreviewUrl = form.appleMusicPreviewUrl.trim();
+    const deezerTrackId = form.deezerTrackId.trim();
+    const deezerPreviewUrl = form.deezerPreviewUrl.trim();
 
     // 缺漏檢查：先擋掉基本必填欄位，避免漏填就送出（例如剛剛的 key 重複問題就是資料沒檢查乾淨造成的連鎖症狀）。
-    // YouTube／Apple Music 兩種來源至少要有一個，不強制兩個都填——建議優先填 Apple Music
-    // （控制中心不會洩漏歌名，見 AppleMusicSearchAccordion 上方的說明），但沒有硬性要求。
-    if (title.length === 0 || !form.artistId || (youtubeVideoId.length === 0 && appleMusicPreviewUrl.length === 0)) {
-      setFormError('歌名、歌手為必填，且 YouTube videoId／Apple Music 試聽網址至少要有一個');
+    // YouTube／Apple Music／Deezer 三種來源至少要有一個，不強制全部都填——建議優先填 Apple Music
+    // 或 Deezer（控制中心不會洩漏歌名，見 AppleMusicSearchAccordion 上方的說明），但沒有硬性要求。
+    if (
+      title.length === 0 ||
+      !form.artistId ||
+      (youtubeVideoId.length === 0 && appleMusicPreviewUrl.length === 0 && deezerPreviewUrl.length === 0)
+    ) {
+      setFormError('歌名、歌手為必填，且 YouTube videoId／Apple Music／Deezer 試聽網址至少要有一個');
       return;
     }
     if (form.artistId === NEW_ARTIST_OPTION && newArtistName.trim().length === 0) {
@@ -1464,7 +1698,7 @@ function SongForm({
       return;
     }
 
-    // 重複檢查：同一個播放來源（YouTube 影片或 Apple Music 試聽）已經收錄過（不論掛在哪位歌手底下），
+    // 重複檢查：同一個播放來源已經收錄過（不論掛在哪位歌手底下），
     // 或同一位歌手底下已經有同名歌曲，都視為重複，擋下並提示，不靜默覆蓋或重複新增。
     const otherSongs = existingSongs.filter((s) => s.id !== editing?.id);
     const duplicateVideo = youtubeVideoId
@@ -1479,6 +1713,13 @@ function SongForm({
       : undefined;
     if (duplicateApple) {
       setFormError(`此 Apple Music 試聽片段已經收錄在題庫中（《${duplicateApple.title}》），請確認是否重複`);
+      return;
+    }
+    const duplicateDeezer = deezerPreviewUrl
+      ? otherSongs.find((s) => s.deezerPreviewUrl === deezerPreviewUrl)
+      : undefined;
+    if (duplicateDeezer) {
+      setFormError(`此 Deezer 試聽片段已經收錄在題庫中（《${duplicateDeezer.title}》），請確認是否重複`);
       return;
     }
     if (form.artistId !== NEW_ARTIST_OPTION) {
@@ -1507,6 +1748,8 @@ function SongForm({
       youtubeVideoId: youtubeVideoId || undefined,
       appleMusicTrackId: appleMusicTrackId || undefined,
       appleMusicPreviewUrl: appleMusicPreviewUrl || undefined,
+      deezerTrackId: deezerTrackId || undefined,
+      deezerPreviewUrl: deezerPreviewUrl || undefined,
       durationSec,
       lyrics: form.lyrics,
       themeIds: form.themeIds,
@@ -1572,9 +1815,23 @@ function SongForm({
       </div>
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         <input
+          value={form.deezerPreviewUrl}
+          onChange={(e) => setForm((f) => ({ ...f, deezerPreviewUrl: e.target.value }))}
+          placeholder="Deezer 試聽網址（Apple Music 找不到時的備援，或由上方搜尋帶入）"
+          style={{ ...inputStyle, flex: 2, minWidth: '200px' }}
+        />
+        <input
+          value={form.deezerTrackId}
+          onChange={(e) => setForm((f) => ({ ...f, deezerTrackId: e.target.value }))}
+          placeholder="Deezer track id（選填，供之後重新查詢核對用）"
+          style={{ ...inputStyle, flex: 1, minWidth: '140px' }}
+        />
+      </div>
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <input
           value={form.youtubeVideoId}
           onChange={(e) => setForm((f) => ({ ...f, youtubeVideoId: e.target.value }))}
-          placeholder="YouTube videoId（非完整網址，或由上方搜尋帶入；沒有 Apple Music 來源時為必填）"
+          placeholder="YouTube videoId（非完整網址，或由上方搜尋帶入；其他來源都沒有時為必填）"
           style={{ ...inputStyle, flex: 2, minWidth: '160px' }}
         />
         <input

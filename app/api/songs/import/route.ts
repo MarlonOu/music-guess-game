@@ -12,11 +12,11 @@ interface ImportRowResult {
 
 // POST /api/songs/import → 匯入 CSV（純文字 body，Content-Type: text/csv）
 // 去重規則：
-// 1. youtubeVideoId 或 appleMusicPreviewUrl 其中一個對上既有資料，視為同一首歌，
+// 1. youtubeVideoId／appleMusicPreviewUrl／deezerPreviewUrl 其中一個對上既有資料，視為同一首歌，
 //    已存在就更新其餘欄位，不存在才新增；
-// 2. 兩者都對不上時，再比對「歌名 + 歌手」（不分大小寫、去頭尾空白）——
+// 2. 三者都對不上時，再比對「歌名 + 歌手」（不分大小寫、去頭尾空白）——
 //    這是為了抓出「同一首歌被上傳成不同來源」的情況（重新上傳、MV 版跟歌詞版、
-//    或原本只有 YouTube 這次補上 Apple Music 等），避免因為來源不同就被誤判成兩首不同的歌，
+//    或原本只有 YouTube 這次補上 Apple Music/Deezer 等），避免因為來源不同就被誤判成兩首不同的歌，
 //    題庫裡出現重複。比對歌名時一併要求歌手也相符，避免不同歌手的同名歌曲被誤判成重複。
 //    比對到的話標記為 duplicate 並跳過，不自動覆蓋既有資料，由管理者自行決定是否要手動處理
 //    （可能是想保留原本的版本，或想手動補上另一種來源）。
@@ -103,16 +103,18 @@ export async function POST(request: NextRequest) {
       const youtubeVideoId = (row.youtubeVideoId ?? '').trim();
       const appleMusicTrackId = (row.appleMusicTrackId ?? '').trim();
       const appleMusicPreviewUrl = (row.appleMusicPreviewUrl ?? '').trim();
+      const deezerTrackId = (row.deezerTrackId ?? '').trim();
+      const deezerPreviewUrl = (row.deezerPreviewUrl ?? '').trim();
       const durationSec = Number(row.durationSec) || 0;
       const lyrics = row.lyrics ?? '';
       const themesCell = row.themes ?? '';
 
-      if (!title || !artistName || (!youtubeVideoId && !appleMusicPreviewUrl)) {
+      if (!title || !artistName || (!youtubeVideoId && !appleMusicPreviewUrl && !deezerPreviewUrl)) {
         results.push({
           row: rowNumber,
           title: title || '(空白)',
           status: 'error',
-          error: '缺少必要欄位（title、artist，並且 youtubeVideoId／appleMusicPreviewUrl 至少要有一個）',
+          error: '缺少必要欄位（title、artist，並且 youtubeVideoId／appleMusicPreviewUrl／deezerPreviewUrl 至少要有一個）',
         });
         continue;
       }
@@ -130,6 +132,7 @@ export async function POST(request: NextRequest) {
             OR: [
               ...(youtubeVideoId ? [{ youtubeVideoId }] : []),
               ...(appleMusicPreviewUrl ? [{ appleMusicPreviewUrl }] : []),
+              ...(deezerPreviewUrl ? [{ deezerPreviewUrl }] : []),
             ],
           },
         });
@@ -146,6 +149,8 @@ export async function POST(request: NextRequest) {
               ...(youtubeVideoId ? { youtubeVideoId } : {}),
               ...(appleMusicTrackId ? { appleMusicTrackId } : {}),
               ...(appleMusicPreviewUrl ? { appleMusicPreviewUrl } : {}),
+              ...(deezerTrackId ? { deezerTrackId } : {}),
+              ...(deezerPreviewUrl ? { deezerPreviewUrl } : {}),
               themes: { deleteMany: {}, create: themeIds.map((themeId) => ({ themeId })) },
             },
           });
@@ -175,6 +180,8 @@ export async function POST(request: NextRequest) {
             youtubeVideoId: youtubeVideoId || null,
             appleMusicTrackId: appleMusicTrackId || null,
             appleMusicPreviewUrl: appleMusicPreviewUrl || null,
+            deezerTrackId: deezerTrackId || null,
+            deezerPreviewUrl: deezerPreviewUrl || null,
             durationSec,
             lyrics,
             themes: themeIds.length > 0 ? { create: themeIds.map((themeId) => ({ themeId })) } : undefined,

@@ -41,7 +41,7 @@ export interface RoomState {
    * null 代表沒有可播放的音源（不應該發生，後台表單與匯入都要求至少一種來源存在，
    * 純粹防呆；也可能是 currentQuestion 本身是純文字歌詞題，不需要播放音訊）。
    */
-  currentSongSource: 'youtube' | 'apple' | null;
+  currentSongSource: 'youtube' | 'apple' | 'deezer' | null;
   currentSongPlaybackId: string | null;
   /**
    * 目前這題答案歌手名稱；跟 currentQuestion.correctTitle 一樣，revealed 為 false 時會被伺服器端遮蔽為 null，

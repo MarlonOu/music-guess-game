@@ -9,8 +9,12 @@ export interface Song {
   youtubeVideoId?: string;
   /** iTunes/Apple Music 的 track id，供重新查詢／核對用；實際播放不用這個欄位 */
   appleMusicTrackId?: string;
-  /** Apple Music 官方 30 秒試聽片段的直接可播放網址，播放時優先使用這個來源 */
+  /** Apple Music 官方 30 秒試聽片段的直接可播放網址，播放時第一優先使用這個來源 */
   appleMusicPreviewUrl?: string;
+  /** Deezer 的 track id，供重新查詢／核對用；實際播放不用這個欄位 */
+  deezerTrackId?: string;
+  /** Deezer 官方 30 秒試聽片段的直接可播放網址，Apple Music 沒有這首歌時的第二優先來源 */
+  deezerPreviewUrl?: string;
   durationSec: number;
   lyrics: string;
   createdAt: string;

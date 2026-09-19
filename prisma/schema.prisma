@@ -26,20 +26,28 @@ model Song {
   artist          Artist   @relation(fields: [artistId], references: [id])
   /// @deprecated 播放已改用 YouTube IFrame Player（見 youtubeVideoId），保留供未來自架 CDN 音檔備援方案使用
   audioUrl        String?  @map("audio_url")
-  /// YouTube 影片 ID（非完整網址），例如 "dQw4w9WgXcQ"。改為 optional：一首歌可以只有
-  /// Apple Music 來源、只有 YouTube 來源、或兩者都有，播放時依 AudioController 的來源優先序
-  /// （優先 Apple Music，因為是同源的 <audio> 元素、不會有控制中心洩漏答案的問題）挑一個可用的播放。
+  /// YouTube 影片 ID（非完整網址），例如 "dQw4w9WgXcQ"。改為 optional：一首歌可以只有部分來源，
+  /// 播放時依 AudioController 的來源優先序（Apple Music → Deezer → YouTube，前兩者是同源的
+  /// <audio> 元素、不會有控制中心洩漏答案的問題，YouTube 是最後的退回選項）挑一個可用的播放。
   /// 應用層（後台表單、CSV 匯入）需確保至少有一種來源存在，不強制在資料庫層做 CHECK 約束。
   youtubeVideoId  String?  @map("youtube_video_id")
-  /// iTunes/Apple Music 的 track id，供之後用 tools/fetch-apple-previews 之類的腳本重新查詢／
+  /// iTunes/Apple Music 的 track id，供之後用 scripts/fetch-apple-previews.mjs 之類的腳本重新查詢／
   /// 核對用；實際播放不用這個欄位，播放用的是 appleMusicPreviewUrl。
   appleMusicTrackId    String? @map("apple_music_track_id")
   /// Apple Music 官方 30 秒試聽片段的直接可播放網址（.m4a），透過 iTunes Search API 取得。
-  /// 這是「音源:Apple Music 官方試聽」模式的核心欄位：瀏覽器用原生 <audio> 元素直接串流這個
-  /// 網址播放，屬於使用者頁面的同源內容，不像 YouTube IFrame 是跨網域的第三方播放器，
-  /// 因此可以正常設定／隱藏系統的正在播放資訊（Media Session），不會被手機/電腦控制中心
-  /// 顯示出真正的歌名而洩漏答案。沒有下載或儲存音檔本體，純粹即時從 Apple 的伺服器串流。
+  /// 這是第一優先的播放來源：瀏覽器用原生 <audio> 元素直接串流這個網址播放，屬於使用者頁面的
+  /// 同源內容，不像 YouTube IFrame 是跨網域的第三方播放器，因此可以正常設定／隱藏系統的正在
+  /// 播放資訊（Media Session），不會被手機/電腦控制中心顯示出真正的歌名而洩漏答案。
+  /// 沒有下載或儲存音檔本體，純粹即時從 Apple 的伺服器串流。
   appleMusicPreviewUrl String? @map("apple_music_preview_url")
+  /// Deezer 的 track id，供重新查詢／核對用；實際播放不用這個欄位，播放用的是 deezerPreviewUrl。
+  deezerTrackId    String? @map("deezer_track_id")
+  /// Deezer 官方 30 秒試聽片段的直接可播放網址（.mp3），透過 Deezer 公開搜尋 API 取得（不需要
+  /// 金鑰）。第二優先的播放來源（Apple Music 沒有這首歌時的備援）：原理跟 appleMusicPreviewUrl
+  /// 完全一樣，一樣是同源 <audio> 元素播放，一樣不會有控制中心洩漏答案的問題，純粹是多一個
+  /// 目錄來源，提高「至少有一個非 YouTube 來源」的覆蓋率（Apple Music 目錄沒有的冷門/地區
+  /// 限定歌曲，Deezer 有時候收錄得到）。
+  deezerPreviewUrl String? @map("deezer_preview_url")
   durationSec     Int      @map("duration_sec")
   lyrics          String
   createdAt       DateTime @default(now()) @map("created_at")

@@ -10,6 +10,8 @@ function toSong(row: {
   youtubeVideoId: string | null;
   appleMusicTrackId: string | null;
   appleMusicPreviewUrl: string | null;
+  deezerTrackId: string | null;
+  deezerPreviewUrl: string | null;
   durationSec: number;
   lyrics: string;
   createdAt: Date;
@@ -23,6 +25,8 @@ function toSong(row: {
     youtubeVideoId: row.youtubeVideoId ?? undefined,
     appleMusicTrackId: row.appleMusicTrackId ?? undefined,
     appleMusicPreviewUrl: row.appleMusicPreviewUrl ?? undefined,
+    deezerTrackId: row.deezerTrackId ?? undefined,
+    deezerPreviewUrl: row.deezerPreviewUrl ?? undefined,
     durationSec: row.durationSec,
     lyrics: row.lyrics,
     createdAt: row.createdAt.toISOString(),
@@ -64,14 +68,28 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { title, artistId, youtubeVideoId, appleMusicTrackId, appleMusicPreviewUrl, durationSec, lyrics, themeIds } = body;
+    const {
+      title,
+      artistId,
+      youtubeVideoId,
+      appleMusicTrackId,
+      appleMusicPreviewUrl,
+      deezerTrackId,
+      deezerPreviewUrl,
+      durationSec,
+      lyrics,
+      themeIds,
+    } = body;
 
-    // 至少要有一種可播放來源（YouTube 影片 id 或 Apple Music 試聽網址），兩者缺一不可全無，
-    // 否則這首歌進了題庫也沒辦法播放。優先建議填 Apple Music（見 resolvePlaybackTarget.ts
-    // 說明的控制中心洩漏問題），但沒有強制要求一定要有 Apple Music 來源，維持彈性。
-    if (!title || !artistId || (!youtubeVideoId && !appleMusicPreviewUrl)) {
+    // 至少要有一種可播放來源（YouTube／Apple Music／Deezer 三選一以上），不可全無，
+    // 否則這首歌進了題庫也沒辦法播放。優先建議填 Apple Music 或 Deezer（見
+    // resolvePlaybackTarget.ts 說明的控制中心洩漏問題），但沒有強制要求一定要有，維持彈性。
+    if (!title || !artistId || (!youtubeVideoId && !appleMusicPreviewUrl && !deezerPreviewUrl)) {
       return NextResponse.json(
-        { error: '缺少必要欄位（title、artistId，並且 youtubeVideoId／appleMusicPreviewUrl 至少要有一個）' },
+        {
+          error:
+            '缺少必要欄位（title、artistId，並且 youtubeVideoId／appleMusicPreviewUrl／deezerPreviewUrl 至少要有一個）',
+        },
         { status: 400 }
       );
     }
@@ -84,6 +102,8 @@ export async function POST(request: NextRequest) {
         youtubeVideoId: youtubeVideoId || null,
         appleMusicTrackId: appleMusicTrackId || null,
         appleMusicPreviewUrl: appleMusicPreviewUrl || null,
+        deezerTrackId: deezerTrackId || null,
+        deezerPreviewUrl: deezerPreviewUrl || null,
         durationSec: Number(durationSec) || 0,
         lyrics: lyrics ?? '',
         themes: Array.isArray(themeIds) && themeIds.length > 0

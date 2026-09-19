@@ -96,7 +96,7 @@ export default function DebugAudioPage() {
         <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem', letterSpacing: '0.1em' }}>
           DEBUG
         </span>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '1.5rem' }}>播放測試（YouTube／Apple Music）</h1>
+        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '1.5rem' }}>播放測試（YouTube／Apple Music／Deezer）</h1>
       </header>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', maxWidth: '360px' }}>
@@ -125,16 +125,38 @@ export default function DebugAudioPage() {
           >
             Apple Music
           </button>
+          <button
+            onClick={() => handleSourceChange('deezer')}
+            style={{
+              ...inputStyle,
+              flex: 1,
+              cursor: 'pointer',
+              borderColor: source === 'deezer' ? 'var(--accent)' : 'var(--groove)',
+              color: source === 'deezer' ? 'var(--accent)' : 'var(--ink)',
+            }}
+          >
+            Deezer
+          </button>
         </div>
 
         <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
           <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
-            {source === 'youtube' ? 'YouTube videoId（非完整網址）' : 'Apple Music 試聽片段網址（appleMusicPreviewUrl）'}
+            {source === 'youtube'
+              ? 'YouTube videoId（非完整網址）'
+              : source === 'apple'
+                ? 'Apple Music 試聽片段網址（appleMusicPreviewUrl）'
+                : 'Deezer 試聽片段網址（deezerPreviewUrl）'}
           </span>
           <input
             value={idOrUrl}
             onChange={(e) => handleIdOrUrlChange(e.target.value.trim())}
-            placeholder={source === 'youtube' ? '例如 dQw4w9WgXcQ' : '例如 https://audio-ssl.itunes.apple.com/.../preview.m4a'}
+            placeholder={
+              source === 'youtube'
+                ? '例如 dQw4w9WgXcQ'
+                : source === 'apple'
+                  ? '例如 https://audio-ssl.itunes.apple.com/.../preview.m4a'
+                  : '例如 https://cdns-preview-x.dzcdn.net/stream/....mp3'
+            }
             style={inputStyle}
           />
         </label>

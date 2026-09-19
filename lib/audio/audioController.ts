@@ -13,11 +13,11 @@ export type AudioLoadState = 'idle' | 'loading' | 'ready' | 'error';
 export type AudioPlaybackStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'finished' | 'error';
 
 /**
- * 播放來源。'apple' 優先於 'youtube'——理由見 lib/audio/resolvePlaybackTarget.ts 的說明，
- * 核心是 Apple Music 試聽用同源 <audio> 元素播放，不像 YouTube IFrame 是跨網域的第三方播放器，
- * 不會有控制中心洩漏歌名答案的問題。
+ * 播放來源。優先序 'apple' → 'deezer' → 'youtube'——理由見 lib/audio/resolvePlaybackTarget.ts，
+ * 核心是 Apple Music／Deezer 試聽都用同源 <audio> 元素播放，不像 YouTube IFrame 是跨網域的
+ * 第三方播放器，不會有控制中心洩漏答案的問題；Deezer 是 Apple Music 目錄沒收錄時的第二層備援。
  */
-export type AudioSource = 'apple' | 'youtube';
+export type AudioSource = 'apple' | 'deezer' | 'youtube';
 
 // YouTube IFrame Player API 為第三方全域腳本注入的型別，官方未提供正式型別套件對應此版本，
 // 故以最小必要介面自行宣告，避免引入未經審核的第三方型別定義。
@@ -132,7 +132,7 @@ function waitForYT(): Promise<void> {
 
 export class AudioController {
   private player: YouTubePlayer | null = null;
-  /** Apple Music 試聽片段用的原生 <audio> 元素；跟 YT.Player 是兩條平行的播放路徑 */
+  /** Apple Music／Deezer 試聽片段用的原生 <audio> 元素；跟 YT.Player 是兩條平行的播放路徑 */
   private audioEl: HTMLAudioElement | null = null;
   /** 目前這次播放實際用的是哪個來源，pause()／stop() 等方法需要知道要操作哪一邊 */
   private activeSource: AudioSource | null = null;
@@ -189,8 +189,8 @@ export class AudioController {
    * YouTube 自己回報的曲名（如果瀏覽器認定「實際播放媒體的那個 iframe 文件」才是媒體資訊來源，
    * 我們這邊的設定就蓋不掉，這是跨網域 iframe 的技術限制，前端沒有辦法完全繞過）。
    *
-   * 對 Apple Music 來源：播放用的是我們自己頁面裡的原生 <audio> 元素（同源，不是第三方 iframe），
-   * 這裡的設定會真正生效、可靠地蓋掉曲名——這正是優先選用 Apple Music 來源的核心理由。
+   * 對 Apple Music／Deezer 來源：播放用的是我們自己頁面裡的原生 <audio> 元素（同源，不是第三方
+   * iframe），這裡的設定會真正生效、可靠地蓋掉曲名——這正是優先選用這兩個來源的核心理由。
    */
   private updateMediaSession(playbackState: 'playing' | 'paused' | 'none'): void {
     if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
@@ -221,7 +221,7 @@ export class AudioController {
    * 於是直接擋下播放。呼叫端應在玩家進入遊戲畫面、但還沒點下第一次播放前就呼叫這個方法暖機，
    * 之後玩家實際點擊播放時，播放器已經就緒，playVideo() 幾乎瞬間完成，落在手勢有效期內。
    *
-   * 只暖機 YouTube 這端：Apple Music 用的原生 <audio> 元素建立是同步、瞬間完成的
+   * 只暖機 YouTube 這端：Apple Music／Deezer 用的原生 <audio> 元素建立是同步、瞬間完成的
    * （new Audio() 不需要等任何非同步腳本載入），不存在「暖機」這個問題，不用特別處理。
    *
    * 失敗時只記錄 log、不拋出例外、也不改變 loadState／status——暖機失敗不該讓玩家看到任何錯誤畫面，
@@ -243,8 +243,8 @@ export class AudioController {
    * 這個方法要在真正的使用者互動（例如按鈕的 onClick／表單 onSubmit）裡、還沒有任何 await 之前
    * 的第一行呼叫，才能確保這次呼叫仍落在瀏覽器認定的「使用者手勢有效期」內。
    *
-   * 同時解鎖 YouTube 與 Apple Music 兩條播放路徑，因為呼叫當下還不知道等一下實際會播到
-   * 哪個來源的歌（取決於題庫裡這首歌有沒有 Apple Music 試聽），兩邊都先解鎖比較保險。
+   * 同時解鎖 YouTube 與原生 <audio>（Apple Music／Deezer 共用）兩條播放路徑，因為呼叫當下
+   * 還不知道等一下實際會播到哪個來源的歌，兩邊都先解鎖比較保險。
    *
    * YouTube 這端做法：實際載入一小段極短的公開影片並播放、幾乎立刻暫停（且靜音），讓瀏覽器把
    * 「這個播放器實例」標記為已獲得播放授權——之後同一個實例即使是被 setInterval 這類非使用者
@@ -252,7 +252,8 @@ export class AudioController {
    * 也採用類似做法）。影片本身選用 YouTube 上第一支公開影片（jNQXAC9IVRw，長期穩定存在），
    * 純粹作為技術性的播放觸發用途，播放時間極短且音量歸零，使用者不會聽到。
    *
-   * Apple Music 這端做法：原生 <audio> 元素一樣需要在使用者手勢當下播放過一次才能解鎖，
+   * 原生 <audio> 這端做法：Apple Music／Deezer 共用同一個元素，一樣需要在使用者手勢當下
+   * 播放過一次才能解鎖，
    * 用一小段純合成的靜音音檔（不含任何受著作權保護的內容）播放、立刻暫停即可，
    * 不像 YouTube 需要先等 IFrame API script 載入完成，這段幾乎是瞬間完成。
    *
@@ -387,7 +388,8 @@ export class AudioController {
   }
 
   /**
-   * 建立（或找到既有的）原生 <audio> 元素，供 Apple Music 試聽片段播放使用。
+   * 建立（或找到既有的）原生 <audio> 元素，供 Apple Music／Deezer 試聽片段播放使用
+   * （兩者都是直接可播放的音檔網址，走同一條播放路徑，只是網址來源不同）。
    * 跟 YT.Player 不同，這個元素完全在我們自己的掌控中（同源），不用擔心跟 React 的虛擬 DOM
    * 衝突（不透過 React 渲染，也不會被 YouTube API 那種「整個換成 iframe」的方式操作），
    * 建立本身也是同步、瞬間完成，不需要暖機。
@@ -397,16 +399,16 @@ export class AudioController {
       const audio = new Audio();
       audio.preload = 'auto';
       audio.addEventListener('ended', () => {
-        if (this.activeSource === 'apple' && this.playing) this.finishPlayback();
+        if (this.activeSource !== 'youtube' && this.playing) this.finishPlayback();
       });
       audio.addEventListener('error', () => {
-        if (this.activeSource !== 'apple') return;
-        console.error('[AudioController] <audio> 播放 Apple Music 試聽失敗，src=', audio.src);
+        if (this.activeSource === 'youtube' || this.activeSource === null) return;
+        console.error(`[AudioController] <audio> 播放 ${this.activeSource} 試聽失敗，src=`, audio.src);
         this.loadState = 'error';
         this.playing = false;
         this.setStatus('error');
         if (this.pendingPlayResult) {
-          this.pendingPlayResult.reject(new Error('Apple Music 試聽片段載入失敗'));
+          this.pendingPlayResult.reject(new Error('試聽片段載入失敗'));
           this.pendingPlayResult = null;
         }
       });
@@ -473,18 +475,19 @@ export class AudioController {
 
   /** 依 activeSource 暫停對應的播放器，pause()／stop()／finishPlayback() 共用 */
   private pauseActiveSource(): void {
-    if (this.activeSource === 'apple') {
-      this.audioEl?.pause();
-    } else {
+    if (this.activeSource === 'youtube') {
       this.safeCallPlayer('pauseVideo');
+    } else {
+      this.audioEl?.pause();
     }
   }
 
   /**
    * 播放指定來源的音訊片段。
    * - source='youtube'：idOrUrl 是 YouTube 影片 id，startSec/durationSec 是相對於完整影片的秒數。
-   * - source='apple'：idOrUrl 是 Apple Music 試聽片段的直接可播放網址（appleMusicPreviewUrl）。
-   *   Apple 官方試聽是固定長度（通常 30 秒上下）的片段，不像 YouTube 完整影片可以任意指定
+   * - source='apple'／'deezer'：idOrUrl 是官方試聽片段的直接可播放網址
+   *   （appleMusicPreviewUrl／deezerPreviewUrl），兩者走同一條原生 <audio> 播放路徑。
+   *   官方試聽都是固定長度（通常 30 秒上下）的片段，不像 YouTube 完整影片可以任意指定
    *   開始秒數；呼叫端（見 lib/audio/resolvePlaybackTarget.ts）已經把這個限制考慮進去，
    *   這裡單純負責把收到的 startSec/durationSec 套用在這個 <audio> 元素上。
    *
@@ -505,11 +508,11 @@ export class AudioController {
     if (this.activeSource && this.activeSource !== source) this.pauseActiveSource();
     this.activeSource = source;
 
-    if (source === 'apple') {
-      await this.playApple(idOrUrl, startSec, durationSec);
+    if (source === 'youtube') {
+      await this.playYoutube(idOrUrl, startSec, durationSec);
       return;
     }
-    await this.playYoutube(idOrUrl, startSec, durationSec);
+    await this.playNativeAudio(idOrUrl, startSec, durationSec);
   }
 
   /**
@@ -562,10 +565,11 @@ export class AudioController {
   }
 
   /**
-   * 播放 Apple Music 試聽片段。相較 YouTube 路徑單純很多：不用等任何非同步腳本載入、
+   * 播放 Apple Music／Deezer 試聽片段。相較 YouTube 路徑單純很多：不用等任何非同步腳本載入、
    * 不用透過 postMessage 跟 iframe 溝通，直接操作原生 <audio> 元素的標準 API 即可。
+   * 兩個來源的試聽網址性質完全一樣（都是直接可播放的音檔網址），共用同一套邏輯。
    */
-  private async playApple(previewUrl: string, startSec: number, durationSec?: number): Promise<void> {
+  private async playNativeAudio(previewUrl: string, startSec: number, durationSec?: number): Promise<void> {
     try {
       const audio = this.ensureAudioElement();
       if (audio.src !== previewUrl) {
@@ -596,7 +600,7 @@ export class AudioController {
       this.setStatus('playing');
       this.updateMediaSession('playing');
     } catch (err) {
-      console.error('[AudioController] playApple() 失敗：', err);
+      console.error('[AudioController] playNativeAudio() 失敗：', err);
       this.loadState = 'error';
       this.playing = false;
       this.setStatus('error');
@@ -624,14 +628,14 @@ export class AudioController {
    */
   resume(): void {
     if (this.playing || this.loadState !== 'ready') return;
-    if (this.activeSource === 'apple') {
+    if (this.activeSource === 'youtube') {
+      if (!this.player) return;
+      this.safeCallPlayer('playVideo');
+    } else {
       if (!this.audioEl) return;
       this.audioEl.play().catch((err) => {
         console.warn('[AudioController] resume() 的 <audio>.play() 失敗：', err);
       });
-    } else {
-      if (!this.player) return;
-      this.safeCallPlayer('playVideo');
     }
     this.playing = true;
     this.armStopTimer();

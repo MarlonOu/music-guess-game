@@ -63,7 +63,7 @@ export async function loadRoomState(joinCode: string): Promise<RoomState | null>
   if (!room) return null;
 
   let currentQuestion: QuestionPayload | null = null;
-  let currentSongSource: 'youtube' | 'apple' | null = null;
+  let currentSongSource: 'youtube' | 'apple' | 'deezer' | null = null;
   let currentSongPlaybackId: string | null = null;
   let currentSongArtist: string | null = null;
   let currentSongThemeLabels: string[] = [];
