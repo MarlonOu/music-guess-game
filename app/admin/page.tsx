@@ -1175,6 +1175,9 @@ function SongSection({
   const [applePrefill, setApplePrefill] = useState<AppleMusicPrefill | null>(null);
   // 目前正在試聽的歌曲，一次只展開一個避免畫面雜亂
   const [previewSongId, setPreviewSongId] = useState<string | null>(null);
+  // 試聽時要播哪個來源；兩種來源都有的歌曲可以切換比較，判斷 Apple Music 抓到的版本
+  // 跟 YouTube 上的版本是不是同一個（例如原唱版 vs 重生版/Live版這類差異）
+  const [previewSource, setPreviewSource] = useState<'apple' | 'youtube'>('apple');
 
   function artistName(id: string) {
     return artists.find((a) => a.id === id)?.name ?? '（未知歌手）';
@@ -1302,7 +1305,12 @@ function SongSection({
               </span>
               <span style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
                 <button
-                  onClick={() => setPreviewSongId((cur) => (cur === s.id ? null : s.id))}
+                  onClick={() => {
+                    setPreviewSongId((cur) => (cur === s.id ? null : s.id));
+                    // 每次重新打開試聽，優先選 Apple Music（沒有的話退回 YouTube），
+                    // 跟資料庫實際播放時的來源優先序一致（見 resolvePlaybackTarget.ts）
+                    setPreviewSource(s.appleMusicPreviewUrl ? 'apple' : 'youtube');
+                  }}
                   style={editButtonStyle}
                 >
                   {previewSongId === s.id ? '收起試聽' : '試聽'}
@@ -1327,21 +1335,49 @@ function SongSection({
                 </button>
               </span>
             </div>
-            {previewSongId === s.id && s.appleMusicPreviewUrl && (
-              <audio controls autoPlay src={s.appleMusicPreviewUrl} style={{ width: '100%' }} />
+            {previewSongId === s.id && s.appleMusicPreviewUrl && s.youtubeVideoId && (
+              // 兩種來源都有時才顯示切換鈕，方便核對 Apple Music 抓到的版本跟 YouTube 上的
+              // 是不是同一個版本（原唱 vs 重生版/Live版這類差異，批次查詢時很常遇到）
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  onClick={() => setPreviewSource('apple')}
+                  style={{
+                    ...editButtonStyle,
+                    borderColor: previewSource === 'apple' ? 'var(--accent)' : 'var(--groove)',
+                    color: previewSource === 'apple' ? 'var(--accent)' : 'var(--ink)',
+                  }}
+                >
+                  🍎 Apple Music
+                </button>
+                <button
+                  onClick={() => setPreviewSource('youtube')}
+                  style={{
+                    ...editButtonStyle,
+                    borderColor: previewSource === 'youtube' ? 'var(--accent)' : 'var(--groove)',
+                    color: previewSource === 'youtube' ? 'var(--accent)' : 'var(--ink)',
+                  }}
+                >
+                  ▶ YouTube
+                </button>
+              </div>
             )}
-            {previewSongId === s.id && !s.appleMusicPreviewUrl && s.youtubeVideoId && (
-              <iframe
-                width="100%"
-                height="220"
-                src={`https://www.youtube.com/embed/${s.youtubeVideoId}?autoplay=1`}
-                title={s.title}
-                style={{ border: 'none', borderRadius: '8px' }}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                referrerPolicy="strict-origin-when-cross-origin"
-                allowFullScreen
-              />
-            )}
+            {previewSongId === s.id &&
+              (previewSource === 'apple' && s.appleMusicPreviewUrl ? (
+                <audio controls autoPlay src={s.appleMusicPreviewUrl} style={{ width: '100%' }} />
+              ) : s.youtubeVideoId ? (
+                <iframe
+                  width="100%"
+                  height="220"
+                  src={`https://www.youtube.com/embed/${s.youtubeVideoId}?autoplay=1`}
+                  title={s.title}
+                  style={{ border: 'none', borderRadius: '8px' }}
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  referrerPolicy="strict-origin-when-cross-origin"
+                  allowFullScreen
+                />
+              ) : s.appleMusicPreviewUrl ? (
+                <audio controls autoPlay src={s.appleMusicPreviewUrl} style={{ width: '100%' }} />
+              ) : null)}
           </li>
         ))}
       </ul>
