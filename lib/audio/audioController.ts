@@ -25,6 +25,8 @@ interface YouTubePlayer {
   loadVideoById(config: { videoId: string; startSeconds?: number }): void;
   playVideo(): void;
   pauseVideo(): void;
+  stopVideo(): void;
+  mute(): void;
   unMute(): void;
   setVolume(volume: number): void;
   destroy(): void;
@@ -273,16 +275,46 @@ export class AudioController {
           // Apple 這端解鎖失敗不影響 YouTube 那端繼續嘗試，兩邊各自獨立、互不阻擋
         });
 
+      // 這裡不需要拿到 player 實例本身，全部透過 safeCallPlayer 呼叫（統一防呆，見該方法說明），
+      // ensurePlayer() 純粹是確保播放器已經初始化完成。
       await this.ensurePlayer();
-      this.safeCallPlayer('setVolume', 0);
+      // 先靜音再載入：有些手機瀏覽器的 YouTube IFrame 實作，loadVideoById() 載入新影片時
+      // 會把先前設定的音量/靜音狀態重置回預設值，導致「載入前先 setVolume(0)」這一步
+      // 實際上對接下來要播的這支影片沒有生效。載入完成後再呼叫一次 mute()，確保萬一真的
+      // 被重置了也能補救回來——用 mute() 而不是只用 setVolume(0)，因為靜音狀態通常比
+      // 音量數值更可靠，不容易被同樣的重置行為影響。
+      this.safeCallPlayer('mute');
       this.safeCallPlayer('loadVideoById', { videoId: UNLOCK_VIDEO_ID, startSeconds: 0 });
+      this.safeCallPlayer('mute');
       this.safeCallPlayer('playVideo');
 
-      await Promise.all([new Promise((resolve) => setTimeout(resolve, 150)), appleUnlockPromise]);
+      // 這是先前「加入房間後會聽到/看到 Me at the Zoo」這支解鎖用影片的成因：舊版在這裡
+      // 固定等待 150ms 就直接呼叫 pauseVideo()，但手機（尤其行動網路）啟動 iframe 播放器、
+      // 真正開始播放前的延遲變化很大，網路稍慢時 150ms 常常還等不到播放真的開始，
+      // pauseVideo() 這時對「還沒真的開始播放的內容」沒有效果；等它真正開始播放時，
+      // 已經沒有人會再暫停它了——如果使用者這時候還在準備室、比賽都還沒開始，
+      // 就完全沒有後續的真正播放呼叫可以蓋過去，這支解鎖影片就會一路播下去被使用者聽到看到。
+      // 修法：不用猜時間，改成真的等播放器回報「已經進入播放狀態」（複用 playYoutube() 判斷
+      // 播放是否成功的同一套 pendingPlayResult／handleStateChange 機制）才呼叫暫停，
+      // 並保留一個 4 秒的安全上限，避免萬一事件真的沒觸發（例如影片被封鎖）卡住整個解鎖流程。
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          this.pendingPlayResult = { resolve, reject: () => resolve() };
+        }),
+        new Promise<void>((resolve) => setTimeout(resolve, 4000)),
+      ]);
+      this.pendingPlayResult = null;
 
       this.safeCallPlayer('pauseVideo');
+      // 額外呼叫 stopVideo()：pauseVideo() 只是暫停在目前播放位置，理論上不該再自己動起來，
+      // 但這裡是解鎖用的技術性播放，不是真的要保留播放進度給誰接續播放，直接完全停止、
+      // 歸零播放狀態更保險，避免任何殘留狀態被意外恢復播放。
+      this.safeCallPlayer('stopVideo');
+      this.safeCallPlayer('unMute');
       this.safeCallPlayer('setVolume', 100);
       audio.muted = false;
+
+      await appleUnlockPromise;
       this.unlocked = true;
     } catch (err) {
       console.warn('[AudioController] unlock() 失敗，將盡力於實際播放時重試：', err);
