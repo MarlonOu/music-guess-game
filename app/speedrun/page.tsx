@@ -10,11 +10,13 @@ import type { SpeedrunQuestion, SpeedrunSubmitResponse, SpeedrunLeaderboardEntry
 const QUESTION_COUNT = 10;
 /** 答錯後鎖定不能再選的秒數，逞罰機制的核心 */
 const WRONG_ANSWER_LOCKOUT_MS = 2000;
+/** 第一題以外，答對後進入下一題前的緩衝秒數（讀秒動畫），讓玩家有時間反應、看一下剛剛的結果 */
+const TRANSITION_SEC = 2;
 /** 碼表畫面更新頻率；不需要真的到毫秒等級的更新頻率，肉眼看起來夠平滑即可，
  *  太頻繁只會白白增加不必要的重新渲染 */
 const STOPWATCH_TICK_MS = 33;
 
-type Phase = 'intro' | 'loading' | 'playing' | 'submitting' | 'results';
+type Phase = 'intro' | 'loading' | 'playing' | 'transition' | 'submitting' | 'results';
 
 /** 毫秒數轉成「分:秒.毫秒」格式，例如 83421 → "01:23.421" */
 function formatStopwatch(ms: number): string {
@@ -41,6 +43,7 @@ export default function SpeedrunPage() {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [locked, setLocked] = useState(false);
   const [wrongSongId, setWrongSongId] = useState<string | null>(null);
+  const [transitionSecondsLeft, setTransitionSecondsLeft] = useState(TRANSITION_SEC);
 
   const [results, setResults] = useState<SpeedrunSubmitResponse | null>(null);
   const [introLeaderboard, setIntroLeaderboard] = useState<SpeedrunLeaderboardEntry[] | null>(null);
@@ -60,8 +63,10 @@ export default function SpeedrunPage() {
 
   // 碼表更新：從 raceStartRef 記錄的時間點起算，用校正過的伺服器時間（見 lib/client/serverClock.ts）
   // 而不是裝置自己的 Date.now()，避免裝置時鐘不準造成顯示跟伺服器實際判定的成績有落差。
+  // playing／transition 兩個狀態都要繼續跳動——緩衝畫面期間伺服器那邊的計時本來就沒有停，
+  // 如果這裡只在 playing 狀態更新，畫面上的碼表會在緩衝畫面時凍結，跟實際成績兜不起來。
   useEffect(() => {
-    if (phase !== 'playing') return;
+    if (phase !== 'playing' && phase !== 'transition') return;
     const timer = setInterval(() => {
       if (raceStartRef.current !== null) {
         setElapsedMs(estimateServerNow() - raceStartRef.current);
@@ -78,6 +83,23 @@ export default function SpeedrunPage() {
     if (!controller || !q || !q.source || !q.playbackId) return;
     controller.play(q.source, q.playbackId, q.startSec, q.durationSec);
   }, [phase, questionIndex, questions]);
+
+  // 緩衝畫面（答對後、下一題正式開始前的讀秒動畫）：每秒遞減，數到 0 才真正推進到下一題、
+  // 切回 playing 狀態（觸發上面那個 effect 重新播放新題目的音訊）。
+  useEffect(() => {
+    if (phase !== 'transition') return;
+    if (transitionSecondsLeft <= 0) {
+      // 用 setTimeout 把狀態更新包進非同步回呼裡，不要在 effect 本體內直接同步呼叫 setState
+      // （即使數到 0 這裡邏輯上「該立刻」推進，仍要透過回呼觸發，避免連鎖同步渲染）。
+      const timer = setTimeout(() => {
+        setQuestionIndex((i) => i + 1);
+        setPhase('playing');
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+    const timer = setTimeout(() => setTransitionSecondsLeft((s) => s - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [phase, transitionSecondsLeft]);
 
   async function handleStart() {
     const trimmed = displayName.trim();
@@ -133,7 +155,10 @@ export default function SpeedrunPage() {
     if (result.data.finished) {
       await submitScore();
     } else {
-      setQuestionIndex((i) => i + 1);
+      // 除了第一題以外，答對後不直接跳下一題，先進入緩衝畫面讓玩家喘口氣、看一下讀秒動畫，
+      // 避免題目切換太突兀（第一題不用緩衝，因為那是玩家自己按「開始挑戰」主動觸發的）。
+      setPhase('transition');
+      setTransitionSecondsLeft(TRANSITION_SEC);
     }
   }
 
@@ -247,11 +272,21 @@ export default function SpeedrunPage() {
           >
             {formatStopwatch(elapsedMs)}
           </p>
-          {locked && (
-            <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>
-              答錯了，等 {WRONG_ANSWER_LOCKOUT_MS / 1000} 秒才能再選…
-            </p>
-          )}
+          {/*
+            答錯提示：固定保留這段文字的高度、用 visibility 切換可見度，而不是條件式掛載/卸載
+            整個元素——不然答錯瞬間這段文字冒出來、2 秒後又消失，會讓下面的選項按鈕跟著上下跳動。
+            visibility: hidden 讓瀏覽器照樣把它的高度算進版面裡，只是看不見，版面就不會跳動。
+          */}
+          <p
+            style={{
+              color: 'var(--error)',
+              fontSize: '0.85rem',
+              visibility: locked ? 'visible' : 'hidden',
+              margin: 0,
+            }}
+          >
+            答錯了，等 {WRONG_ANSWER_LOCKOUT_MS / 1000} 秒才能再選…
+          </p>
           <div
             style={{
               display: 'grid',
@@ -283,6 +318,36 @@ export default function SpeedrunPage() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {phase === 'transition' && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', width: '100%', maxWidth: '420px' }}>
+          <p style={{ color: 'var(--ink-dim)', fontFamily: 'var(--font-mono)' }}>
+            第 {questionIndex + 2} / {questions.length} 題
+          </p>
+          <p
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: '2.4rem',
+              fontWeight: 700,
+              color: 'var(--accent)',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {formatStopwatch(elapsedMs)}
+          </p>
+          <p style={{ color: 'var(--ink-dim)', fontSize: '0.9rem' }}>答對了！準備下一題…</p>
+          <p
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: '3rem',
+              color: 'var(--accent)',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {transitionSecondsLeft}
+          </p>
         </div>
       )}
 
