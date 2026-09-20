@@ -61,6 +61,25 @@ export default function Home() {
       </Link>
 
       <Link
+        href="/speedrun"
+        style={{
+          display: 'flex',
+          justifyContent: 'center',
+          padding: '16px 24px',
+          borderRadius: '14px',
+          border: '1px solid var(--groove)',
+          background: 'transparent',
+          color: 'var(--ink)',
+          fontWeight: 600,
+          fontSize: '1.05rem',
+          width: '100%',
+          maxWidth: '360px',
+        }}
+      >
+        速通挑戰（計時排行榜）
+      </Link>
+
+      <Link
         href="/admin"
         prefetch={false}
         style={{

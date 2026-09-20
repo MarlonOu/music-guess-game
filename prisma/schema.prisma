@@ -160,3 +160,19 @@ model RoomMessage {
   @@index([roomId, createdAt])
   @@map("room_messages")
 }
+
+/// 速通模式（單機、隨機片段猜歌＋選擇題搶答，10 題計時）的成績紀錄，用來組成排行榜。
+/// 這個模式沒有「房間」的概念（不是多人即時對戰，純粹是單人挑戰後把成績交上榜），
+/// 進行中的挑戰狀態（目前答到第幾題、開始時間等）存在伺服器記憶體（見 lib/server/speedrunSession.ts），
+/// 不需要額外的資料表——只有「挑戰完成、成績確定下來」的那一刻，才真正寫進這張表。
+model SpeedrunScore {
+  id          String   @id @default(uuid())
+  displayName String   @map("display_name")
+  /// 完成全部 10 題的總耗時（毫秒），越小名次越前面。由伺服器依開始/結束的時間戳自行算出，
+  /// 不採信客戶端回報的數字，避免玩家竄改成績（見 answer 路由的說明）。
+  totalTimeMs Int      @map("total_time_ms")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([totalTimeMs])
+  @@map("speedrun_scores")
+}
