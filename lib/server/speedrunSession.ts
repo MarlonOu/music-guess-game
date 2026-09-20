@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { SPEEDRUN_TRANSITION_SEC } from '../constants/speedrun';
 
 /**
  * 速通模式（單機、隨機片段猜歌＋選擇題搶答，10 題計時）進行中的挑戰狀態。
@@ -11,6 +12,12 @@ import { randomUUID } from 'node:crypto';
  * 核心設計：完成時間（totalTimeMs）由伺服器依這裡記錄的 startedAt／finishedAt 時間戳自己算出，
  * 不採信客戶端自己回報的數字——否則玩家只要竄改前端請求就能偽造任意成績上榜。
  * 客戶端畫面上顯示的碼表，只是給玩家看的即時體驗，不是最終判定成績的依據。
+ *
+ * 碼表只計「真正在播放音樂」的時間：每答對一題（非最後一題）都會有一段固定
+ * SPEEDRUN_TRANSITION_SEC 秒的緩衝畫面，這段期間音樂是停止的，不該算進成績。
+ * 扣除的量是「(題目數 - 1) × 緩衝秒數」這個固定值，不是採信客戶端回報的任何時間戳——
+ * 緩衝畫面的長度完全由這裡的常數決定，不是客戶端可以自己操縱影響的東西，所以直接用
+ * 固定公式扣除，不會有辦法透過偽造請求佔到便宜（少扣或多扣都對自己的成績沒有幫助）。
  */
 interface SpeedrunSession {
   /** 這場挑戰的 10 首歌，依出題順序排列；songIds[i] 是第 i 題（0-based）的正確答案 */
@@ -34,6 +41,17 @@ function cleanupExpiredSessions(): void {
   for (const [token, session] of sessions) {
     if (now - session.startedAt > SESSION_TTL_MS) sessions.delete(token);
   }
+}
+
+/**
+ * 把「起訖時間戳的原始差值」換算成「扣掉緩衝畫面時間後」的實際計分秒數。
+ * questionCount 題目共有 questionCount - 1 個題目間的緩衝畫面（最後一題答對後直接結算，
+ * 沒有下一個緩衝畫面），每個緩衝固定 SPEEDRUN_TRANSITION_SEC 秒。
+ */
+function toScoredMs(rawMs: number, questionCount: number): number {
+  const transitionCount = Math.max(0, questionCount - 1);
+  const deducted = rawMs - transitionCount * SPEEDRUN_TRANSITION_SEC * 1000;
+  return Math.max(0, deducted);
 }
 
 /** 開始一場新的挑戰，回傳供客戶端後續請求使用的 token */
@@ -72,7 +90,7 @@ export function checkSpeedrunAnswer(
   return {
     correct: true,
     finished,
-    totalTimeMs: finished ? session.finishedAt! - session.startedAt : null,
+    totalTimeMs: finished ? toScoredMs(session.finishedAt! - session.startedAt, session.songIds.length) : null,
   };
 }
 
@@ -83,7 +101,7 @@ export function checkSpeedrunAnswer(
 export function finalizeSpeedrunSession(token: string): { totalTimeMs: number } | null {
   const session = sessions.get(token);
   if (!session || session.finishedAt === null) return null;
-  const totalTimeMs = session.finishedAt - session.startedAt;
+  const totalTimeMs = toScoredMs(session.finishedAt - session.startedAt, session.songIds.length);
   sessions.delete(token);
   return { totalTimeMs };
 }

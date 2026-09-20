@@ -6,12 +6,11 @@ import { AudioController } from '../../lib/audio/audioController';
 import { speedrunRepository } from '../../lib/repository/speedrunRepository';
 import { estimateServerNow } from '../../lib/client/serverClock';
 import type { SpeedrunQuestion, SpeedrunSubmitResponse, SpeedrunLeaderboardEntry } from '../../lib/types/speedrun';
+import { SPEEDRUN_TRANSITION_SEC } from '../../lib/constants/speedrun';
 
 const QUESTION_COUNT = 10;
 /** 答錯後鎖定不能再選的秒數，逞罰機制的核心 */
 const WRONG_ANSWER_LOCKOUT_MS = 2000;
-/** 第一題以外，答對後進入下一題前的緩衝秒數（讀秒動畫），讓玩家有時間反應、看一下剛剛的結果 */
-const TRANSITION_SEC = 2;
 /** 碼表畫面更新頻率；不需要真的到毫秒等級的更新頻率，肉眼看起來夠平滑即可，
  *  太頻繁只會白白增加不必要的重新渲染 */
 const STOPWATCH_TICK_MS = 33;
@@ -31,6 +30,13 @@ export default function SpeedrunPage() {
   const playerContainerId = useId().replace(/:/g, '-');
   const audioControllerRef = useRef<AudioController | null>(null);
   const raceStartRef = useRef<number | null>(null);
+  // 碼表只計「真正在播放音樂」的時間：緩衝畫面（答對後、下一題開始前）音樂是停止的，
+  // 不該算進去。pausedMsRef 累積目前為止所有緩衝畫面耗掉的時間，顯示碼表時從原始經過時間
+  // 裡扣掉；transitionStartedAtRef 記錄「這次緩衝畫面」開始的時間點，緩衝結束時才真正
+  // 累加進 pausedMsRef（理由見下面兩個 effect 的說明）。伺服器那邊用固定公式做一樣的扣除
+  // （見 lib/server/speedrunSession.ts），確保畫面顯示的數字跟最終成績兜得起來。
+  const pausedMsRef = useRef(0);
+  const transitionStartedAtRef = useRef<number | null>(null);
 
   const [phase, setPhase] = useState<Phase>('intro');
   const [displayName, setDisplayName] = useState('');
@@ -43,7 +49,7 @@ export default function SpeedrunPage() {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [locked, setLocked] = useState(false);
   const [wrongSongId, setWrongSongId] = useState<string | null>(null);
-  const [transitionSecondsLeft, setTransitionSecondsLeft] = useState(TRANSITION_SEC);
+  const [transitionSecondsLeft, setTransitionSecondsLeft] = useState(SPEEDRUN_TRANSITION_SEC);
 
   const [results, setResults] = useState<SpeedrunSubmitResponse | null>(null);
   const [introLeaderboard, setIntroLeaderboard] = useState<SpeedrunLeaderboardEntry[] | null>(null);
@@ -61,17 +67,22 @@ export default function SpeedrunPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 碼表更新：從 raceStartRef 記錄的時間點起算，用校正過的伺服器時間（見 lib/client/serverClock.ts）
-  // 而不是裝置自己的 Date.now()，避免裝置時鐘不準造成顯示跟伺服器實際判定的成績有落差。
-  // playing／transition 兩個狀態都要繼續跳動——緩衝畫面期間伺服器那邊的計時本來就沒有停，
-  // 如果這裡只在 playing 狀態更新，畫面上的碼表會在緩衝畫面時凍結，跟實際成績兜不起來。
+  // 碼表更新：從 raceStartRef 記錄的時間點起算的原始經過時間，扣掉 pausedMsRef 累積的緩衝畫面
+  // 時間，只在 'playing' 狀態才更新（緩衝畫面期間音樂沒在播，畫面就該凍結不動，不再跳動）。
+  // 用校正過的伺服器時間（見 lib/client/serverClock.ts）而不是裝置自己的 Date.now()，
+  // 避免裝置時鐘不準造成顯示跟伺服器實際判定的成績有落差。
   useEffect(() => {
-    if (phase !== 'playing' && phase !== 'transition') return;
-    const timer = setInterval(() => {
+    if (phase !== 'playing') return;
+    const tick = () => {
       if (raceStartRef.current !== null) {
-        setElapsedMs(estimateServerNow() - raceStartRef.current);
+        setElapsedMs(estimateServerNow() - raceStartRef.current - pausedMsRef.current);
       }
-    }, STOPWATCH_TICK_MS);
+    };
+    // 立刻算一次，不要等第一次 interval 觸發才更新——不然剛從緩衝畫面切回來的那一瞬間，
+    // 畫面會先停在緩衝畫面凍結時的舊數字，等最多 STOPWATCH_TICK_MS 毫秒後才跳一下，
+    // 雖然很短暫但看得出來的話會顯得畫面卡了一下。
+    tick();
+    const timer = setInterval(tick, STOPWATCH_TICK_MS);
     return () => clearInterval(timer);
   }, [phase]);
 
@@ -92,6 +103,12 @@ export default function SpeedrunPage() {
       // 用 setTimeout 把狀態更新包進非同步回呼裡，不要在 effect 本體內直接同步呼叫 setState
       // （即使數到 0 這裡邏輯上「該立刻」推進，仍要透過回呼觸發，避免連鎖同步渲染）。
       const timer = setTimeout(() => {
+        // 這段緩衝畫面結束了，把它耗掉的時間累加進 pausedMsRef，之後碼表的計算才會把這段
+        // 時間扣掉。要在切回 playing 之前先累加好，不然切回去那一刻的 tick() 會算錯。
+        if (transitionStartedAtRef.current !== null) {
+          pausedMsRef.current += estimateServerNow() - transitionStartedAtRef.current;
+          transitionStartedAtRef.current = null;
+        }
         setQuestionIndex((i) => i + 1);
         setPhase('playing');
       }, 0);
@@ -126,6 +143,8 @@ export default function SpeedrunPage() {
     setResults(null);
     setSubmitError(null);
     raceStartRef.current = estimateServerNow();
+    pausedMsRef.current = 0;
+    transitionStartedAtRef.current = null;
     setElapsedMs(0);
     setPhase('playing');
   }
@@ -157,8 +176,10 @@ export default function SpeedrunPage() {
     } else {
       // 除了第一題以外，答對後不直接跳下一題，先進入緩衝畫面讓玩家喘口氣、看一下讀秒動畫，
       // 避免題目切換太突兀（第一題不用緩衝，因為那是玩家自己按「開始挑戰」主動觸發的）。
+      // 記錄這次緩衝開始的時間點，緩衝結束時才會用來計算這段耗掉多少時間（見上面的 effect）。
+      transitionStartedAtRef.current = estimateServerNow();
       setPhase('transition');
-      setTransitionSecondsLeft(TRANSITION_SEC);
+      setTransitionSecondsLeft(SPEEDRUN_TRANSITION_SEC);
     }
   }
 
