@@ -58,6 +58,9 @@ function OnlinePageInner() {
       return;
     }
     sessionStorage.setItem(`room-player-${result.data.room.joinCode}`, result.data.playerId);
+    // 額外存暱稱：房間頁面偵測到「自己不在玩家名單裡了」（例如重新整理頁面時，pagehide
+    // 事件被誤判成離開，把自己的紀錄刪掉了）時，需要用同樣的暱稱自動重新加入，見該頁面說明。
+    sessionStorage.setItem(`room-player-name-${result.data.room.joinCode}`, trimmed);
     router.push(`/online/room/${result.data.room.joinCode}`);
   }
 
@@ -84,6 +87,7 @@ function OnlinePageInner() {
       return;
     }
     sessionStorage.setItem(`room-player-${result.data.room.joinCode}`, result.data.playerId);
+    sessionStorage.setItem(`room-player-name-${result.data.room.joinCode}`, trimmedName);
     router.push(`/online/room/${result.data.room.joinCode}`);
   }
 

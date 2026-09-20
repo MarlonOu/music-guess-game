@@ -73,6 +73,45 @@ export default function OnlineRoomPage() {
     };
   }, [joinCode]);
 
+  // 自我修復：如果房間資料正常拿得到，但自己的 playerId 不在玩家名單裡了，最常見的原因是
+  // 重新整理頁面時，瀏覽器的 pagehide 事件被誤判成「使用者要離開了」（見下方 pagehide 那個
+  // effect 的說明——pagehide 在「重新整理」跟「真的關閉分頁」時都會觸發，沒辦法從事件本身
+  // 分辨兩者），把自己的紀錄從房間刪掉了，但頁面其實只是重新整理、還停留在原地，導致
+  // 「玩家從名單消失、但畫面還留在房間」這種不一致的狀態。
+  // 修法：偵測到這個不一致，就用先前存的暱稱自動重新加入，而不是讓使用者卡在一個看起來
+  // 正常、但其實自己已經不是這個房間玩家的壞掉畫面（重新整理送出的任何動作都會失敗）。
+  // 代價：重新加入拿到的是全新的 playerId，比分會歸零重算——這跟「中途加入」是同一套機制，
+  // 是刻意接受的取捨，好過完全卡住無法繼續玩。
+  const rejoiningRef = useRef(false);
+  useEffect(() => {
+    if (!room || !playerId) return;
+    if (room.players.some((p) => p.id === playerId)) return;
+    if (rejoiningRef.current) return;
+
+    const storedName = sessionStorage.getItem(`room-player-name-${joinCode}`);
+    if (!storedName) {
+      // 沒存暱稱（例如很舊的瀏覽器分頁），沒辦法自動重新加入，退回顯示補填暱稱的表單
+      sessionStorage.removeItem(`room-player-${joinCode}`);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 跟上方讀取 sessionStorage 決定初始狀態同樣的合法例外，這裡是偵測到外部狀態（房間玩家名單）不同步後的修正動作
+      setPlayerId(null);
+      return;
+    }
+
+    rejoiningRef.current = true;
+    roomRepository.join(joinCode, storedName).then((result) => {
+      rejoiningRef.current = false;
+      if (result.ok && result.data) {
+        sessionStorage.setItem(`room-player-${joinCode}`, result.data.playerId);
+        setPlayerId(result.data.playerId);
+        setRoom(result.data.room);
+      } else {
+        // 重新加入也失敗（例如房間這期間已經結束、房主關閉了），才真的退回補填暱稱的表單
+        sessionStorage.removeItem(`room-player-${joinCode}`);
+        setPlayerId(null);
+      }
+    });
+  }, [room, playerId, joinCode]);
+
   // 輪詢聊天室訊息
   useEffect(() => {
     let cancelled = false;
@@ -98,6 +137,10 @@ export default function OnlineRoomPage() {
   }, [joinCode]);
 
   // 使用者關閉分頁／切換到其他網址時，盡量把離開通知送到伺服器（房主離開＝刪除房間）。
+  // 注意：pagehide 在「重新整理頁面」時也會觸發，沒辦法從事件本身分辨使用者是真的要離開
+  // 還是只是重新整理——這裡選擇維持「觸發就送出離開通知」的行為（讓真正關閉分頁的人能
+  // 盡快從玩家名單消失，而不是要等逾時），重新整理造成的誤判則由上面那個自我修復的 effect
+  // 負責善後（偵測到自己不在玩家名單裡就自動重新加入）。
   // sendBeacon 是瀏覽器專門為「頁面卸載當下要送出的請求」設計的 API，比 fetch 在這個時機點可靠。
   useEffect(() => {
     if (!playerId) return;
@@ -228,6 +271,7 @@ function JoinPrompt({ joinCode, onJoined }: { joinCode: string; onJoined: (playe
       return;
     }
     sessionStorage.setItem(`room-player-${joinCode}`, result.data.playerId);
+    sessionStorage.setItem(`room-player-name-${joinCode}`, trimmed);
     onJoined(result.data.playerId);
   }
 
