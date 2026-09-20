@@ -7,7 +7,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const { joinCode } = await params;
   try {
     const body = await request.json();
-    const { playerId, mode, artistFilterIds, themeFilterIds } = body;
+    const { playerId, mode, answerMode, artistFilterIds, themeFilterIds } = body;
 
     const room = await prisma.room.findUnique({ where: { joinCode: joinCode.toUpperCase() } });
     if (!room) {
@@ -24,6 +24,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       where: { id: room.id },
       data: {
         ...(mode !== undefined ? { mode } : {}),
+        ...(answerMode === 'text' || answerMode === 'choice' ? { answerMode } : {}),
         ...(Array.isArray(artistFilterIds) ? { artistFilterIds } : {}),
         ...(Array.isArray(themeFilterIds) ? { themeFilterIds } : {}),
       },

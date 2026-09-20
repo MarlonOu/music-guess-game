@@ -2,6 +2,13 @@ import type { GameMode } from './match';
 import type { QuestionPayload } from './question';
 
 export type RoomStatus = 'lobby' | 'playing' | 'finished';
+/** 搶答方式：'text' 打字搶答（在聊天室輸入歌名，既有預設行為）；'choice' 選擇題搶答（見 lib/server/choiceMode.ts） */
+export type AnswerMode = 'text' | 'choice';
+
+export interface RoomChoice {
+  songId: string;
+  title: string;
+}
 
 export interface RoomPlayer {
   id: string;
@@ -23,6 +30,7 @@ export interface RoomState {
   id: string;
   joinCode: string;
   mode: GameMode;
+  answerMode: AnswerMode;
   artistFilterIds: string[];
   themeFilterIds: string[];
   status: RoomStatus;
@@ -33,6 +41,13 @@ export interface RoomState {
    * 避免透過輪詢 API 提前偷看到答案。status 為 'lobby' 或 'finished' 時為 null。
    */
   currentQuestion: QuestionPayload | null;
+  /**
+   * answerMode='choice' 時，這一輪要顯示的選項清單（含正確答案，順序已經洗牌過）。
+   * 這個清單本身不需要依 revealed 遮蔽——選擇題本來就要把所有選項攤在眼前給玩家選，
+   * 遮蔽的是「哪一個才是正確答案」這件事，不是選項本身。answerMode='text' 或非
+   * 'playing' 狀態時為空陣列。
+   */
+  currentChoices: RoomChoice[];
   /**
    * 目前這題要播放的音源。source 決定要用 AudioController 的哪一條播放路徑；
    * playbackId 依 source 不同意義不同（'youtube' 時是影片 id，'apple' 時是試聽片段網址）。

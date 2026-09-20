@@ -88,6 +88,9 @@ model Room {
   /// 供玩家輸入加入房間的短碼，與 id 分開是為了讓房號好讀好打（例如 6 碼英數字）
   joinCode        String   @unique @map("join_code")
   mode            String
+  /// 搶答方式：'text'（打字搶答，在聊天室輸入歌名，預設）或 'choice'（選擇題搶答，
+  /// 顯示幾個選項讓玩家點選，第一個點對的人算數）。房主建立房間時選定，比賽開始後不能中途更改。
+  answerMode      String   @default("text") @map("answer_mode")
   artistFilterIds String[] @map("artist_filter_ids")
   themeFilterIds  String[] @map("theme_filter_ids")
   status          String   @default("lobby") // lobby | playing | finished
@@ -98,6 +101,12 @@ model Room {
   clipStartSecs     Int[] @map("clip_start_secs")
   /// LYRIC_LINE 模式用的歌詞行索引，與 songQueue 一一對應，理由同上
   lyricLineIndexes  Int[] @map("lyric_line_indexes")
+  /// answerMode='choice' 時，每一輪的選擇題選項（歌曲 id），攤平存成一維陣列：
+  /// 第 N 輪的選項落在 [N * CHOICES_PER_ROUND, (N+1) * CHOICES_PER_ROUND) 這個區間
+  /// （CHOICES_PER_ROUND 定義在 lib/server/choiceMode.ts）。開始遊戲時連同正確答案與干擾
+  /// 選項一次算好、洗牌後存起來，原因跟 clipStartSecs／lyricLineIndexes 一樣：所有玩家看到的
+  /// 選項順序要一致，不能讓每個玩家的裝置各自重算/重新洗牌。answerMode='text' 時此欄位為空陣列。
+  choiceSongIds     String[] @default([]) @map("choice_song_ids")
   currentRoundIndex Int    @default(0) @map("current_round_index")
   /// 目前這題（若已顯示）的正確答案是否已公布
   revealed        Boolean  @default(false)

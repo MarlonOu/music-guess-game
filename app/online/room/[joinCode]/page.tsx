@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import type { RoomState, RoomMessage } from '../../../../lib/types/room';
+import type { RoomState, RoomMessage, AnswerMode } from '../../../../lib/types/room';
 import type { GameMode } from '../../../../lib/types/match';
 import type { Artist, Theme } from '../../../../lib/types/theme';
 import { roomRepository } from '../../../../lib/repository/roomRepository';
@@ -185,7 +185,7 @@ export default function OnlineRoomPage() {
 
       {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
 
-      <ChatBox joinCode={joinCode} playerId={playerId} messages={messages} onMessageSent={handleMessageSent} />
+      <ChatBox joinCode={joinCode} playerId={playerId} messages={messages} onMessageSent={handleMessageSent} answerMode={room.answerMode} />
 
       <button
         onClick={handleLeaveClick}
@@ -341,7 +341,12 @@ function LobbyView({ room, playerId, isHost, onError, onRoomUpdate }: RoomViewPr
     songRepository.getAllThemes().then(setThemes, () => {});
   }, []);
 
-  async function updateSettings(patch: { mode?: GameMode; artistFilterIds?: string[]; themeFilterIds?: string[] }) {
+  async function updateSettings(patch: {
+    mode?: GameMode;
+    answerMode?: AnswerMode;
+    artistFilterIds?: string[];
+    themeFilterIds?: string[];
+  }) {
     const result = await roomRepository.updateSettings(room.joinCode, playerId, patch);
     if (!result.ok) {
       onError(result.error ?? '更新設定失敗');
@@ -418,6 +423,45 @@ function LobbyView({ room, playerId, isHost, onError, onRoomUpdate }: RoomViewPr
                 </button>
               ))}
             </div>
+          </section>
+
+          <section style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>搶答方式</span>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => updateSettings({ answerMode: 'text' })}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  borderRadius: '10px',
+                  border: room.answerMode === 'text' ? '1px solid var(--accent)' : '1px solid var(--groove)',
+                  background: room.answerMode === 'text' ? 'var(--bg-raised)' : 'transparent',
+                  color: room.answerMode === 'text' ? 'var(--accent)' : 'var(--ink)',
+                  fontSize: '0.9rem',
+                }}
+              >
+                打字搶答
+              </button>
+              <button
+                onClick={() => updateSettings({ answerMode: 'choice' })}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  borderRadius: '10px',
+                  border: room.answerMode === 'choice' ? '1px solid var(--accent)' : '1px solid var(--groove)',
+                  background: room.answerMode === 'choice' ? 'var(--bg-raised)' : 'transparent',
+                  color: room.answerMode === 'choice' ? 'var(--accent)' : 'var(--ink)',
+                  fontSize: '0.9rem',
+                }}
+              >
+                選擇題搶答
+              </button>
+            </div>
+            <p style={{ color: 'var(--ink-dim)', fontSize: '0.78rem' }}>
+              {room.answerMode === 'choice'
+                ? '每題顯示幾個選項（含干擾選項），第一個點對的人得分，比打字搶答更公平、更防偷查答案。'
+                : '在下方聊天室打歌名搶答，第一個答對的人得分。'}
+            </p>
           </section>
 
           <section style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -550,6 +594,12 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
   const [audioStatus, setAudioStatus] = useState<AudioPlaybackStatus>('idle');
   const playedRoundRef = useRef<number>(-1);
   const [voting, setVoting] = useState(false);
+  // 選擇題搶答模式：記錄「目前這輪我點過哪個、對不對」，讓按鈕能立刻顯示視覺回饋
+  // （綠色代表點對、紅色代表點錯），不用等下一次輪詢才看得到反應。換題時要重置。
+  const [choiceFeedback, setChoiceFeedback] = useState<{ roundIndex: number; songId: string; correct: boolean } | null>(
+    null
+  );
+  const [answeringChoice, setAnsweringChoice] = useState(false);
 
   async function handleEnd() {
     if (!window.confirm('確定要提前結束這場比賽嗎？')) return;
@@ -570,6 +620,19 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
       return;
     }
     if (result.data) onRoomUpdate(result.data);
+  }
+
+  async function handleAnswerChoice(songId: string) {
+    if (answeringChoice) return;
+    setAnsweringChoice(true);
+    const result = await roomRepository.answerChoice(room.joinCode, playerId, songId);
+    setAnsweringChoice(false);
+    if (!result.ok || !result.data) {
+      onError(result.error ?? '搶答失敗');
+      return;
+    }
+    setChoiceFeedback({ roundIndex: room.currentRoundIndex, songId, correct: result.data.correct });
+    onRoomUpdate(result.data.room);
   }
 
   useEffect(() => {
@@ -688,7 +751,7 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
           alignItems: 'center',
           justifyContent: 'center',
           gap: '20px',
-          minHeight: '300px',
+          minHeight: '360px',
           width: '100%',
         }}
       >
@@ -737,7 +800,52 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
                 <AudioStatusIndicator status={audioStatus} />
               )}
 
-            {countdown === 0 && (
+            {countdown === 0 && room.answerMode === 'choice' && room.currentChoices.length > 0 && (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                  gap: '10px',
+                  width: '100%',
+                  maxWidth: '420px',
+                }}
+              >
+                {room.currentChoices.map((choice) => {
+                  const feedback =
+                    choiceFeedback?.roundIndex === room.currentRoundIndex && choiceFeedback.songId === choice.songId
+                      ? choiceFeedback
+                      : null;
+                  return (
+                    <button
+                      key={choice.songId}
+                      onClick={() => handleAnswerChoice(choice.songId)}
+                      disabled={answeringChoice}
+                      style={{
+                        padding: '14px 10px',
+                        borderRadius: '10px',
+                        border: feedback
+                          ? feedback.correct
+                            ? '1px solid #4caf50'
+                            : '1px solid var(--error)'
+                          : '1px solid var(--groove)',
+                        background: feedback
+                          ? feedback.correct
+                            ? 'rgba(76,175,80,0.15)'
+                            : 'rgba(220,53,69,0.12)'
+                          : 'var(--bg-raised)',
+                        color: 'var(--ink)',
+                        fontSize: '0.9rem',
+                        lineHeight: 1.3,
+                      }}
+                    >
+                      {choice.title}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {countdown === 0 && room.answerMode === 'text' && (
               <p style={{ color: 'var(--ink-dim)', fontSize: '0.9rem', textAlign: 'center' }}>
                 在下方聊天室打歌名搶答，答對自動得分並公布答案
               </p>
@@ -866,11 +974,13 @@ function ChatBox({
   playerId,
   messages,
   onMessageSent,
+  answerMode,
 }: {
   joinCode: string;
   playerId: string;
   messages: RoomMessage[];
   onMessageSent: (message: RoomMessage) => void;
+  answerMode: AnswerMode;
 }) {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -920,7 +1030,9 @@ function ChatBox({
         }}
       >
         {messages.length === 0 && (
-          <p style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>聊天室：搶答也在這裡打字</p>
+          <p style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>
+            {answerMode === 'choice' ? '聊天室：純聊天，搶答請點上面的選項' : '聊天室：搶答也在這裡打字'}
+          </p>
         )}
         {messages.map((m) => (
           <p

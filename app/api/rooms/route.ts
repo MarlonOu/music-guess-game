@@ -6,7 +6,7 @@ import { loadRoomState, generateJoinCode } from '../../../lib/server/roomState';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { displayName, mode } = body;
+    const { displayName, mode, answerMode } = body;
 
     if (!displayName || typeof displayName !== 'string' || displayName.trim().length === 0) {
       return NextResponse.json({ error: '請輸入暱稱' }, { status: 400 });
@@ -14,6 +14,8 @@ export async function POST(request: NextRequest) {
     if (!['INTRO', 'RANDOM_CLIP', 'LYRIC_LINE'].includes(mode)) {
       return NextResponse.json({ error: '無效的遊戲模式' }, { status: 400 });
     }
+    // 沒帶或帶了無效值一律當作 'text'（打字搶答，維持既有預設行為），不因為漏帶這個新欄位而失敗
+    const resolvedAnswerMode = answerMode === 'choice' ? 'choice' : 'text';
 
     // joinCode 極小機率撞號，重試幾次
     let joinCode = generateJoinCode();
@@ -28,6 +30,7 @@ export async function POST(request: NextRequest) {
         id: crypto.randomUUID(),
         joinCode,
         mode,
+        answerMode: resolvedAnswerMode,
         artistFilterIds: [],
         themeFilterIds: [],
         songQueue: [],

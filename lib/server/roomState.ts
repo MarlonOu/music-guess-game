@@ -5,6 +5,7 @@ import type { GameMode } from '../types/match';
 import { FIXED_INTRO_DURATION_SEC } from '../engine/modes/introMode';
 import { DEFAULT_CLIP_DURATION_SEC } from '../engine/modes/randomClipMode';
 import { resolvePlaybackTarget } from '../audio/resolvePlaybackTarget';
+import { CHOICES_PER_ROUND } from './choiceMode';
 
 /**
  * 依房間存好的 songQueue / clipStartSecs / lyricLineIndexes 重建當前題目，
@@ -67,6 +68,7 @@ export async function loadRoomState(joinCode: string): Promise<RoomState | null>
   let currentSongPlaybackId: string | null = null;
   let currentSongArtist: string | null = null;
   let currentSongThemeLabels: string[] = [];
+  let currentChoices: RoomState['currentChoices'] = [];
 
   if (room.status === 'playing' && room.songQueue[room.currentRoundIndex]) {
     const songId = room.songQueue[room.currentRoundIndex];
@@ -94,6 +96,29 @@ export async function loadRoomState(joinCode: string): Promise<RoomState | null>
           : [];
       currentSongArtist = room.revealed ? song.artist.name : null;
       currentSongThemeLabels = room.revealed ? matchedThemeNames : [];
+
+      // 選擇題搶答模式：讀出這一輪存好的選項 id（見 lib/server/choiceMode.ts），查出對應歌名。
+      // 這個清單不受 revealed 影響——選擇題本來就要把所有選項攤在眼前，遮蔽的是「哪個是正解」，
+      // 不是選項本身（客戶端點選後由 answer-choice API 判斷對不對，不會直接告訴前端哪個是答案）。
+      if (room.answerMode === 'choice') {
+        const roundChoiceIds = room.choiceSongIds
+          .slice(room.currentRoundIndex * CHOICES_PER_ROUND, (room.currentRoundIndex + 1) * CHOICES_PER_ROUND)
+          .filter((id: string) => id.length > 0);
+        if (roundChoiceIds.length > 0) {
+          const choiceSongs = await prisma.song.findMany({
+            where: { id: { in: roundChoiceIds } },
+            select: { id: true, title: true },
+          });
+          const titleById = new Map(choiceSongs.map((s: { id: string; title: string }) => [s.id, s.title]));
+          // Prisma 的 findMany({ id: { in: [...] } }) 不保證回傳順序跟輸入陣列一致，
+          // 這裡依原本存好、已經洗牌過的 roundChoiceIds 順序重新排列，確保所有玩家看到的選項順序一致。
+          currentChoices = roundChoiceIds
+            .map((id: string) => ({ songId: id, title: titleById.get(id) }))
+            .filter((c: { songId: string; title: string | undefined }): c is { songId: string; title: string } =>
+              Boolean(c.title)
+            );
+        }
+      }
     }
   }
 
@@ -101,12 +126,14 @@ export async function loadRoomState(joinCode: string): Promise<RoomState | null>
     id: room.id,
     joinCode: room.joinCode,
     mode: room.mode as GameMode,
+    answerMode: room.answerMode as RoomState['answerMode'],
     artistFilterIds: room.artistFilterIds,
     themeFilterIds: room.themeFilterIds,
     status: room.status as RoomState['status'],
     roundCount: room.songQueue.length,
     currentRoundIndex: room.currentRoundIndex,
     currentQuestion,
+    currentChoices,
     currentSongSource,
     currentSongPlaybackId,
     currentSongArtist,

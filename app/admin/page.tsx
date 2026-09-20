@@ -703,6 +703,8 @@ function AppleMusicSearchAccordion({ onPick }: { onPick: (result: AppleMusicPref
         <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid var(--groove)' }}>
           <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
             Apple Music 官方試聽片段用同源 &lt;audio&gt; 播放，不會有控制中心洩漏歌名的問題（YouTube 是跨網域第三方播放器，這點沒辦法完全避免）。
+            <br />
+            只會用在「隨機片段猜歌」模式——試聽片段是官方精選的一小段（常常直接是副歌），不保證是歌曲開頭，「前奏猜歌」模式一律仍用 YouTube 播放真正的前奏。
           </p>
           <div style={{ display: 'flex', gap: '8px' }}>
             <input

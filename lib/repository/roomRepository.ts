@@ -1,4 +1,4 @@
-import type { RoomState, RoomMessage } from '../types/room';
+import type { RoomState, RoomMessage, AnswerMode } from '../types/room';
 import type { GameMode } from '../types/match';
 import { recordServerTime } from '../client/serverClock';
 
@@ -18,18 +18,24 @@ async function parseErrorMessage(res: Response, fallback: string): Promise<strin
 }
 
 export interface RoomRepository {
-  create(displayName: string, mode: GameMode): Promise<RepositoryResult<{ room: RoomState; playerId: string }>>;
+  create(
+    displayName: string,
+    mode: GameMode,
+    answerMode?: AnswerMode
+  ): Promise<RepositoryResult<{ room: RoomState; playerId: string }>>;
   join(joinCode: string, displayName: string): Promise<RepositoryResult<{ room: RoomState; playerId: string }>>;
   getState(joinCode: string): Promise<RepositoryResult<RoomState>>;
   updateSettings(
     joinCode: string,
     playerId: string,
-    input: { mode?: GameMode; artistFilterIds?: string[]; themeFilterIds?: string[] }
+    input: { mode?: GameMode; answerMode?: AnswerMode; artistFilterIds?: string[]; themeFilterIds?: string[] }
   ): Promise<RepositoryResult<RoomState>>;
   start(joinCode: string, playerId: string): Promise<RepositoryResult<RoomState>>;
   next(joinCode: string, playerId: string): Promise<RepositoryResult<RoomState>>;
   /** 投票／收回投票「跳過這一題」；全房間玩家都投了就直接公布答案（不計分） */
   voteSkip(joinCode: string, playerId: string): Promise<RepositoryResult<RoomState>>;
+  /** 選擇題搶答模式（answerMode='choice'）點選一個選項；回傳 correct 表示這次點選對不對 */
+  answerChoice(joinCode: string, playerId: string, songId: string): Promise<RepositoryResult<{ correct: boolean; room: RoomState }>>;
   end(joinCode: string, playerId: string): Promise<RepositoryResult<RoomState>>;
   restart(joinCode: string, playerId: string): Promise<RepositoryResult<RoomState>>;
   sendMessage(joinCode: string, playerId: string, text: string): Promise<RepositoryResult<RoomMessage>>;
@@ -40,11 +46,11 @@ export interface RoomRepository {
 }
 
 export const roomRepository: RoomRepository = {
-  async create(displayName, mode) {
+  async create(displayName, mode, answerMode) {
     const res = await fetch('/api/rooms', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ displayName, mode }),
+      body: JSON.stringify({ displayName, mode, answerMode }),
     });
     if (!res.ok) return { ok: false, error: await parseErrorMessage(res, '建立房間失敗') };
     const data = await res.json();
@@ -118,6 +124,17 @@ export const roomRepository: RoomRepository = {
     if (!res.ok) return { ok: false, error: await parseErrorMessage(res, '投票跳題失敗') };
     const data = await res.json();
     return { ok: true, data: data.room as RoomState };
+  },
+
+  async answerChoice(joinCode, playerId, songId) {
+    const res = await fetch(`/api/rooms/${joinCode}/answer-choice`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId, songId }),
+    });
+    if (!res.ok) return { ok: false, error: await parseErrorMessage(res, '搶答失敗') };
+    const data = await res.json();
+    return { ok: true, data: { correct: Boolean(data.correct), room: data.room as RoomState } };
   },
 
   async end(joinCode, playerId) {

@@ -70,7 +70,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     let isCorrectAnswer = false;
 
-    if (room.status === 'playing' && !room.revealed && room.songQueue[room.currentRoundIndex]) {
+    // 選擇題搶答模式（answerMode='choice'）下，聊天室純粹用來聊天，不用來搶答——
+    // 答題只能透過選項按鈕（見 answer-choice route），避免打字打出正確歌名這條路
+    // 繞過選擇題模式想要的「大家看同樣的選項、憑選項本身判斷」這個設計。
+    if (room.status === 'playing' && room.answerMode === 'text' && !room.revealed && room.songQueue[room.currentRoundIndex]) {
       const songId = room.songQueue[room.currentRoundIndex];
       const song = await prisma.song.findUnique({ where: { id: songId } });
       if (song && isAnswerCorrect(text, song.title)) {
