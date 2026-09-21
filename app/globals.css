@@ -100,196 +100,6 @@ input:focus-visible {
   }
 }
 
-/*
-  首頁的黑膠唱片視覺（見 app/page.tsx）。純 CSS 用同心圓畫出唱片紋路＋金色標籤環＋
-  中心軸孔，套用既有的 vinyl-spin 動畫做極慢速的待機自轉（18 秒轉一圈，安靜、不搶戲，
-  只是「這台機器開著」的訊號，不是拿來吸引注意力的裝飾動畫）。
-*/
-.home-vinyl {
-  width: 84px;
-  height: 84px;
-  border-radius: 50%;
-  position: relative;
-  flex-shrink: 0;
-  background: radial-gradient(
-    circle at 50% 50%,
-    var(--bg) 0 17%,
-    var(--accent) 17% 20%,
-    var(--bg-raised) 20% 45%,
-    var(--groove) 45% 47%,
-    var(--bg-raised) 47% 68%,
-    var(--groove) 68% 70%,
-    var(--bg-raised) 70% 100%
-  );
-  animation: vinyl-spin 18s linear infinite;
-}
-
-.home-vinyl::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--ink-dim);
-  transform: translate(-50%, -50%);
-}
-
-/* 滑過或聚焦任一首曲目時，上面的唱片瞬間轉快——像真的把唱針放下去、platter 開始加速一樣，
-   讓整個頁面的互動感覺是連動的一件事，而不是三個各自獨立的按鈕。用 :has() 讓純 CSS
-   就能做到「曲目列表的懸停狀態」影響「不是它子元素的唱片」，不需要額外的 JS 狀態。 */
-main:has(.home-track:hover) .home-vinyl,
-main:has(.home-track:focus-visible) .home-vinyl {
-  animation-duration: 2.2s;
-}
-
-/* 曲目列表式的模式選單，取代原本一排長得一樣的圓角按鈕——A1/A2/A3 是真的黑膠側標
-   曲目編號慣例，不是隨便加的裝飾數字，同時也用順序暗示「由上到下」的建議路徑。 */
-.home-tracklist {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  max-width: 420px;
-  border-top: 1px solid var(--groove);
-}
-
-.home-track {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  padding: 18px 6px;
-  border-bottom: 1px solid var(--groove);
-  transition: background-color 0.15s ease;
-}
-
-.home-track:hover,
-.home-track:focus-visible {
-  background: var(--bg-raised);
-}
-
-.home-track-num {
-  font-family: var(--font-mono);
-  color: var(--ink-dim);
-  font-size: 0.85rem;
-  width: 24px;
-  flex-shrink: 0;
-  align-self: baseline;
-  transition: color 0.15s ease;
-}
-
-.home-track:hover .home-track-num,
-.home-track:focus-visible .home-track-num {
-  color: var(--accent);
-}
-
-.home-track-body {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  flex: 1;
-  min-width: 0;
-}
-
-.home-track-title {
-  font-family: var(--font-display);
-  font-size: 1.15rem;
-  color: var(--ink);
-}
-
-.home-track-desc {
-  font-size: 0.82rem;
-  color: var(--ink-dim);
-}
-
-/* 等化器跳動條：滑過或聚焦這一列時出現，借用音樂播放器「目前正在播放」的常見視覺語彙
-   （Spotify 那種會跳動的音量長條），平常是扁平、半透明的三條線，互動時才真正「動起來」——
-   這是刻意唯一的、跟使用者互動直接對應的動畫，不是背景一直自己跑的裝飾特效。 */
-.home-track-eq {
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 3px;
-  height: 16px;
-  flex-shrink: 0;
-}
-
-.home-track-eq span {
-  width: 3px;
-  height: 30%;
-  border-radius: 1px;
-  background: var(--ink-dim);
-  opacity: 0.4;
-  transition: opacity 0.15s ease;
-}
-
-.home-track:hover .home-track-eq span,
-.home-track:focus-visible .home-track-eq span {
-  background: var(--accent);
-  opacity: 1;
-  animation: eq-bounce 0.9s ease-in-out infinite;
-}
-
-.home-track:hover .home-track-eq span:nth-child(2),
-.home-track:focus-visible .home-track-eq span:nth-child(2) {
-  animation-delay: 0.15s;
-}
-
-.home-track:hover .home-track-eq span:nth-child(3),
-.home-track:focus-visible .home-track-eq span:nth-child(3) {
-  animation-delay: 0.3s;
-}
-
-@keyframes eq-bounce {
-  0%,
-  100% {
-    height: 30%;
-  }
-  50% {
-    height: 100%;
-  }
-}
-
-/*
-  速通挑戰是這三個模式裡唯一「計時競速」的玩法，在曲目列表裡刻意給它一個小標記，
-  借用黑膠文化裡「45 轉單曲」的慣例——45 RPM 是黑膠規格裡專門給快速、短篇單曲用的
-  轉速（相對於一般 LP 專輯的 33⅓ 轉），拿來標記主打碼表計時的模式，貼題又不搶戲，
-  不是憑空加一個裝飾標籤。圓點動畫沿用既有的 vinyl-pulse（見上方 keyframes），
-  呼應「碼表跳動」的意象，同一份動畫語彙延伸使用，不是另外發明一套。
-*/
-.home-track-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-  padding: 3px 8px;
-  width: fit-content;
-  border: 1px solid var(--accent);
-  border-radius: 999px;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
-  color: var(--accent);
-}
-
-.home-track-tag-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: vinyl-pulse 1.6s ease-in-out infinite;
-}
-
-.home-track--accent {
-  border-left: 2px solid var(--accent);
-  padding-left: 4px;
-}
-
-/* 資料庫管理連結：唱片內頁側標小字的感覺，刻意低調，不跟曲目列表搶視覺重量 */
-.home-liner-notes {
-  color: var(--ink-dim);
-  font-size: 0.82rem;
-  font-style: italic;
-}
 
 /*
   =============================================================
@@ -483,4 +293,15 @@ main:has(.home-track:focus-visible) .home-vinyl {
 
 .btn-text:hover:not(:disabled) {
   color: var(--ink);
+}
+
+/* 首頁的模式卡片：外框顏色用一般 CSS transition 處理（Framer Motion 對 CSS 變數作為顏色值的
+   動畫插值不可靠，數值型的位移/縮放才交給它），懸停時邊框亮成金色。 */
+.home-mode-card {
+  transition: border-color 0.2s ease;
+}
+
+.home-mode-card:hover,
+.home-mode-card:focus-within {
+  border-color: var(--accent);
 }
