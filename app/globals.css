@@ -191,6 +191,41 @@ input:focus-visible {
   color: var(--ink-dim);
 }
 
+/*
+  速通挑戰是這三個模式裡唯一「計時競速」的玩法，在曲目列表裡刻意給它一個小標記，
+  借用黑膠文化裡「45 轉單曲」的慣例——45 RPM 是黑膠規格裡專門給快速、短篇單曲用的
+  轉速（相對於一般 LP 專輯的 33⅓ 轉），拿來標記主打碼表計時的模式，貼題又不搶戲，
+  不是憑空加一個裝飾標籤。圓點動畫沿用既有的 vinyl-pulse（見上方 keyframes），
+  呼應「碼表跳動」的意象，同一份動畫語彙延伸使用，不是另外發明一套。
+*/
+.home-track-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 3px 8px;
+  width: fit-content;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.home-track-tag-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: vinyl-pulse 1.6s ease-in-out infinite;
+}
+
+.home-track--accent {
+  border-left: 2px solid var(--accent);
+  padding-left: 4px;
+}
+
 /* 資料庫管理連結：唱片內頁側標小字的感覺，刻意低調，不跟曲目列表搶視覺重量 */
 .home-liner-notes {
   color: var(--ink-dim);

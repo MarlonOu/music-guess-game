@@ -36,11 +36,15 @@ export default function Home() {
           </span>
         </Link>
 
-        <Link href="/speedrun" className="home-track">
+        <Link href="/speedrun" className="home-track home-track--accent">
           <span className="home-track-num">A3</span>
           <span className="home-track-body">
             <span className="home-track-title">速通挑戰</span>
             <span className="home-track-desc">碼表計時，衝上排行榜</span>
+            <span className="home-track-tag">
+              <span className="home-track-tag-dot" aria-hidden="true" />
+              45 RPM · 限時競速
+            </span>
           </span>
         </Link>
       </nav>
