@@ -26,6 +26,11 @@ export default function Home() {
             <span className="home-track-title">單機模式</span>
             <span className="home-track-desc">一個人，自己出題自己猜</span>
           </span>
+          <span className="home-track-eq" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
         </Link>
 
         <Link href="/online" className="home-track">
@@ -33,6 +38,11 @@ export default function Home() {
           <span className="home-track-body">
             <span className="home-track-title">線上模式</span>
             <span className="home-track-desc">開房間，跟朋友一起搶答</span>
+          </span>
+          <span className="home-track-eq" aria-hidden="true">
+            <span />
+            <span />
+            <span />
           </span>
         </Link>
 
@@ -45,6 +55,11 @@ export default function Home() {
               <span className="home-track-tag-dot" aria-hidden="true" />
               45 RPM · 限時競速
             </span>
+          </span>
+          <span className="home-track-eq" aria-hidden="true">
+            <span />
+            <span />
+            <span />
           </span>
         </Link>
       </nav>
