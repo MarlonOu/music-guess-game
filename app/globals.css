@@ -99,3 +99,101 @@ input:focus-visible {
     transform: scale(1.02);
   }
 }
+
+/*
+  首頁的黑膠唱片視覺（見 app/page.tsx）。純 CSS 用同心圓畫出唱片紋路＋金色標籤環＋
+  中心軸孔，套用既有的 vinyl-spin 動畫做極慢速的待機自轉（18 秒轉一圈，安靜、不搶戲，
+  只是「這台機器開著」的訊號，不是拿來吸引注意力的裝飾動畫）。
+*/
+.home-vinyl {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  position: relative;
+  flex-shrink: 0;
+  background: radial-gradient(
+    circle at 50% 50%,
+    var(--bg) 0 17%,
+    var(--accent) 17% 20%,
+    var(--bg-raised) 20% 45%,
+    var(--groove) 45% 47%,
+    var(--bg-raised) 47% 68%,
+    var(--groove) 68% 70%,
+    var(--bg-raised) 70% 100%
+  );
+  animation: vinyl-spin 18s linear infinite;
+}
+
+.home-vinyl::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-dim);
+  transform: translate(-50%, -50%);
+}
+
+/* 曲目列表式的模式選單，取代原本一排長得一樣的圓角按鈕——A1/A2/A3 是真的黑膠側標
+   曲目編號慣例，不是隨便加的裝飾數字，同時也用順序暗示「由上到下」的建議路徑。 */
+.home-tracklist {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 420px;
+  border-top: 1px solid var(--groove);
+}
+
+.home-track {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  padding: 18px 6px;
+  border-bottom: 1px solid var(--groove);
+  transition: background-color 0.15s ease;
+}
+
+.home-track:hover,
+.home-track:focus-visible {
+  background: var(--bg-raised);
+}
+
+.home-track-num {
+  font-family: var(--font-mono);
+  color: var(--ink-dim);
+  font-size: 0.85rem;
+  width: 24px;
+  flex-shrink: 0;
+  transition: color 0.15s ease;
+}
+
+.home-track:hover .home-track-num,
+.home-track:focus-visible .home-track-num {
+  color: var(--accent);
+}
+
+.home-track-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.home-track-title {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  color: var(--ink);
+}
+
+.home-track-desc {
+  font-size: 0.82rem;
+  color: var(--ink-dim);
+}
+
+/* 資料庫管理連結：唱片內頁側標小字的感覺，刻意低調，不跟曲目列表搶視覺重量 */
+.home-liner-notes {
+  color: var(--ink-dim);
+  font-size: 0.82rem;
+  font-style: italic;
+}
