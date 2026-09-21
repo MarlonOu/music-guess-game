@@ -113,39 +113,55 @@ const sectionStyle: React.CSSProperties = {
   background: 'var(--bg-raised)',
 };
 
+// 這四個共用樣式常數對齊全站統一的按鈕／輸入框系統（見 app/globals.css 最下方的說明），
+// 保留成 JS 常數（而不是直接改成 className）是因為底下有 50 多處呼叫端會用
+// style={{ ...editButtonStyle, 額外的排版覆寫 }} 這種寫法疊加個別的 flex/寬度調整，
+// 直接改動每一處風險較高；改成從這幾個常數集中定義視覺樣式，效果等同全站統一，
+// 同時把「按鈕排版微調」跟「按鈕視覺風格」兩件事分開，各自的呼叫端不用逐一修改。
 const inputStyle: React.CSSProperties = {
-  padding: '10px 14px',
-  borderRadius: '8px',
+  padding: '12px 16px',
+  borderRadius: '10px',
   border: '1px solid var(--groove)',
-  background: 'var(--bg)',
+  background: 'var(--bg-raised)',
   color: 'var(--ink)',
+  fontFamily: 'var(--font-body)',
+  fontSize: '1rem',
 };
 
+// 對應 .btn-primary：畫面裡最主要的動作（新增歌手／歌曲、送出表單）
 const buttonStyle: React.CSSProperties = {
-  padding: '8px 16px',
-  borderRadius: '8px',
-  border: 'none',
+  padding: '12px 22px',
+  borderRadius: '10px',
+  border: '1px solid var(--accent)',
   background: 'var(--accent)',
   color: 'var(--accent-ink)',
   fontWeight: 600,
+  fontSize: '0.95rem',
 };
 
+// 對應 .btn-danger .btn-sm：破壞性操作（刪除），紅色描邊、不用實心填滿避免視覺恐慌
 const dangerButtonStyle: React.CSSProperties = {
-  padding: '6px 12px',
+  padding: '8px 14px',
   borderRadius: '8px',
-  border: '1px solid var(--groove)',
+  border: '1px solid var(--error)',
   background: 'transparent',
   color: 'var(--error)',
   fontSize: '0.85rem',
+  fontWeight: 500,
 };
 
+// 對應 .btn-ghost .btn-sm：中性的次要操作（編輯、搜尋、試聽、匯入匯出、全選）；
+// 這裡也是清單裡各種「切換選中狀態」按鈕的基底樣式，呼叫端會另外 spread 疊加
+// borderColor／color 依選中狀態切換（例如試聽來源切換、搶答方式切換），
+// 疊加時使用的顏色也統一對齊 var(--accent) 表示選中、var(--groove)／var(--ink-dim) 表示未選中。
 const editButtonStyle: React.CSSProperties = {
-  padding: '6px 12px',
+  padding: '8px 14px',
   borderRadius: '8px',
   border: '1px solid var(--groove)',
   background: 'transparent',
   color: 'var(--ink)',
   fontSize: '0.85rem',
+  fontWeight: 500,
 };
 
 interface SectionCallbacks {

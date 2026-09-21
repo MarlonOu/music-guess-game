@@ -85,15 +85,8 @@ export function MatchSetupForm() {
             <button
               key={m.code}
               onClick={() => setMode(m.code)}
-              style={{
-                flex: 1,
-                padding: '10px',
-                borderRadius: '10px',
-                border: mode === m.code ? '1px solid var(--accent)' : '1px solid var(--groove)',
-                background: mode === m.code ? 'var(--bg-raised)' : 'transparent',
-                color: mode === m.code ? 'var(--accent)' : 'var(--ink)',
-                fontSize: '0.9rem',
-              }}
+              className={`btn btn-toggle ${mode === m.code ? 'is-active' : ''}`}
+              style={{ flex: 1 }}
             >
               {m.label}
             </button>
@@ -115,29 +108,15 @@ export function MatchSetupForm() {
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
             onClick={() => switchFilterType('artist')}
-            style={{
-              flex: 1,
-              padding: '10px',
-              borderRadius: '10px',
-              border: filterType === 'artist' ? '1px solid var(--accent)' : '1px solid var(--groove)',
-              background: filterType === 'artist' ? 'var(--bg-raised)' : 'transparent',
-              color: filterType === 'artist' ? 'var(--accent)' : 'var(--ink)',
-              fontSize: '0.9rem',
-            }}
+            className={`btn btn-toggle ${filterType === 'artist' ? 'is-active' : ''}`}
+            style={{ flex: 1 }}
           >
             依歌手篩選
           </button>
           <button
             onClick={() => switchFilterType('theme')}
-            style={{
-              flex: 1,
-              padding: '10px',
-              borderRadius: '10px',
-              border: filterType === 'theme' ? '1px solid var(--accent)' : '1px solid var(--groove)',
-              background: filterType === 'theme' ? 'var(--bg-raised)' : 'transparent',
-              color: filterType === 'theme' ? 'var(--accent)' : 'var(--ink)',
-              fontSize: '0.9rem',
-            }}
+            className={`btn btn-toggle ${filterType === 'theme' ? 'is-active' : ''}`}
+            style={{ flex: 1 }}
           >
             依主題篩選
           </button>
@@ -155,19 +134,7 @@ export function MatchSetupForm() {
         本場會把符合篩選條件的歌曲全部玩完，題數不設上限。
       </p>
 
-      <a
-        href={startHref}
-        style={{
-          textAlign: 'center',
-          padding: '14px',
-          borderRadius: '12px',
-          border: 'none',
-          background: 'var(--accent)',
-          color: 'var(--accent-ink)',
-          fontWeight: 600,
-          fontSize: '1.05rem',
-        }}
-      >
+      <a href={startHref} className="btn btn-primary btn-block" style={{ textAlign: 'center' }}>
         開始比賽
       </a>
     </div>

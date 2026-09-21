@@ -230,10 +230,7 @@ export default function OnlineRoomPage() {
 
       <ChatBox joinCode={joinCode} playerId={playerId} messages={messages} onMessageSent={handleMessageSent} answerMode={room.answerMode} />
 
-      <button
-        onClick={handleLeaveClick}
-        style={{ color: 'var(--ink-dim)', fontSize: '0.85rem', background: 'transparent', border: 'none' }}
-      >
+      <button onClick={handleLeaveClick} className="btn-text">
         離開房間
       </button>
     </main>
@@ -297,14 +294,10 @@ function JoinPrompt({ joinCode, onJoined }: { joinCode: string; onJoined: (playe
           onChange={(e) => setDisplayName(e.target.value)}
           placeholder="輸入暱稱"
           autoFocus
-          style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--groove)', background: 'var(--bg)', color: 'var(--ink)' }}
+          className="field"
         />
         {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
-        <button
-          type="submit"
-          disabled={loading}
-          style={{ padding: '12px', borderRadius: '10px', border: 'none', background: 'var(--accent)', color: 'var(--accent-ink)', fontWeight: 600 }}
-        >
+        <button type="submit" disabled={loading} className="btn btn-primary">
           {loading ? '處理中…' : '加入'}
         </button>
       </form>
@@ -343,15 +336,8 @@ function QrJoinSection({ joinCode }: { joinCode: string }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        style={{
-          alignSelf: 'flex-start',
-          padding: '8px 16px',
-          borderRadius: '999px',
-          border: '1px solid var(--groove)',
-          background: 'transparent',
-          color: 'var(--ink-dim)',
-          fontSize: '0.85rem',
-        }}
+        className={`btn btn-toggle btn-sm ${open ? 'is-active' : ''}`}
+        style={{ alignSelf: 'flex-start', borderRadius: '999px' }}
       >
         {open ? '收合 QR Code ▲' : '📷 顯示 QR Code 讓朋友掃描加入 ▼'}
       </button>
@@ -453,15 +439,8 @@ function LobbyView({ room, playerId, isHost, onError, onRoomUpdate }: RoomViewPr
                 <button
                   key={m.code}
                   onClick={() => updateSettings({ mode: m.code })}
-                  style={{
-                    flex: 1,
-                    padding: '10px',
-                    borderRadius: '10px',
-                    border: room.mode === m.code ? '1px solid var(--accent)' : '1px solid var(--groove)',
-                    background: room.mode === m.code ? 'var(--bg-raised)' : 'transparent',
-                    color: room.mode === m.code ? 'var(--accent)' : 'var(--ink)',
-                    fontSize: '0.9rem',
-                  }}
+                  className={`btn btn-toggle ${room.mode === m.code ? 'is-active' : ''}`}
+                  style={{ flex: 1 }}
                 >
                   {m.label}
                 </button>
@@ -474,29 +453,15 @@ function LobbyView({ room, playerId, isHost, onError, onRoomUpdate }: RoomViewPr
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
                 onClick={() => updateSettings({ answerMode: 'text' })}
-                style={{
-                  flex: 1,
-                  padding: '10px',
-                  borderRadius: '10px',
-                  border: room.answerMode === 'text' ? '1px solid var(--accent)' : '1px solid var(--groove)',
-                  background: room.answerMode === 'text' ? 'var(--bg-raised)' : 'transparent',
-                  color: room.answerMode === 'text' ? 'var(--accent)' : 'var(--ink)',
-                  fontSize: '0.9rem',
-                }}
+                className={`btn btn-toggle ${room.answerMode === 'text' ? 'is-active' : ''}`}
+                style={{ flex: 1 }}
               >
                 打字搶答
               </button>
               <button
                 onClick={() => updateSettings({ answerMode: 'choice' })}
-                style={{
-                  flex: 1,
-                  padding: '10px',
-                  borderRadius: '10px',
-                  border: room.answerMode === 'choice' ? '1px solid var(--accent)' : '1px solid var(--groove)',
-                  background: room.answerMode === 'choice' ? 'var(--bg-raised)' : 'transparent',
-                  color: room.answerMode === 'choice' ? 'var(--accent)' : 'var(--ink)',
-                  fontSize: '0.9rem',
-                }}
+                className={`btn btn-toggle ${room.answerMode === 'choice' ? 'is-active' : ''}`}
+                style={{ flex: 1 }}
               >
                 選擇題搶答
               </button>
@@ -518,15 +483,8 @@ function LobbyView({ room, playerId, isHost, onError, onRoomUpdate }: RoomViewPr
                   setFilterMode('artist');
                   if (room.themeFilterIds.length > 0) updateSettings({ themeFilterIds: [] });
                 }}
-                style={{
-                  flex: 1,
-                  padding: '10px',
-                  borderRadius: '10px',
-                  border: filterMode === 'artist' ? '1px solid var(--accent)' : '1px solid var(--groove)',
-                  background: filterMode === 'artist' ? 'var(--bg-raised)' : 'transparent',
-                  color: filterMode === 'artist' ? 'var(--accent)' : 'var(--ink)',
-                  fontSize: '0.9rem',
-                }}
+                className={`btn btn-toggle ${filterMode === 'artist' ? 'is-active' : ''}`}
+                style={{ flex: 1 }}
               >
                 依歌手篩選
               </button>
@@ -535,15 +493,8 @@ function LobbyView({ room, playerId, isHost, onError, onRoomUpdate }: RoomViewPr
                   setFilterMode('theme');
                   if (room.artistFilterIds.length > 0) updateSettings({ artistFilterIds: [] });
                 }}
-                style={{
-                  flex: 1,
-                  padding: '10px',
-                  borderRadius: '10px',
-                  border: filterMode === 'theme' ? '1px solid var(--accent)' : '1px solid var(--groove)',
-                  background: filterMode === 'theme' ? 'var(--bg-raised)' : 'transparent',
-                  color: filterMode === 'theme' ? 'var(--accent)' : 'var(--ink)',
-                  fontSize: '0.9rem',
-                }}
+                className={`btn btn-toggle ${filterMode === 'theme' ? 'is-active' : ''}`}
+                style={{ flex: 1 }}
               >
                 依主題篩選
               </button>
@@ -581,19 +532,7 @@ function LobbyView({ room, playerId, isHost, onError, onRoomUpdate }: RoomViewPr
 
           <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>每場固定 10 題（若題庫不足 10 首則以實際數量為準）。</p>
 
-          <button
-            onClick={handleStart}
-            disabled={starting}
-            style={{
-              padding: '14px',
-              borderRadius: '12px',
-              border: 'none',
-              background: 'var(--accent)',
-              color: 'var(--accent-ink)',
-              fontWeight: 600,
-              fontSize: '1.05rem',
-            }}
-          >
+          <button onClick={handleStart} disabled={starting} className="btn btn-primary btn-block">
             {starting ? '開始中…' : '開始遊戲'}
           </button>
         </>
@@ -859,28 +798,13 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
                     choiceFeedback?.roundIndex === room.currentRoundIndex && choiceFeedback.songId === choice.songId
                       ? choiceFeedback
                       : null;
+                  const feedbackClass = feedback ? (feedback.correct ? 'is-correct' : 'is-wrong') : '';
                   return (
                     <button
                       key={choice.songId}
                       onClick={() => handleAnswerChoice(choice.songId)}
                       disabled={answeringChoice}
-                      style={{
-                        padding: '14px 10px',
-                        borderRadius: '10px',
-                        border: feedback
-                          ? feedback.correct
-                            ? '1px solid #4caf50'
-                            : '1px solid var(--error)'
-                          : '1px solid var(--groove)',
-                        background: feedback
-                          ? feedback.correct
-                            ? 'rgba(76,175,80,0.15)'
-                            : 'rgba(220,53,69,0.12)'
-                          : 'var(--bg-raised)',
-                        color: 'var(--ink)',
-                        fontSize: '0.9rem',
-                        lineHeight: 1.3,
-                      }}
+                      className={`choice-btn ${feedbackClass}`}
                     >
                       {choice.title}
                     </button>
@@ -899,14 +823,8 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
               <button
                 onClick={handleVoteSkip}
                 disabled={voting}
-                style={{
-                  padding: '8px 20px',
-                  borderRadius: '999px',
-                  border: room.skipVotePlayerIds.includes(playerId) ? '1px solid var(--accent)' : '1px solid var(--groove)',
-                  background: room.skipVotePlayerIds.includes(playerId) ? 'var(--bg-raised)' : 'transparent',
-                  color: room.skipVotePlayerIds.includes(playerId) ? 'var(--accent)' : 'var(--ink-dim)',
-                  fontSize: '0.9rem',
-                }}
+                className={`btn btn-toggle ${room.skipVotePlayerIds.includes(playerId) ? 'is-active' : ''}`}
+                style={{ borderRadius: '999px', padding: '8px 20px' }}
               >
                 {voting
                   ? '處理中…'
@@ -928,10 +846,7 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
       <ScoreList players={room.players} />
 
       {isHost && (
-        <button
-          onClick={handleEnd}
-          style={{ padding: '10px 16px', borderRadius: '10px', border: '1px solid var(--groove)', background: 'transparent', color: 'var(--ink-dim)', fontSize: '0.85rem' }}
-        >
+        <button onClick={handleEnd} className="btn btn-danger btn-sm">
           提前結束比賽
         </button>
       )}
@@ -958,11 +873,7 @@ function FinishedView({ room, isHost, onError, onRoomUpdate }: RoomViewProps) {
       <p style={{ color: 'var(--ink-dim)' }}>比賽結束</p>
       <ScoreList players={room.players} showRanking />
       {isHost && (
-        <button
-          onClick={handleRestart}
-          disabled={restarting}
-          style={{ padding: '12px 24px', borderRadius: '10px', border: 'none', background: 'var(--accent)', color: 'var(--accent-ink)', fontWeight: 600 }}
-        >
+        <button onClick={handleRestart} disabled={restarting} className="btn btn-primary">
           {restarting ? '處理中…' : '返回房間再玩一輪'}
         </button>
       )}
@@ -1098,20 +1009,10 @@ function ChatBox({
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="打字聊天／搶答歌名"
-          style={{
-            flex: 1,
-            padding: '10px 14px',
-            borderRadius: '10px',
-            border: '1px solid var(--groove)',
-            background: 'var(--bg)',
-            color: 'var(--ink)',
-          }}
+          className="field"
+          style={{ flex: 1 }}
         />
-        <button
-          type="submit"
-          disabled={sending}
-          style={{ padding: '10px 16px', borderRadius: '10px', border: 'none', background: 'var(--accent)', color: 'var(--accent-ink)', fontWeight: 600 }}
-        >
+        <button type="submit" disabled={sending} className="btn btn-primary">
           送出
         </button>
       </form>

@@ -230,18 +230,7 @@ export function GamePage({ mode, title }: GamePageProps) {
           />
 
           {state.status === 'question' && (
-            <button
-              onClick={() => engine.revealAnswer()}
-              style={{
-                padding: '12px 28px',
-                borderRadius: '10px',
-                border: 'none',
-                background: 'var(--accent)',
-                color: 'var(--accent-ink)',
-                fontWeight: 600,
-                fontSize: '1.05rem',
-              }}
-            >
+            <button onClick={() => engine.revealAnswer()} className="btn btn-primary">
               顯示正確答案
             </button>
           )}
@@ -261,18 +250,7 @@ export function GamePage({ mode, title }: GamePageProps) {
                   主題：{currentThemeLabels.join('、')}
                 </p>
               )}
-              <button
-                onClick={() => engine.nextQuestion()}
-                style={{
-                  padding: '12px 28px',
-                  borderRadius: '10px',
-                  border: 'none',
-                  background: 'var(--accent)',
-                  color: 'var(--accent-ink)',
-                  fontWeight: 600,
-                  fontSize: '1.05rem',
-                }}
-              >
+              <button onClick={() => engine.nextQuestion()} className="btn btn-primary">
                 下一題
               </button>
             </>
@@ -291,14 +269,7 @@ export function GamePage({ mode, title }: GamePageProps) {
             onClick={() => {
               if (window.confirm('確定要提前結束這場比賽嗎？')) engine.endMatchEarly();
             }}
-            style={{
-              padding: '8px 16px',
-              borderRadius: '8px',
-              border: '1px solid var(--groove)',
-              background: 'transparent',
-              color: 'var(--ink-dim)',
-              fontSize: '0.85rem',
-            }}
+            className="btn btn-danger btn-sm"
           >
             結束比賽
           </button>
@@ -309,17 +280,7 @@ export function GamePage({ mode, title }: GamePageProps) {
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
           {hasPlayers && <ScoreBoard players={players} scores={state.scores} />}
           <p style={{ color: 'var(--ink-dim)' }}>比賽結束</p>
-          <Link
-            href="/"
-            style={{
-              padding: '10px 24px',
-              borderRadius: '10px',
-              border: 'none',
-              background: 'var(--accent)',
-              color: 'var(--accent-ink)',
-              fontWeight: 600,
-            }}
-          >
+          <Link href="/" className="btn btn-primary">
             返回首頁
           </Link>
         </div>

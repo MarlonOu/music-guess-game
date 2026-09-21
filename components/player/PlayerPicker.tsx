@@ -127,26 +127,10 @@ export function PlayerPicker({ selected, onChange, onError }: PlayerPickerProps)
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           placeholder="輸入新玩家名字"
-          style={{
-            flex: 1,
-            padding: '10px 14px',
-            borderRadius: '10px',
-            border: '1px solid var(--groove)',
-            background: 'var(--bg-raised)',
-            color: 'var(--ink)',
-          }}
+          className="field"
+          style={{ flex: 1 }}
         />
-        <button
-          type="submit"
-          style={{
-            padding: '10px 16px',
-            borderRadius: '10px',
-            border: 'none',
-            background: 'var(--accent)',
-            color: 'var(--accent-ink)',
-            fontWeight: 600,
-          }}
-        >
+        <button type="submit" className="btn btn-primary">
           新增
         </button>
         <button
@@ -154,14 +138,7 @@ export function PlayerPicker({ selected, onChange, onError }: PlayerPickerProps)
           onClick={() => setHistoryOpen(true)}
           aria-label="從歷史紀錄匯入"
           title="從歷史紀錄匯入"
-          style={{
-            padding: '10px 14px',
-            borderRadius: '10px',
-            border: '1px solid var(--groove)',
-            background: 'transparent',
-            color: 'var(--ink)',
-            fontSize: '1.1rem',
-          }}
+          className="btn btn-ghost"
         >
           📜
         </button>
@@ -210,33 +187,15 @@ export function PlayerPicker({ selected, onChange, onError }: PlayerPickerProps)
                     key={p.id}
                     type="button"
                     onClick={() => addFromHistory(p)}
-                    style={{
-                      textAlign: 'left',
-                      padding: '10px 14px',
-                      borderRadius: '10px',
-                      border: '1px solid var(--groove)',
-                      background: 'transparent',
-                      color: 'var(--ink)',
-                    }}
+                    className="btn btn-ghost"
+                    style={{ textAlign: 'left', justifyContent: 'flex-start' }}
                   >
                     {p.displayName}
                   </button>
                 ))}
               </div>
             )}
-            <button
-              type="button"
-              onClick={() => setHistoryOpen(false)}
-              style={{
-                marginTop: '8px',
-                padding: '10px 16px',
-                borderRadius: '10px',
-                border: 'none',
-                background: 'var(--accent)',
-                color: 'var(--accent-ink)',
-                fontWeight: 600,
-              }}
-            >
+            <button type="button" onClick={() => setHistoryOpen(false)} className="btn btn-primary" style={{ marginTop: '8px' }}>
               完成
             </button>
           </div>

@@ -73,14 +73,6 @@ export default function DebugAudioPage() {
     controllerRef.current?.stop();
   }
 
-  const inputStyle = {
-    padding: '10px 14px',
-    borderRadius: '10px',
-    border: '1px solid var(--groove)',
-    background: 'var(--bg-raised)',
-    color: 'var(--ink)',
-  };
-
   return (
     <main
       style={{
@@ -103,37 +95,22 @@ export default function DebugAudioPage() {
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
             onClick={() => handleSourceChange('youtube')}
-            style={{
-              ...inputStyle,
-              flex: 1,
-              cursor: 'pointer',
-              borderColor: source === 'youtube' ? 'var(--accent)' : 'var(--groove)',
-              color: source === 'youtube' ? 'var(--accent)' : 'var(--ink)',
-            }}
+            className={`btn btn-toggle ${source === 'youtube' ? 'is-active' : ''}`}
+            style={{ flex: 1 }}
           >
             YouTube
           </button>
           <button
             onClick={() => handleSourceChange('apple')}
-            style={{
-              ...inputStyle,
-              flex: 1,
-              cursor: 'pointer',
-              borderColor: source === 'apple' ? 'var(--accent)' : 'var(--groove)',
-              color: source === 'apple' ? 'var(--accent)' : 'var(--ink)',
-            }}
+            className={`btn btn-toggle ${source === 'apple' ? 'is-active' : ''}`}
+            style={{ flex: 1 }}
           >
             Apple Music
           </button>
           <button
             onClick={() => handleSourceChange('deezer')}
-            style={{
-              ...inputStyle,
-              flex: 1,
-              cursor: 'pointer',
-              borderColor: source === 'deezer' ? 'var(--accent)' : 'var(--groove)',
-              color: source === 'deezer' ? 'var(--accent)' : 'var(--ink)',
-            }}
+            className={`btn btn-toggle ${source === 'deezer' ? 'is-active' : ''}`}
+            style={{ flex: 1 }}
           >
             Deezer
           </button>
@@ -157,7 +134,7 @@ export default function DebugAudioPage() {
                   ? '例如 https://audio-ssl.itunes.apple.com/.../preview.m4a'
                   : '例如 https://cdns-preview-x.dzcdn.net/stream/....mp3'
             }
-            style={inputStyle}
+            className="field"
           />
         </label>
 
@@ -169,7 +146,7 @@ export default function DebugAudioPage() {
               min={0}
               value={startSec}
               onChange={(e) => setStartSec(Math.max(0, Number(e.target.value) || 0))}
-              style={inputStyle}
+              className="field"
             />
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
@@ -179,7 +156,7 @@ export default function DebugAudioPage() {
               min={1}
               value={durationSec}
               onChange={(e) => setDurationSec(e.target.value === '' ? '' : Math.max(1, Number(e.target.value)))}
-              style={inputStyle}
+              className="field"
             />
           </label>
         </div>
@@ -197,31 +174,11 @@ export default function DebugAudioPage() {
       )}
 
       <div style={{ display: 'flex', gap: '8px' }}>
-        <button
-          onClick={handlePlayPause}
-          style={{
-            padding: '10px 24px',
-            borderRadius: '8px',
-            border: 'none',
-            background: 'var(--accent)',
-            color: 'var(--accent-ink)',
-            fontWeight: 600,
-            minWidth: '96px',
-          }}
-        >
+        <button onClick={handlePlayPause} className="btn btn-primary" style={{ minWidth: '96px' }}>
           {isPlaying ? '暫停' : hasStarted ? '繼續播放' : '播放'}
         </button>
         {hasStarted && (
-          <button
-            onClick={handleRestart}
-            style={{
-              padding: '10px 16px',
-              borderRadius: '8px',
-              border: '1px solid var(--groove)',
-              background: 'transparent',
-              color: 'var(--ink)',
-            }}
-          >
+          <button onClick={handleRestart} className="btn btn-ghost">
             從頭播放
           </button>
         )}

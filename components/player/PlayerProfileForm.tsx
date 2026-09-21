@@ -32,42 +32,14 @@ export function PlayerProfileForm({ editingProfile, onSubmit, onCancelEdit }: Pl
         onChange={(e) => setDisplayName(e.target.value)}
         placeholder="輸入顯示名稱"
         maxLength={20}
-        style={{
-          flex: 1,
-          padding: '12px 16px',
-          borderRadius: '10px',
-          border: '1px solid var(--groove)',
-          background: 'var(--bg-raised)',
-          color: 'var(--ink)',
-          fontSize: '1rem',
-        }}
+        className="field"
+        style={{ flex: 1 }}
       />
-      <button
-        type="submit"
-        style={{
-          padding: '12px 20px',
-          borderRadius: '10px',
-          border: 'none',
-          background: 'var(--accent)',
-          color: 'var(--accent-ink)',
-          fontWeight: 600,
-        }}
-      >
+      <button type="submit" className="btn btn-primary">
         {editingProfile ? '儲存' : '新增'}
       </button>
       {editingProfile && (
-        <button
-          type="button"
-          onClick={onCancelEdit}
-          style={{
-            padding: '12px 20px',
-            borderRadius: '10px',
-            border: '1px solid var(--groove)',
-            background: 'transparent',
-            color: 'var(--ink-dim)',
-            fontWeight: 600,
-          }}
-        >
+        <button type="button" onClick={onCancelEdit} className="btn btn-ghost">
           取消
         </button>
       )}

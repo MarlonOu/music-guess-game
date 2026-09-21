@@ -219,14 +219,28 @@ export default function SpeedrunPage() {
     color: 'var(--ink)',
     fontSize: '1rem',
   };
+  // 對應全站共用的 .btn-primary（見 app/globals.css），這裡維持獨立的 JS 常數而不是直接用
+  // className，純粹是這個檔案原本就是這個寫法、牽動範圍小，保留一致的視覺數值即可。
   const buttonStyle = {
-    padding: '14px 24px',
-    borderRadius: '12px',
-    border: 'none',
+    padding: '13px 22px',
+    borderRadius: '10px',
+    border: '1px solid var(--accent)',
     background: 'var(--accent)',
     color: 'var(--accent-ink)',
     fontWeight: 600,
-    fontSize: '1rem',
+    fontSize: '0.95rem',
+  };
+  // 對應 .btn-secondary：次要但有效的動作（這裡是「展開/收合排行榜」），跟主要的
+  // 「開始挑戰」用同一個系統裡的次一級視覺權重，而不是借用輸入框樣式硬改
+  const secondaryButtonStyle = {
+    padding: '13px 22px',
+    borderRadius: '10px',
+    border: '1px solid var(--accent)',
+    background: 'transparent',
+    color: 'var(--accent)',
+    fontWeight: 600,
+    fontSize: '0.95rem',
+    cursor: 'pointer' as const,
   };
 
   return (
@@ -264,7 +278,7 @@ export default function SpeedrunPage() {
           </button>
           <button
             onClick={loadIntroLeaderboard}
-            style={{ ...inputStyle, background: 'transparent', cursor: 'pointer' }}
+            style={secondaryButtonStyle}
           >
             {introLeaderboard !== null ? '收合排行榜 ▲' : '查看目前排行榜 ▼'}
           </button>
@@ -323,16 +337,7 @@ export default function SpeedrunPage() {
                   key={choice.songId}
                   onClick={() => handleChoiceClick(choice.songId)}
                   disabled={locked}
-                  style={{
-                    padding: '16px 12px',
-                    borderRadius: '12px',
-                    border: isWrongPick ? '1px solid var(--error)' : '1px solid var(--groove)',
-                    background: isWrongPick ? 'rgba(220,53,69,0.12)' : 'var(--bg-raised)',
-                    color: 'var(--ink)',
-                    fontSize: '0.95rem',
-                    lineHeight: 1.3,
-                    opacity: locked && !isWrongPick ? 0.5 : 1,
-                  }}
+                  className={`choice-btn ${isWrongPick ? 'is-wrong' : ''}`}
                 >
                   {choice.title}
                 </button>

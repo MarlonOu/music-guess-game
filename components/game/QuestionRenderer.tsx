@@ -88,31 +88,11 @@ export function QuestionRenderer({ question, song, controller }: QuestionRendere
         </p>
       )}
       <div style={{ display: 'flex', gap: '8px' }}>
-        <button
-          onClick={handlePlayPause}
-          style={{
-            padding: '10px 24px',
-            borderRadius: '8px',
-            border: 'none',
-            background: 'var(--accent)',
-            color: 'var(--accent-ink)',
-            fontWeight: 600,
-            minWidth: '96px',
-          }}
-        >
+        <button onClick={handlePlayPause} className="btn btn-primary" style={{ minWidth: '96px' }}>
           {playPauseLabel}
         </button>
         {hasStarted && (
-          <button
-            onClick={handleRestart}
-            style={{
-              padding: '10px 16px',
-              borderRadius: '8px',
-              border: '1px solid var(--groove)',
-              background: 'transparent',
-              color: 'var(--ink)',
-            }}
-          >
+          <button onClick={handleRestart} className="btn btn-ghost">
             從頭播放
           </button>
         )}

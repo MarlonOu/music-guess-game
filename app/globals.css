@@ -232,3 +232,197 @@ input:focus-visible {
   font-size: 0.82rem;
   font-style: italic;
 }
+
+/*
+  =============================================================
+  全站共用的按鈕／輸入框系統。
+  =============================================================
+  原本每個頁面（/admin、/speedrun、線上房間、單機模式…）各自用 inline style 定義了
+  一套自己的按鈕樣式，長得都不太一樣，也沒有依照「這顆按鈕的功能／重要性」做出一致的
+  區分邏輯。這裡統一收斂成幾種按鈕「性質」，全站共用，差異只反映功能面的不同：
+
+  - .btn-primary  這個畫面裡最主要、最想引導使用者按下去的動作（開始遊戲、送出表單、確認）。
+                  實心金色填滿，視覺權重最高，一個畫面通常只有一個。
+  - .btn-secondary 有效、但不是最優先的動作（搜尋、試聽、切換分頁、次要選項）。
+                  金色描邊、透明底，權重中等。
+  - .btn-toggle    多選一的切換／選擇器（模式選擇、篩選條件、搶答方式）——這不是「重要性」的
+                  差異，是「目前有沒有被選中」的狀態差異，用 .is-active 表示選中狀態。
+  - .btn-ghost     低調的次要操作或導覽（返回、收合、次要連結），素色文字＋淡邊框。
+  - .btn-danger    有破壞性、不可逆的操作（刪除、離開房間、提前結束比賽），紅色描邊，
+                  故意不用實心填滿——避免整個畫面滿滿的紅色色塊造成視覺恐慌，
+                  只在真正動手點下去、或搭配確認對話框時才需要更強的警示。
+
+  尺寸用 .btn-sm 這個修飾類別疊加（例如 <button className="btn btn-secondary btn-sm">），
+  預設（不加 .btn-sm）是一般大小，用在畫面上的主要操作；.btn-sm 用在清單裡一排好幾顆、
+  空間有限的次要操作（例如歌曲清單的「編輯」「刪除」）。
+*/
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px 22px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.95rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    opacity 0.15s ease,
+    filter 0.15s ease;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-sm {
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.btn-secondary {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg-raised);
+}
+
+.btn-toggle {
+  background: transparent;
+  border-color: var(--groove);
+  color: var(--ink);
+}
+
+.btn-toggle:hover:not(:disabled) {
+  border-color: var(--ink-dim);
+}
+
+.btn-toggle.is-active {
+  background: var(--bg-raised);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: var(--groove);
+  color: var(--ink-dim);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink-dim);
+}
+
+.btn-danger {
+  background: transparent;
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: rgba(214, 99, 90, 0.12);
+}
+
+.btn-block {
+  display: flex;
+  width: 100%;
+}
+
+/* 表單輸入框：跟按鈕系統同一批收斂，讓文字輸入框、下拉選單、數字輸入框長相統一 */
+.field {
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--groove);
+  background: var(--bg-raised);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 1rem;
+}
+
+.field:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.field::placeholder {
+  color: var(--ink-dim);
+}
+
+/*
+  選擇題搶答的選項按鈕（線上模式的房間畫面、速通模式共用同一套樣式）——這是「同一種東西」
+  出現在兩個不同模式裡，理所當然要長一樣，先前兩邊是各自獨立寫的 inline style，
+  連「答對」要用的顏色都不一致（一邊用系統既有的 --success token，另一邊憑空寫了一個
+  沒在任何地方定義過的綠色），這裡統一收斂成一份。
+*/
+.choice-btn {
+  padding: 15px 12px;
+  border-radius: 11px;
+  border: 1px solid var(--groove);
+  background: var(--bg-raised);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 0.92rem;
+  line-height: 1.3;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.choice-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.choice-btn.is-correct {
+  border-color: var(--success);
+  background: rgba(63, 167, 143, 0.16);
+  opacity: 1;
+}
+
+.choice-btn.is-wrong {
+  border-color: var(--error);
+  background: rgba(214, 99, 90, 0.12);
+  opacity: 1;
+}
+
+/* 純文字型的按鈕（看起來像 <Link> 的次要文字連結，例如「離開房間」），沒有邊框／底色，
+   跟畫面上其他 <Link> 樣式的導覽文字統一 */
+.btn-text {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--ink-dim);
+  font-size: 0.85rem;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.btn-text:hover:not(:disabled) {
+  color: var(--ink);
+}

@@ -39,30 +39,10 @@ export function PlayerList({ players, onEdit, onDelete }: PlayerListProps) {
         >
           <span>{p.displayName}</span>
           <span style={{ display: 'flex', gap: '8px' }}>
-            <button
-              onClick={() => onEdit(p)}
-              style={{
-                padding: '6px 12px',
-                borderRadius: '8px',
-                border: '1px solid var(--groove)',
-                background: 'transparent',
-                color: 'var(--ink)',
-                fontSize: '0.85rem',
-              }}
-            >
+            <button onClick={() => onEdit(p)} className="btn btn-ghost btn-sm">
               編輯
             </button>
-            <button
-              onClick={() => onDelete(p.id)}
-              style={{
-                padding: '6px 12px',
-                borderRadius: '8px',
-                border: '1px solid var(--groove)',
-                background: 'transparent',
-                color: 'var(--error)',
-                fontSize: '0.85rem',
-              }}
-            >
+            <button onClick={() => onDelete(p.id)} className="btn btn-danger btn-sm">
               刪除
             </button>
           </span>

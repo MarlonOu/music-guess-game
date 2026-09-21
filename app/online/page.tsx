@@ -112,32 +112,10 @@ function OnlinePageInner() {
 
       {!pending && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', maxWidth: '360px' }}>
-          <button
-            onClick={() => setPending('create')}
-            style={{
-              padding: '16px 24px',
-              borderRadius: '14px',
-              border: 'none',
-              background: 'var(--accent)',
-              color: 'var(--accent-ink)',
-              fontWeight: 600,
-              fontSize: '1.05rem',
-            }}
-          >
+          <button onClick={() => setPending('create')} className="btn btn-primary btn-block">
             建立房間
           </button>
-          <button
-            onClick={() => setPending('join')}
-            style={{
-              padding: '16px 24px',
-              borderRadius: '14px',
-              border: '1px solid var(--groove)',
-              background: 'var(--bg-raised)',
-              color: 'var(--ink)',
-              fontWeight: 600,
-              fontSize: '1.05rem',
-            }}
-          >
+          <button onClick={() => setPending('join')} className="btn btn-secondary btn-block">
             加入房間
           </button>
         </div>
@@ -169,13 +147,7 @@ function OnlinePageInner() {
               onChange={(e) => setDisplayName(e.target.value)}
               placeholder="輸入暱稱"
               autoFocus
-              style={{
-                padding: '10px 14px',
-                borderRadius: '10px',
-                border: '1px solid var(--groove)',
-                background: 'var(--bg)',
-                color: 'var(--ink)',
-              }}
+              className="field"
             />
           </label>
 
@@ -186,15 +158,8 @@ function OnlinePageInner() {
                 value={joinCode}
                 onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
                 placeholder="例如 AB12CD"
-                style={{
-                  padding: '10px 14px',
-                  borderRadius: '10px',
-                  border: '1px solid var(--groove)',
-                  background: 'var(--bg)',
-                  color: 'var(--ink)',
-                  fontFamily: 'var(--font-mono)',
-                  letterSpacing: '0.1em',
-                }}
+                className="field"
+                style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.1em' }}
               />
             </label>
           )}
@@ -202,19 +167,7 @@ function OnlinePageInner() {
           {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
 
           <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-            <button
-              type="submit"
-              disabled={loading}
-              style={{
-                flex: 1,
-                padding: '12px',
-                borderRadius: '10px',
-                border: 'none',
-                background: 'var(--accent)',
-                color: 'var(--accent-ink)',
-                fontWeight: 600,
-              }}
-            >
+            <button type="submit" disabled={loading} className="btn btn-primary" style={{ flex: 1 }}>
               {loading ? '處理中…' : pending === 'create' ? '建立並進入' : '加入並進入'}
             </button>
             <button
@@ -223,13 +176,7 @@ function OnlinePageInner() {
                 setPending(null);
                 setError(null);
               }}
-              style={{
-                padding: '12px 16px',
-                borderRadius: '10px',
-                border: '1px solid var(--groove)',
-                background: 'transparent',
-                color: 'var(--ink)',
-              }}
+              className="btn btn-ghost"
             >
               返回
             </button>
