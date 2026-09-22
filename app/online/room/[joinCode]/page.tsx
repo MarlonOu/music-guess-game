@@ -73,15 +73,12 @@ export default function OnlineRoomPage() {
     };
   }, [joinCode]);
 
-  // 自我修復：如果房間資料正常拿得到，但自己的 playerId 不在玩家名單裡了，最常見的原因是
-  // 重新整理頁面時，瀏覽器的 pagehide 事件被誤判成「使用者要離開了」（見下方 pagehide 那個
-  // effect 的說明——pagehide 在「重新整理」跟「真的關閉分頁」時都會觸發，沒辦法從事件本身
-  // 分辨兩者），把自己的紀錄從房間刪掉了，但頁面其實只是重新整理、還停留在原地，導致
-  // 「玩家從名單消失、但畫面還留在房間」這種不一致的狀態。
-  // 修法：偵測到這個不一致，就用先前存的暱稱自動重新加入，而不是讓使用者卡在一個看起來
-  // 正常、但其實自己已經不是這個房間玩家的壞掉畫面（重新整理送出的任何動作都會失敗）。
-  // 代價：重新加入拿到的是全新的 playerId，比分會歸零重算——這跟「中途加入」是同一套機制，
-  // 是刻意接受的取捨，好過完全卡住無法繼續玩。
+  // 自我修復（保留作為防呆用途）：如果房間資料正常拿得到，但自己的 playerId 不在玩家名單裡了，
+  // 就用先前存的暱稱自動重新加入，避免卡在一個看起來正常、但其實自己已經不是這個房間玩家的
+  // 壞掉畫面。先前這個情況最常見的成因是 pagehide 誤判重新整理成離開，那個成因已經連根拔除
+  // （見上面拿掉 pagehide 監聽的說明），這裡留著純粹是防呆——理論上不該再遇到，但如果未來
+  // 又有其他原因讓玩家紀錄消失（例如房主之後如果做了踢人功能），至少不會卡死畫面。
+  // 這個路徑重新加入拿到的是全新的 playerId，比分會歸零重算，是刻意接受的取捨。
   const rejoiningRef = useRef(false);
   useEffect(() => {
     if (!room || !playerId) return;
@@ -112,8 +109,10 @@ export default function OnlineRoomPage() {
     });
   }, [room, playerId, joinCode]);
 
-  // 輪詢聊天室訊息
+  // 輪詢聊天室訊息；選擇題搶答模式不顯示聊天室 UI（見下方 ChatBox 的條件渲染），
+  // 這裡就不用白白一直打 API 拉訊息，省一點行動網路流量跟電量。
   useEffect(() => {
+    if (room?.answerMode === 'choice') return;
     let cancelled = false;
     async function poll() {
       const result = await roomRepository.getMessages(joinCode, lastMessageAtRef.current ?? undefined);
@@ -134,22 +133,17 @@ export default function OnlineRoomPage() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [joinCode]);
+  }, [joinCode, room?.answerMode]);
 
-  // 使用者關閉分頁／切換到其他網址時，盡量把離開通知送到伺服器（房主離開＝刪除房間）。
-  // 注意：pagehide 在「重新整理頁面」時也會觸發，沒辦法從事件本身分辨使用者是真的要離開
-  // 還是只是重新整理——這裡選擇維持「觸發就送出離開通知」的行為（讓真正關閉分頁的人能
-  // 盡快從玩家名單消失，而不是要等逾時），重新整理造成的誤判則由上面那個自我修復的 effect
-  // 負責善後（偵測到自己不在玩家名單裡就自動重新加入）。
-  // sendBeacon 是瀏覽器專門為「頁面卸載當下要送出的請求」設計的 API，比 fetch 在這個時機點可靠。
-  useEffect(() => {
-    if (!playerId) return;
-    function handleUnload() {
-      roomRepository.leaveBeacon(joinCode, playerId!);
-    }
-    window.addEventListener('pagehide', handleUnload);
-    return () => window.removeEventListener('pagehide', handleUnload);
-  }, [joinCode, playerId]);
+  // 先前這裡有一個監聽 pagehide 事件、頁面卸載時自動送出離開通知的機制，已經移除：
+  // pagehide 在「重新整理頁面」跟「真的關閉分頁」時都會觸發，沒辦法從事件本身分辨兩者，
+  // 之前選擇「觸發就送出離開通知」的做法，代價比想像中大——玩家重新整理頁面時會被誤判成
+  // 離開、整個玩家紀錄被刪除，連帶累積的分數也一起歸零（自我修復機制只能讓玩家用同樣的
+  // 暱稱重新加入，但救不回已經被刪除的分數），手機上更會因為「重新整理後這個分頁其實從沒有
+  // 真正的使用者手勢解鎖過播放權限」而導致音訊完全放不出來。改成只有玩家自己按下方的
+  // 「離開房間」按鈕，才會真的把玩家從房間移除——關閉分頁但沒按離開的人，紀錄會留在房間裡
+  // （比分不會消失），這是刻意的取捨：比起「重新整理就丟分、可能連音樂都放不出來」，
+  // 「真正關閉分頁但沒按離開的人暫時還留在名單裡」的影響小得多。
 
   async function handleLeaveClick() {
     if (playerId) {
@@ -228,7 +222,12 @@ export default function OnlineRoomPage() {
 
       {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
 
-      <ChatBox joinCode={joinCode} playerId={playerId} messages={messages} onMessageSent={handleMessageSent} answerMode={room.answerMode} />
+      {/* 選擇題搶答模式不需要聊天室——答題完全透過選項按鈕，聊天室原本只是被動保留給
+          純聊天用途，但在畫面寸土寸金的手機上多一塊沒有實際功能的區塊反而是干擾，
+          乾脆整個不顯示，畫面更乾淨。打字搶答模式維持不變（聊天室本身就是搶答的管道）。 */}
+      {room.answerMode !== 'choice' && (
+        <ChatBox joinCode={joinCode} playerId={playerId} messages={messages} onMessageSent={handleMessageSent} answerMode={room.answerMode} />
+      )}
 
       <button onClick={handleLeaveClick} className="btn-text">
         離開房間
@@ -583,6 +582,19 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
     null
   );
   const [answeringChoice, setAnsweringChoice] = useState(false);
+  // 這個播放器實例是否還沒被「真正的使用者手勢」解鎖過（見下方掛載 effect 的說明）；
+  // 是的話畫面上會擋一個「點一下繼續播放」的按鈕，避免玩家帶著先前存的身分重新整理頁面
+  // 回來後，音訊在行動裝置上完全放不出來卻毫無提示。
+  const [needsUnlock, setNeedsUnlock] = useState(false);
+  // 玩家點過「繼續播放」之後遞增，用來讓下面的播放 effect 重新跑一次、補上剛剛因為
+  // needsUnlock 而被擋下的那次播放，不用複製一份播放邏輯在按鈕的 onClick 裡。
+  const [unlockRetryToken, setUnlockRetryToken] = useState(0);
+
+  async function handleTapToUnlock() {
+    await getGlobalAudioController().unlock();
+    setNeedsUnlock(false);
+    setUnlockRetryToken((t) => t + 1);
+  }
 
   async function handleEnd() {
     if (!window.confirm('確定要提前結束這場比賽嗎？')) return;
@@ -631,6 +643,14 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
     // 進畫面就先確保播放器已就緒（多半這時候已經在 /online 頁面 preload 過，這裡是保險，
     // 避免玩家用分享連結直接進到房間、跳過 /online 頁面的情況）。
     controller.preload();
+    // 判斷這個播放器實例是否曾經在真正的使用者手勢下解鎖過。玩家如果是帶著先前存的身分
+    // 重新整理頁面回來（跳過建立/加入房間的表單，直接從 sessionStorage 復原這個身分），
+    // 這個全新的頁面實例其實從沒被解鎖過——手機瀏覽器的自動播放限制是「每個頁面實例」
+    // 各自獨立的狀態，不會因為玩家之前解鎖過就跨重新整理保留。不擋下來的話，接下來的
+    // 自動播放會被瀏覽器悄悄擋掉，玩家會遇到「這題完全沒聲音、也不知道為什麼」的狀況。
+    if (!controller.isUnlocked()) {
+      setNeedsUnlock(true);
+    }
     return () => {
       controller.setOnStatusChange(undefined);
       // 停止播放（但不呼叫 dispose()——這是全域共用實例，播放器本身要留給下一場遊戲／
@@ -686,6 +706,10 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
       }
       setCountdown(0);
       if (playedRoundRef.current === room.currentRoundIndex) return;
+      // 還沒解鎖過就先不要嘗試播放——會被瀏覽器悄悄擋下、狀態卡在 loading，玩家還搞不懂
+      // 為什麼沒聲音。等玩家點了下方的「點一下繼續播放」按鈕、真正解鎖後，
+      // unlockRetryToken 改變會讓這個 effect 重新跑一次，那時候才真正呼叫 play()。
+      if (needsUnlock) return;
       playedRoundRef.current = room.currentRoundIndex;
 
       if (!audioController || !room.currentSongSource || !room.currentSongPlaybackId || !room.currentQuestion) return;
@@ -711,13 +735,23 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
     const timer = setInterval(tick, 200);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audioController, room.currentRoundIndex, room.roundStartedAt, room.lastRevealedAt]);
+  }, [audioController, room.currentRoundIndex, room.roundStartedAt, room.lastRevealedAt, needsUnlock, unlockRetryToken]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', width: '100%', maxWidth: '480px' }}>
       <span style={{ color: 'var(--ink-dim)', fontFamily: 'var(--font-mono)' }}>
         第 {room.currentRoundIndex + 1} / {room.roundCount} 題
       </span>
+
+      {needsUnlock && (
+        <button
+          onClick={handleTapToUnlock}
+          className="btn btn-primary btn-block"
+          style={{ maxWidth: '320px' }}
+        >
+          🔊 點一下繼續播放音樂
+        </button>
+      )}
 
       {/*
         這個區塊在「倒數中」「播放中」「已公布答案」幾種狀態下，內容高度差異很大
