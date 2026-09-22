@@ -16,65 +16,75 @@ const MODES: ModeDef[] = [
   { href: '/speedrun', title: '速通挑戰', desc: '碼表計時，衝上排行榜', tag: '限時競速' },
 ];
 
-/** 單機模式：播放鍵，呼吸般的光暈脈動——「按下去就開始」的邀請感 */
+/** 三個圖示共用的外框圓圈——同樣的半徑、線寬，確保三個圖示是「同一組」的視覺重量，
+ *  差異只在圓圈裡面的符號。這是先前版本被指出「不太合諧」的根因：舊版三個圖示的外框
+ *  大小、線條粗細、甚至有沒有超出圓圈（碼表的錶冠）都不一致，重新設計時統一收斂成
+ *  這一個共用元件，圓圈本身固定不動、只有內容物animate，看起來才會像一套圖示。 */
+function IconRing() {
+  return <circle cx="20" cy="20" r="17" stroke="var(--accent)" strokeWidth="1.5" fill="none" />;
+}
+
+/** 單機模式：播放鍵，靜止畫面就看得懂，脈動的是三角形本身而不是外框圓圈 */
 function SoloIcon({ animate }: { animate: boolean }) {
   return (
     <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-      <motion.circle
-        cx="20"
-        cy="20"
-        r="17"
-        stroke="var(--accent)"
-        strokeWidth="1.5"
+      <IconRing />
+      <motion.path
+        d="M16.5 13.5L27 20L16.5 26.5V13.5Z"
+        fill="var(--accent)"
         style={{ transformOrigin: '20px 20px' }}
-        animate={animate ? { scale: [1, 1.1, 1], opacity: [0.35, 0.85, 0.35] } : undefined}
-        transition={{ duration: 2.6, repeat: Infinity, ease: 'easeInOut' }}
+        animate={animate ? { scale: [1, 1.12, 1] } : undefined}
+        transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
       />
-      <path d="M16.5 13.5L27 20L16.5 26.5V13.5Z" fill="var(--accent)" />
     </svg>
   );
 }
 
-/** 線上模式：從中心點向外擴散的訊號環，呼應「開房間、找朋友」的廣播意象 */
+/** 線上模式：Wifi 訊號圖示（點+兩道弧線），靜止畫面本身就是大家熟悉的「訊號／連線」符號，
+ *  不需要靠動畫才看得懂是什麼意思；動畫只是讓兩道弧線依序亮起，像訊號正在發送。 */
 function OnlineIcon({ animate }: { animate: boolean }) {
   return (
     <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-      <circle cx="20" cy="20" r="3" fill="var(--accent)" />
-      {[0, 0.7].map((delay) => (
-        <motion.circle
-          key={delay}
-          cx="20"
-          cy="20"
-          r="6"
-          stroke="var(--accent)"
-          strokeWidth="1.5"
-          fill="none"
-          style={{ transformOrigin: '20px 20px' }}
-          initial={{ opacity: 0.7, scale: 1 }}
-          animate={animate ? { opacity: [0.7, 0], scale: [1, 2.6] } : undefined}
-          transition={{ duration: 2.2, repeat: Infinity, ease: 'easeOut', delay }}
-        />
-      ))}
+      <IconRing />
+      <circle cx="20" cy="25.5" r="1.8" fill="var(--accent)" />
+      <motion.path
+        d="M14.5 21.5a8 8 0 0 1 11 0"
+        stroke="var(--accent)"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        fill="none"
+        animate={animate ? { opacity: [0.35, 1, 0.35] } : undefined}
+        transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+      />
+      <motion.path
+        d="M10.5 17.5a14 14 0 0 1 19 0"
+        stroke="var(--accent)"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        fill="none"
+        animate={animate ? { opacity: [0.35, 1, 0.35] } : undefined}
+        transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut', delay: 0.3 }}
+      />
     </svg>
   );
 }
 
-/** 速通挑戰：碼表秒針持續繞圈——三個模式裡唯一「跟時間賽跑」的玩法，用秒針動作直接點題 */
+/** 速通挑戰：碼表，12 點鐘方向一個小刻度暗示錶面，秒針從中心繞圈——刻意不讓任何線條
+ *  超出外框圓圈（舊版的錶冠會突出去，是造成三個圖示輪廓對不齊的主因之一）。 */
 function SpeedrunIcon({ animate }: { animate: boolean }) {
   return (
     <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-      <line x1="16" y1="4" x2="24" y2="4" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" />
-      <line x1="20" y1="4" x2="20" y2="7" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" />
-      <circle cx="20" cy="22" r="15" stroke="var(--accent)" strokeWidth="1.5" />
+      <IconRing />
+      <circle cx="20" cy="5.5" r="1.2" fill="var(--accent)" />
       <motion.line
         x1="20"
-        y1="22"
+        y1="20"
         x2="20"
-        y2="11"
+        y2="9"
         stroke="var(--accent)"
         strokeWidth="1.5"
         strokeLinecap="round"
-        style={{ transformOrigin: '20px 22px' }}
+        style={{ transformOrigin: '20px 20px' }}
         animate={animate ? { rotate: 360 } : undefined}
         transition={{ duration: 3.5, repeat: Infinity, ease: 'linear' }}
       />
