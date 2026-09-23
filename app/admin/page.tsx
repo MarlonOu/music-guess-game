@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Papa from 'papaparse';
 import Link from 'next/link';
+import { motion, AnimatePresence } from 'framer-motion';
 import type { Song } from '../../lib/types/song';
 import type { Artist, ArtistGender, Theme } from '../../lib/types/theme';
 import { songRepository, type ImportSummary } from '../../lib/repository/songRepository';
@@ -73,15 +74,40 @@ export default function AdminPage() {
         gap: '32px',
       }}
     >
-      <header style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+      <motion.header
+        initial={{ opacity: 0, y: -12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: 'easeOut' }}
+        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}
+      >
         <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem', letterSpacing: '0.1em' }}>
           ADMIN
         </span>
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '1.75rem' }}>資料庫管理</h1>
-      </header>
+      </motion.header>
 
-      {error && <p style={{ color: 'var(--error)' }}>{error}</p>}
-      {notice && <p style={{ color: 'var(--success)' }}>{notice}</p>}
+      <AnimatePresence>
+        {error && (
+          <motion.p
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            style={{ color: 'var(--error)' }}
+          >
+            {error}
+          </motion.p>
+        )}
+        {notice && (
+          <motion.p
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            style={{ color: 'var(--success)' }}
+          >
+            {notice}
+          </motion.p>
+        )}
+      </AnimatePresence>
 
       <SongSection
         songs={songs}

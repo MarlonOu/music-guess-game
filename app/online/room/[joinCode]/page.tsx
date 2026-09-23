@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import type { RoomState, RoomMessage, AnswerMode } from '../../../../lib/types/room';
+import type { RoomState, RoomMessage, AnswerMode, RoomChoice } from '../../../../lib/types/room';
 import type { GameMode } from '../../../../lib/types/match';
 import type { Artist, Theme } from '../../../../lib/types/theme';
 import { roomRepository } from '../../../../lib/repository/roomRepository';
@@ -13,6 +14,7 @@ import { AudioController, type AudioPlaybackStatus } from '../../../../lib/audio
 import { getGlobalAudioController } from '../../../../lib/audio/globalAudioController';
 import { estimateServerNow } from '../../../../lib/client/serverClock';
 import { COUNTDOWN_SEC, REVEAL_DISPLAY_MS } from '../../../../lib/constants/roomTiming';
+import { WRONG_ANSWER_LOCKOUT_MS } from '../../../../lib/constants/choiceMode';
 import { ArtistFilter } from '../../../../components/filter/ArtistFilter';
 import { ThemeFilter } from '../../../../components/filter/ThemeFilter';
 import { AudioStatusIndicator } from '../../../../components/game/AudioStatusIndicator';
@@ -210,15 +212,44 @@ export default function OnlineRoomPage() {
         </div>
       </header>
 
-      {room.status === 'lobby' && (
-        <LobbyView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={setRoom} />
-      )}
-      {room.status === 'playing' && (
-        <PlayingView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={setRoom} />
-      )}
-      {room.status === 'finished' && (
-        <FinishedView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={setRoom} />
-      )}
+      <AnimatePresence mode="wait">
+        {room.status === 'lobby' && (
+          <motion.div
+            key="lobby"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.3 }}
+            style={{ width: '100%', display: 'flex', justifyContent: 'center' }}
+          >
+            <LobbyView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={setRoom} />
+          </motion.div>
+        )}
+        {room.status === 'playing' && (
+          <motion.div
+            key="playing"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.3 }}
+            style={{ width: '100%', display: 'flex', justifyContent: 'center' }}
+          >
+            <PlayingView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={setRoom} />
+          </motion.div>
+        )}
+        {room.status === 'finished' && (
+          <motion.div
+            key="finished"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.3 }}
+            style={{ width: '100%', display: 'flex', justifyContent: 'center' }}
+          >
+            <FinishedView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={setRoom} />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
 
@@ -564,6 +595,86 @@ function LobbyView({ room, playerId, isHost, onError, onRoomUpdate }: RoomViewPr
   );
 }
 
+/**
+ * 選擇題搶答的選項按鈕，答錯的鎖定狀態刻意封裝在這個元件內部（見 PlayingView 裡
+ * handleAnswerChoice 的說明：換題時用 key={room.currentRoundIndex} 讓這個元件整個
+ * 重新掛載，內部的 locked／answering 狀態自然歸零，不需要額外寫一個 effect 手動清除）。
+ */
+function ChoiceButtons({
+  choices,
+  choiceFeedback,
+  currentRoundIndex,
+  onAnswer,
+}: {
+  choices: RoomChoice[];
+  choiceFeedback: { roundIndex: number; songId: string; correct: boolean } | null;
+  currentRoundIndex: number;
+  onAnswer: (songId: string) => Promise<boolean>;
+}) {
+  const [locked, setLocked] = useState(false);
+  const [answering, setAnswering] = useState(false);
+
+  async function handleClick(songId: string) {
+    if (locked || answering) return;
+    setAnswering(true);
+    const correct = await onAnswer(songId);
+    setAnswering(false);
+    if (!correct) {
+      // 逞罰機制：答錯鎖定選項按鈕一段時間，不能立刻再選，答錯要付出等待的代價，
+      // 不然選擇題只有 3~4 個選項，亂點試出正解的成本低到跟沒有鑑別度一樣。
+      setLocked(true);
+      setTimeout(() => setLocked(false), WRONG_ANSWER_LOCKOUT_MS);
+    }
+  }
+
+  return (
+    <>
+      {/* 固定保留這段文字的高度、用 visibility 切換可見度，不要條件式掛載/卸載，
+          否則下面的選項按鈕會跟著上下跳動。 */}
+      <p
+        style={{
+          color: 'var(--error)',
+          fontSize: '0.85rem',
+          visibility: locked ? 'visible' : 'hidden',
+          margin: 0,
+        }}
+      >
+        答錯了，等 {WRONG_ANSWER_LOCKOUT_MS / 1000} 秒才能再選…
+      </p>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+          gap: '10px',
+          width: '100%',
+          maxWidth: '420px',
+        }}
+      >
+        {choices.map((choice) => {
+          const feedback =
+            choiceFeedback?.roundIndex === currentRoundIndex && choiceFeedback.songId === choice.songId
+              ? choiceFeedback
+              : null;
+          const feedbackClass = feedback ? (feedback.correct ? 'is-correct' : 'is-wrong') : '';
+          return (
+            <motion.button
+              key={choice.songId}
+              onClick={() => handleClick(choice.songId)}
+              disabled={answering || locked}
+              className={`choice-btn ${feedbackClass}`}
+              whileTap={{ scale: 0.95 }}
+              animate={feedback?.correct ? { scale: [1, 1.06, 1] } : undefined}
+              transition={{ duration: 0.3 }}
+            >
+              {choice.title}
+            </motion.button>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomViewProps) {
   const [audioController, setAudioController] = useState<AudioController | null>(null);
   // 倒數中顯示的秒數；0 代表倒數已結束、正常播放中
@@ -581,7 +692,6 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
   const [choiceFeedback, setChoiceFeedback] = useState<{ roundIndex: number; songId: string; correct: boolean } | null>(
     null
   );
-  const [answeringChoice, setAnsweringChoice] = useState(false);
   // 這個播放器實例是否還沒被「真正的使用者手勢」解鎖過（見下方掛載 effect 的說明）；
   // 是的話畫面上會擋一個「點一下繼續播放」的按鈕，避免玩家帶著先前存的身分重新整理頁面
   // 回來後，音訊在行動裝置上完全放不出來卻毫無提示。
@@ -617,17 +727,20 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
     if (result.data) onRoomUpdate(result.data);
   }
 
-  async function handleAnswerChoice(songId: string) {
-    if (answeringChoice) return;
-    setAnsweringChoice(true);
+  // 回傳這次是否答對，交給 ChoiceButtons 自己決定要不要進入答錯鎖定——鎖定狀態刻意放在
+  // ChoiceButtons 元件內部（用 key={room.currentRoundIndex} 讓它每次換題都整個重新掛載），
+  // 而不是放在這裡用 effect 依 room.currentRoundIndex 手動重置：換題時「整個元件重新掛載、
+  // 內部狀態自然歸零」是 React 官方建議的做法，比起在 effect 裡呼叫 setState 手動清除
+  // 上一題殘留的狀態更直接，也不會有「換題換一半、計時器還沒清乾淨」這類時序問題。
+  async function handleAnswerChoice(songId: string): Promise<boolean> {
     const result = await roomRepository.answerChoice(room.joinCode, playerId, songId);
-    setAnsweringChoice(false);
     if (!result.ok || !result.data) {
       onError(result.error ?? '搶答失敗');
-      return;
+      return true; // 呼叫失敗不算答錯，不應該觸發鎖定
     }
     setChoiceFeedback({ roundIndex: room.currentRoundIndex, songId, correct: result.data.correct });
     onRoomUpdate(result.data.room);
+    return result.data.correct;
   }
 
   useEffect(() => {
@@ -768,7 +881,7 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
           alignItems: 'center',
           justifyContent: 'center',
           gap: '20px',
-          minHeight: '360px',
+          minHeight: '390px',
           width: '100%',
         }}
       >
@@ -818,33 +931,13 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
               )}
 
             {countdown === 0 && room.answerMode === 'choice' && room.currentChoices.length > 0 && (
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-                  gap: '10px',
-                  width: '100%',
-                  maxWidth: '420px',
-                }}
-              >
-                {room.currentChoices.map((choice) => {
-                  const feedback =
-                    choiceFeedback?.roundIndex === room.currentRoundIndex && choiceFeedback.songId === choice.songId
-                      ? choiceFeedback
-                      : null;
-                  const feedbackClass = feedback ? (feedback.correct ? 'is-correct' : 'is-wrong') : '';
-                  return (
-                    <button
-                      key={choice.songId}
-                      onClick={() => handleAnswerChoice(choice.songId)}
-                      disabled={answeringChoice}
-                      className={`choice-btn ${feedbackClass}`}
-                    >
-                      {choice.title}
-                    </button>
-                  );
-                })}
-              </div>
+              <ChoiceButtons
+                key={room.currentRoundIndex}
+                choices={room.currentChoices}
+                choiceFeedback={choiceFeedback}
+                currentRoundIndex={room.currentRoundIndex}
+                onAnswer={handleAnswerChoice}
+              />
             )}
 
             {countdown === 0 && room.answerMode === 'text' && (

@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { motion, AnimatePresence } from 'framer-motion';
 import type { GameMode } from '../../lib/types/match';
 import { roomRepository } from '../../lib/repository/roomRepository';
 import { getGlobalAudioController } from '../../lib/audio/globalAudioController';
@@ -103,86 +104,113 @@ function OnlinePageInner() {
         padding: '24px',
       }}
     >
-      <div style={{ textAlign: 'center' }}>
+      <motion.div
+        initial={{ opacity: 0, y: -12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: 'easeOut' }}
+        style={{ textAlign: 'center' }}
+      >
         <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem', letterSpacing: '0.1em' }}>
           MUSIC GUESS · ONLINE
         </span>
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '2rem', marginTop: '8px' }}>線上模式</h1>
-      </div>
+      </motion.div>
 
-      {!pending && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', maxWidth: '360px' }}>
-          <button onClick={() => setPending('create')} className="btn btn-primary btn-block">
-            建立房間
-          </button>
-          <button onClick={() => setPending('join')} className="btn btn-secondary btn-block">
-            加入房間
-          </button>
-        </div>
-      )}
+      <AnimatePresence mode="wait">
+        {!pending && (
+          <motion.div
+            key="choice"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.3, delay: 0.1 }}
+            style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', maxWidth: '360px' }}
+          >
+            <motion.button
+              whileTap={{ scale: 0.97 }}
+              onClick={() => setPending('create')}
+              className="btn btn-primary btn-block"
+            >
+              建立房間
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.97 }}
+              onClick={() => setPending('join')}
+              className="btn btn-secondary btn-block"
+            >
+              加入房間
+            </motion.button>
+          </motion.div>
+        )}
 
-      {pending && (
-        <form
-          onSubmit={pending === 'create' ? handleCreate : handleJoin}
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px',
-            width: '100%',
-            maxWidth: '360px',
-            padding: '20px',
-            borderRadius: '14px',
-            border: '1px solid var(--groove)',
-            background: 'var(--bg-raised)',
-          }}
-        >
-          <span style={{ fontSize: '1rem', fontWeight: 600 }}>
-            {pending === 'create' ? '建立房間' : '加入房間'}
-          </span>
+        {pending && (
+          <motion.form
+            key="form"
+            onSubmit={pending === 'create' ? handleCreate : handleJoin}
+            initial={{ opacity: 0, y: 16, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.3 }}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+              width: '100%',
+              maxWidth: '360px',
+              padding: '20px',
+              borderRadius: '14px',
+              border: '1px solid var(--groove)',
+              background: 'var(--bg-raised)',
+            }}
+          >
+            <span style={{ fontSize: '1rem', fontWeight: 600 }}>
+              {pending === 'create' ? '建立房間' : '加入房間'}
+            </span>
 
-          <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>你的暱稱</span>
-            <input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="輸入暱稱"
-              autoFocus
-              className="field"
-            />
-          </label>
-
-          {pending === 'join' && (
             <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>房間代碼</span>
+              <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>你的暱稱</span>
               <input
-                value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                placeholder="例如 AB12CD"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="輸入暱稱"
+                autoFocus
                 className="field"
-                style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.1em' }}
               />
             </label>
-          )}
 
-          {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
+            {pending === 'join' && (
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>房間代碼</span>
+                <input
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                  placeholder="例如 AB12CD"
+                  className="field"
+                  style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.1em' }}
+                />
+              </label>
+            )}
 
-          <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-            <button type="submit" disabled={loading} className="btn btn-primary" style={{ flex: 1 }}>
-              {loading ? '處理中…' : pending === 'create' ? '建立並進入' : '加入並進入'}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setPending(null);
-                setError(null);
-              }}
-              className="btn btn-ghost"
-            >
-              返回
-            </button>
-          </div>
-        </form>
-      )}
+            {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
+
+            <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+              <button type="submit" disabled={loading} className="btn btn-primary" style={{ flex: 1 }}>
+                {loading ? '處理中…' : pending === 'create' ? '建立並進入' : '加入並進入'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPending(null);
+                  setError(null);
+                }}
+                className="btn btn-ghost"
+              >
+                返回
+              </button>
+            </div>
+          </motion.form>
+        )}
+      </AnimatePresence>
 
       <Link href="/" style={{ color: 'var(--ink-dim)', fontSize: '0.9rem' }}>
         返回首頁

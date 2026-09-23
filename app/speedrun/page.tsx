@@ -2,15 +2,15 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
+import { motion } from 'framer-motion';
 import { AudioController } from '../../lib/audio/audioController';
 import { speedrunRepository } from '../../lib/repository/speedrunRepository';
 import { estimateServerNow } from '../../lib/client/serverClock';
 import type { SpeedrunQuestion, SpeedrunSubmitResponse, SpeedrunLeaderboardEntry } from '../../lib/types/speedrun';
 import { SPEEDRUN_TRANSITION_SEC } from '../../lib/constants/speedrun';
+import { WRONG_ANSWER_LOCKOUT_MS } from '../../lib/constants/choiceMode';
 
 const QUESTION_COUNT = 10;
-/** 答錯後鎖定不能再選的秒數，逞罰機制的核心 */
-const WRONG_ANSWER_LOCKOUT_MS = 2000;
 /** 碼表畫面更新頻率；不需要真的到毫秒等級的更新頻率，肉眼看起來夠平滑即可，
  *  太頻繁只會白白增加不必要的重新渲染 */
 const STOPWATCH_TICK_MS = 33;
@@ -254,13 +254,23 @@ export default function SpeedrunPage() {
         gap: '24px',
       }}
     >
-      <header style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+      <motion.header
+        initial={{ opacity: 0, y: -12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: 'easeOut' }}
+        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}
+      >
         <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem', letterSpacing: '0.1em' }}>SPEEDRUN</span>
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '1.8rem' }}>速通挑戰</h1>
-      </header>
+      </motion.header>
 
       {phase === 'intro' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', maxWidth: '360px' }}>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.1, ease: 'easeOut' }}
+          style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', maxWidth: '360px' }}
+        >
           <p style={{ color: 'var(--ink-dim)', fontSize: '0.9rem', textAlign: 'center' }}>
             隨機片段猜歌＋選擇題搶答，共 {QUESTION_COUNT} 題，碼表計時，答錯鎖 {WRONG_ANSWER_LOCKOUT_MS / 1000} 秒，
             全部答對後看你的名次。
@@ -273,20 +283,17 @@ export default function SpeedrunPage() {
             style={inputStyle}
           />
           {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem', textAlign: 'center' }}>{error}</p>}
-          <button onClick={handleStart} style={buttonStyle}>
+          <motion.button whileTap={{ scale: 0.97 }} onClick={handleStart} style={buttonStyle}>
             開始挑戰
-          </button>
-          <button
-            onClick={loadIntroLeaderboard}
-            style={secondaryButtonStyle}
-          >
+          </motion.button>
+          <motion.button whileTap={{ scale: 0.97 }} onClick={loadIntroLeaderboard} style={secondaryButtonStyle}>
             {introLeaderboard !== null ? '收合排行榜 ▲' : '查看目前排行榜 ▼'}
-          </button>
+          </motion.button>
           {introLeaderboard !== null && <LeaderboardList entries={introLeaderboard} />}
           <Link href="/" style={{ color: 'var(--ink-dim)', fontSize: '0.85rem', textAlign: 'center' }}>
             返回首頁
           </Link>
-        </div>
+        </motion.div>
       )}
 
       {phase === 'loading' && <p style={{ color: 'var(--ink-dim)' }}>題目準備中…</p>}
@@ -333,14 +340,15 @@ export default function SpeedrunPage() {
             {questions[questionIndex]?.choices.map((choice) => {
               const isWrongPick = wrongSongId === choice.songId;
               return (
-                <button
+                <motion.button
                   key={choice.songId}
                   onClick={() => handleChoiceClick(choice.songId)}
                   disabled={locked}
                   className={`choice-btn ${isWrongPick ? 'is-wrong' : ''}`}
+                  whileTap={{ scale: 0.95 }}
                 >
                   {choice.title}
-                </button>
+                </motion.button>
               );
             })}
           </div>
@@ -393,8 +401,18 @@ export default function SpeedrunPage() {
       )}
 
       {phase === 'results' && results && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '24px', width: '100%', maxWidth: '420px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3 }}
+          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '24px', width: '100%', maxWidth: '420px' }}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.85 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5, ease: [0.34, 1.56, 0.64, 1] }}
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}
+          >
             <p style={{ color: 'var(--ink-dim)', fontSize: '0.9rem' }}>你的成績</p>
             <p
               style={{
@@ -410,20 +428,25 @@ export default function SpeedrunPage() {
             <p style={{ fontSize: '1.1rem' }}>
               全站第 <strong>{results.rank}</strong> 名（共 {results.totalRuns} 次挑戰）
             </p>
-          </div>
+          </motion.div>
 
-          <div style={{ width: '100%' }}>
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.2 }}
+            style={{ width: '100%' }}
+          >
             <p style={{ color: 'var(--ink-dim)', fontSize: '0.85rem', marginBottom: '8px' }}>排行榜 Top 100</p>
             <LeaderboardList entries={results.leaderboard} highlightId={results.scoreId} />
-          </div>
+          </motion.div>
 
-          <button onClick={handleRetry} style={buttonStyle}>
+          <motion.button whileTap={{ scale: 0.97 }} onClick={handleRetry} style={buttonStyle}>
             再試一次
-          </button>
+          </motion.button>
           <Link href="/" style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>
             返回首頁
           </Link>
-        </div>
+        </motion.div>
       )}
     </main>
   );
