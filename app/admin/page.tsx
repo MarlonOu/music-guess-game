@@ -1519,10 +1519,32 @@ function SongSection({
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span
+                style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                title={s.title}
+              >
                 {s.title}
               </span>
-              <span style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                {/* 來源圖示：由左至右固定是 Apple／Deezer／YouTube，每個都是固定寬度的格子，
+                    沒有這個來源就格子留空、不畫圖示，而不是把格子整個拿掉——這樣不管這首歌
+                    實際有幾個來源，圖示在清單每一列上下都會對齊在同樣的水平位置，一眼掃過去
+                    就看得出「這一整批歌大概都有齊 Apple／Deezer」還是「這幾首偏偏缺了 Deezer」。
+                    放在試聽按鈕左邊、跟按鈕們一起垂直置中，是同一組「這首歌的播放相關資訊」，
+                    擺在一起比分成兩行更容易一眼看懂。 */}
+                <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.85rem' }}>
+                  <span style={{ width: '16px', textAlign: 'center' }} title="Apple Music">
+                    {s.appleMusicPreviewUrl ? '🍎' : ''}
+                  </span>
+                  <span style={{ color: 'var(--groove)' }}>|</span>
+                  <span style={{ width: '16px', textAlign: 'center' }} title="Deezer">
+                    {s.deezerPreviewUrl ? '🎵' : ''}
+                  </span>
+                  <span style={{ color: 'var(--groove)' }}>|</span>
+                  <span style={{ width: '16px', textAlign: 'center' }} title="YouTube">
+                    {s.youtubeVideoId ? '▶' : ''}
+                  </span>
+                </span>
                 <button
                   onClick={() => {
                     setPreviewSongId((cur) => (cur === s.id ? null : s.id));
@@ -1560,25 +1582,6 @@ function SongSection({
                 {!s.appleMusicPreviewUrl && !s.deezerPreviewUrl && !s.youtubeVideoId && (
                   <span style={{ color: 'var(--error)' }}> · ⚠ 沒有可播放來源</span>
                 )}
-              </span>
-              {/* 來源圖示：由左至右固定是 Apple／Deezer／YouTube，每個都是固定寬度的格子，
-                  沒有這個來源就格子留空、不畫圖示，而不是把格子整個拿掉——這樣不管這首歌
-                  實際有幾個來源，圖示在清單每一列上下都會對齊在同樣的水平位置，一眼掃過去
-                  就看得出「這一整批歌大概都有齊 Apple／Deezer」還是「這幾首偏偏缺了 Deezer」。
-                  只留圖示不放文字，是因為這裡本來就只是輔助辨識用的小標記，不需要唸出完整
-                  平台名稱，節省的空間才夠讓它靠右對齊又不會把整行撐爆。 */}
-              <span style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0, fontSize: '0.85rem' }}>
-                <span style={{ width: '16px', textAlign: 'center' }} title="Apple Music">
-                  {s.appleMusicPreviewUrl ? '🍎' : ''}
-                </span>
-                <span style={{ color: 'var(--groove)' }}>|</span>
-                <span style={{ width: '16px', textAlign: 'center' }} title="Deezer">
-                  {s.deezerPreviewUrl ? '🎵' : ''}
-                </span>
-                <span style={{ color: 'var(--groove)' }}>|</span>
-                <span style={{ width: '16px', textAlign: 'center' }} title="YouTube">
-                  {s.youtubeVideoId ? '▶' : ''}
-                </span>
               </span>
             </div>
             {previewSongId === s.id &&
