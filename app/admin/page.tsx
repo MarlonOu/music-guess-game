@@ -1524,9 +1524,7 @@ function SongSection({
                 <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', marginLeft: '8px' }}>
                   {artistName(s.artistId)}
                   {s.appleMusicPreviewUrl && ' · 🍎 Apple Music'}
-                  {!s.appleMusicPreviewUrl && s.appleMusicSkip && ' · 🍎 已確認無'}
                   {s.deezerPreviewUrl && ' · 🎵 Deezer'}
-                  {!s.deezerPreviewUrl && s.deezerSkip && ' · 🎵 已確認無'}
                   {s.youtubeVideoId && ' · ▶ YouTube'}
                   {!s.appleMusicPreviewUrl && !s.deezerPreviewUrl && !s.youtubeVideoId && (
                     <span style={{ color: 'var(--error)' }}> · ⚠ 沒有可播放來源</span>
