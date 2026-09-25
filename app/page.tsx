@@ -24,7 +24,15 @@ function IconRing() {
   return <circle cx="20" cy="20" r="17" stroke="var(--accent)" strokeWidth="1.5" fill="none" />;
 }
 
-/** 單機模式：播放鍵，靜止畫面就看得懂，脈動的是三角形本身而不是外框圓圈 */
+/** 單機模式：播放鍵，靜止畫面就看得懂，脈動的是三角形本身而不是外框圓圈。
+ *  origin 用 Framer Motion 自己的正規化座標（originX/originY，0~1 相對於這個元素自己的
+ *  幾何邊界），不用原生 CSS 的 transformOrigin 字串——SVG 元素套用 CSS transform-origin 時，
+ *  不同瀏覽器對「該用元素自己的邊界框（fill-box）還是整個 SVG 座標系（view-box）當基準」
+ *  預設行為不一致，同一組數字換一個瀏覽器／裝置實際軸心點就不一樣，這是先前
+ *  「碼表旋轉軸心跑掉、甚至有些裝置看起來像沒在動畫」的根本原因。Framer Motion 自己的
+ *  origin 系統是它自己算出實際偏移量再套用，不依賴瀏覽器對這個 CSS 細節的解讀，才不會有
+ *  跨瀏覽器不一致的問題。這個三角形路徑的幾何邊界框中心不是正好在 (20,20)，這裡用算過的
+ *  分數（相對於路徑自己邊界框的比例）讓呼吸縮放的視覺中心對齊圖示的正中央。 */
 function SoloIcon({ animate }: { animate: boolean }) {
   return (
     <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
@@ -32,7 +40,7 @@ function SoloIcon({ animate }: { animate: boolean }) {
       <motion.path
         d="M16.5 13.5L27 20L16.5 26.5V13.5Z"
         fill="var(--accent)"
-        style={{ transformOrigin: '20px 20px' }}
+        style={{ originX: 0.333, originY: 0.5 }}
         animate={animate ? { scale: [1, 1.12, 1] } : undefined}
         transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
       />
@@ -70,24 +78,32 @@ function OnlineIcon({ animate }: { animate: boolean }) {
 }
 
 /** 速通挑戰：碼表，12 點鐘方向一個小刻度暗示錶面，秒針從中心繞圈——刻意不讓任何線條
- *  超出外框圓圈（舊版的錶冠會突出去，是造成三個圖示輪廓對不齊的主因之一）。 */
+ *  超出外框圓圈（舊版的錶冠會突出去，是造成三個圖示輪廓對不齊的主因之一）。
+ *  秒針的旋轉軸心用巢狀 <g transform="translate(20,20)"> 把座標系原點先平移到鐘面中心，
+ *  秒針本身在這個已經平移過的座標系裡從 (0,0) 畫到 (0,-11)，旋轉軸心天生就是 (0,0)
+ *  （也就是鐘面中心），不依賴 CSS transform-origin 在 SVG 元素上的跨瀏覽器不一致行為
+ *  （原因見 SoloIcon 上方的說明，這裡是同一個問題但影響更明顯——縮放軸心偏一點只是
+ *  視覺中心稍微不對稱，旋轉軸心偏掉的話指針會整個掃到圖示範圍外面，看起來完全不對，
+ *  甚至在某些瀏覽器上會因為掃出範圍太離譜而看起來像「沒有動畫」）。 */
 function SpeedrunIcon({ animate }: { animate: boolean }) {
   return (
     <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
       <IconRing />
       <circle cx="20" cy="5.5" r="1.2" fill="var(--accent)" />
-      <motion.line
-        x1="20"
-        y1="20"
-        x2="20"
-        y2="9"
-        stroke="var(--accent)"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        style={{ transformOrigin: '20px 20px' }}
-        animate={animate ? { rotate: 360 } : undefined}
-        transition={{ duration: 3.5, repeat: Infinity, ease: 'linear' }}
-      />
+      <g transform="translate(20, 20)">
+        <motion.line
+          x1="0"
+          y1="0"
+          x2="0"
+          y2="-11"
+          stroke="var(--accent)"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          style={{ originX: 0.5, originY: 1 }}
+          animate={animate ? { rotate: 360 } : undefined}
+          transition={{ duration: 3.5, repeat: Infinity, ease: 'linear' }}
+        />
+      </g>
     </svg>
   );
 }
