@@ -11,6 +11,12 @@
  * - youtubeVideoId／appleMusicTrackId／appleMusicPreviewUrl／deezerTrackId／deezerPreviewUrl
  *   五欄都可以留空，但 youtubeVideoId／appleMusicPreviewUrl／deezerPreviewUrl 三者至少要有
  *   一欄有值，這首歌才有得播放。
+ * - appleMusicSkip／deezerSkip 是「管理者已確認這個平台真的找不到這首歌（或找到的都不對），
+ *   批次腳本（scripts/fetch-apple-previews.mjs、fetch-deezer-previews.mjs）不要再自動幫這首歌
+ *   搜尋補上來源」的標記，值為 "true" 才算勾選，其餘（空白／"false"／任何其他字串）都當作
+ *   未勾選。這兩欄存在的理由：appleMusicPreviewUrl／deezerPreviewUrl 留空這件事本身沒辦法
+ *   分辨「還沒查過」跟「查過了、確認沒有、管理者刻意留空」，兩者存起來長得一模一樣，
+ *   沒有這個獨立標記的話，重新跑一次批次腳本就會把管理者刻意清空的欄位又填回錯誤的比對結果。
  * - themes 欄位多個主題用「;」分隔（CSV 本身已用「,」分隔欄位，同一欄內不能再用逗號）。
  */
 export const SONG_CSV_COLUMNS = [
@@ -19,8 +25,10 @@ export const SONG_CSV_COLUMNS = [
   'youtubeVideoId',
   'appleMusicTrackId',
   'appleMusicPreviewUrl',
+  'appleMusicSkip',
   'deezerTrackId',
   'deezerPreviewUrl',
+  'deezerSkip',
   'durationSec',
   'themes',
   'lyrics',
@@ -32,8 +40,10 @@ export type SongCsvRow = {
   youtubeVideoId: string;
   appleMusicTrackId: string;
   appleMusicPreviewUrl: string;
+  appleMusicSkip: string;
   deezerTrackId: string;
   deezerPreviewUrl: string;
+  deezerSkip: string;
   durationSec: string;
   themes: string;
   lyrics: string;

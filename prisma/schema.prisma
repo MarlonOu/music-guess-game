@@ -48,6 +48,15 @@ model Song {
   /// 目錄來源，提高「至少有一個非 YouTube 來源」的覆蓋率（Apple Music 目錄沒有的冷門/地區
   /// 限定歌曲，Deezer 有時候收錄得到）。
   deezerPreviewUrl String? @map("deezer_preview_url")
+  /// 管理者已經確認過「這首歌在 Apple Music 上真的找不到（或找到的都是錯誤/翻唱版）」，
+  /// 不要再讓批次腳本（scripts/fetch-apple-previews.mjs）自動幫這首歌搜尋補上來源。
+  /// 這個欄位存在的理由：appleMusicPreviewUrl 留空這件事本身沒辦法分辨「還沒查過」跟
+  /// 「查過了、確認沒有、管理者刻意留空」，兩者存起來長得一模一樣，重新跑一次批次腳本
+  /// 就會把管理者刻意清空的欄位又填回錯誤的比對結果。有這個獨立的旗標，批次腳本才能
+  /// 正確跳過「已經確認過」的歌曲，管理者的判斷才不會被下一次跑腳本蓋掉。
+  appleMusicSkip Boolean @default(false) @map("apple_music_skip")
+  /// 同上，但是給 Deezer 用（scripts/fetch-deezer-previews.mjs）
+  deezerSkip     Boolean @default(false) @map("deezer_skip")
   durationSec     Int      @map("duration_sec")
   lyrics          String
   createdAt       DateTime @default(now()) @map("created_at")

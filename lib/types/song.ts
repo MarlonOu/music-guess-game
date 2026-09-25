@@ -15,6 +15,10 @@ export interface Song {
   deezerTrackId?: string;
   /** Deezer 官方 30 秒試聽片段的直接可播放網址，Apple Music 沒有這首歌時的第二優先來源 */
   deezerPreviewUrl?: string;
+  /** 管理者已確認 Apple Music 上真的找不到這首歌（或找到的都不對），批次腳本應跳過不要自動搜尋 */
+  appleMusicSkip: boolean;
+  /** 同上，給 Deezer 用 */
+  deezerSkip: boolean;
   durationSec: number;
   lyrics: string;
   createdAt: string;

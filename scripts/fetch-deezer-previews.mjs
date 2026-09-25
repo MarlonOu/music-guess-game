@@ -2,9 +2,15 @@
 /**
  * 讀取一份歌曲 CSV（格式對應 /admin 頁面「匯出 CSV」/「匯入 CSV」的標準格式，
  * 見 lib/csv/songCsv.ts：title,artist,youtubeVideoId,appleMusicTrackId,appleMusicPreviewUrl,
- * deezerTrackId,deezerPreviewUrl,durationSec,themes,lyrics），對每一列 deezerPreviewUrl 空白的
- * 資料，用 title + artist 呼叫 Deezer 公開搜尋 API 查詢最相關的曲目，補回
- * deezerTrackId／deezerPreviewUrl 兩個欄位，輸出成一份新的 CSV。
+ * appleMusicSkip,deezerTrackId,deezerPreviewUrl,deezerSkip,durationSec,themes,lyrics），對每一列
+ * deezerPreviewUrl 空白的資料，用 title + artist 呼叫 Deezer 公開搜尋 API 查詢最相關的曲目，
+ * 補回 deezerTrackId／deezerPreviewUrl 兩個欄位，輸出成一份新的 CSV。
+ *
+ * deezerSkip 是「true」的列一律跳過，不會查詢——這欄位代表管理者已經在 /admin 後台人工
+ * 確認過「這首歌在 Deezer 上真的找不到（或找到的都是錯誤/翻唱版）」，刻意把試聽網址留空。
+ * 沒有這個標記的話，deezerPreviewUrl 留空這件事沒辦法分辨「還沒查過」跟「查過了、確認沒有、
+ * 管理者刻意留空」，重新跑一次這支腳本就會把管理者刻意清空的欄位又填回類似但錯誤的比對結果，
+ * 把人工核對過的決定覆蓋掉。
  *
  * 這是 Apple Music 目錄沒收錄這首歌時的第二層備援（見 lib/audio/resolvePlaybackTarget.ts
  * 的優先序說明），建議先跑過 scripts/fetch-apple-previews.mjs、把還是查不到 Apple Music 來源
@@ -18,6 +24,8 @@
  * ⚠️ 這是自動化查詢，結果務必人工核對：抓到的可能是翻唱版、Live 版、Remix、
  * 精選輯重新收錄版而非原唱正式版本，尤其歌名／歌手比對出來「不夠像」的列，
  * 腳本會特別標記為「低信心」，這些列請務必打開輸出結果聽過試聽再決定要不要留。
+ * 如果核對後確認真的沒有，記得回 /admin 後台把該首歌的「已確認 Deezer 上真的找不到」
+ * 勾選起來，下次跑這支腳本才不會又浪費時間去搜尋同一首歌。
  *
  * 不需要申請任何 API 金鑰——Deezer Search API 是公開、免驗證的服務，跟 iTunes Search API 同類型。
  * 官方沒有硬性公告配額上限，但建議保守一點的呼叫頻率（--delay 預設值已對齊），
@@ -33,7 +41,10 @@
  *
  * 參數：
  *   --dry-run     只印出會查到什麼，不寫出檔案
- *   --force       已經有 deezerPreviewUrl 的列也重新查一次（用來刷新失效的試聽網址）
+ *   --force       已經有 deezerPreviewUrl 的列也重新查一次（用來刷新失效的試聽網址）；
+ *                 不會影響 deezerSkip=true 的列，那些列一律跳過，除非加 --ignore-skip
+ *   --ignore-skip 連 deezerSkip=true 的列也重新查一次（例如想每隔一段時間重新確認
+ *                 Deezer 的曲庫是不是新增了之前找不到的歌，預設不會這麼做）
  *   --delay=毫秒   每次查詢之間的間隔（預設 2000ms）
  *
  * 完整流程建議：
@@ -41,7 +52,8 @@
  * 2. 到 /admin「匯出 CSV」，拿到補完 Apple Music 之後的題庫
  * 3. node scripts/fetch-deezer-previews.mjs songs.csv songs-deezer-filled.csv
  * 4. 打開輸出的 CSV，聽過每一列標記為「低信心」的試聽網址，確認是不是同一首歌，
- *    不是的話手動清空那一列的 deezerTrackId／deezerPreviewUrl 或改填正確的
+ *    不是的話手動清空那一列的 deezerTrackId／deezerPreviewUrl 或改填正確的，
+ *    確認真的找不到的話，把該列的 deezerSkip 填成 true（或回 /admin 後台勾選）
  * 5. 到 /admin「匯入 CSV」，選 songs-deezer-filled.csv 匯入——會依 youtubeVideoId 或
  *    appleMusicPreviewUrl 比對到既有歌曲並更新，不會重複新增
  */
@@ -55,6 +67,7 @@ const SEARCH_ENDPOINT = 'https://api.deezer.com/search';
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const isDryRun = process.argv.includes('--dry-run');
 const isForce = process.argv.includes('--force');
+const isIgnoreSkip = process.argv.includes('--ignore-skip');
 const delayArg = process.argv.find((a) => a.startsWith('--delay='));
 const delayMs = delayArg ? Number(delayArg.split('=')[1]) || 2000 : 2000;
 
@@ -161,6 +174,7 @@ async function main() {
   let filled = 0;
   let lowConfidenceCount = 0;
   let skipped = 0;
+  let skippedByFlag = 0;
   let notFound = 0;
   const lowConfidenceRows = [];
 
@@ -169,6 +183,12 @@ async function main() {
     const title = (row.title ?? '').trim();
     const artist = (row.artist ?? '').trim();
     if (!title || !artist) continue;
+
+    const isSkipped = (row.deezerSkip ?? '').trim().toLowerCase() === 'true';
+    if (isSkipped && !isIgnoreSkip) {
+      skippedByFlag++;
+      continue;
+    }
 
     const hasExisting = (row.deezerPreviewUrl ?? '').trim().length > 0;
     if (hasExisting && !isForce) {
@@ -210,7 +230,10 @@ async function main() {
   }
 
   console.log(`\n查詢完成：實際查詢 ${queried} 次`);
-  console.log(`補上試聽來源 ${filled} 列，其中低信心比對 ${lowConfidenceCount} 列，找不到 ${notFound} 列，略過（已有資料）${skipped} 列`);
+  console.log(
+    `補上試聽來源 ${filled} 列，其中低信心比對 ${lowConfidenceCount} 列，找不到 ${notFound} 列，` +
+      `略過（已有資料）${skipped} 列，略過（已確認無此來源）${skippedByFlag} 列`
+  );
 
   if (lowConfidenceRows.length > 0) {
     console.log('\n以下列的比對信心較低，匯入前請務必打開試聽網址核對是否為同一首歌：');

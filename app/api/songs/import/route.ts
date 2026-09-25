@@ -103,8 +103,10 @@ export async function POST(request: NextRequest) {
       const youtubeVideoId = (row.youtubeVideoId ?? '').trim();
       const appleMusicTrackId = (row.appleMusicTrackId ?? '').trim();
       const appleMusicPreviewUrl = (row.appleMusicPreviewUrl ?? '').trim();
+      const appleMusicSkip = (row.appleMusicSkip ?? '').trim().toLowerCase() === 'true';
       const deezerTrackId = (row.deezerTrackId ?? '').trim();
       const deezerPreviewUrl = (row.deezerPreviewUrl ?? '').trim();
+      const deezerSkip = (row.deezerSkip ?? '').trim().toLowerCase() === 'true';
       const durationSec = Number(row.durationSec) || 0;
       const lyrics = row.lyrics ?? '';
       const themesCell = row.themes ?? '';
@@ -151,6 +153,12 @@ export async function POST(request: NextRequest) {
               ...(appleMusicPreviewUrl ? { appleMusicPreviewUrl } : {}),
               ...(deezerTrackId ? { deezerTrackId } : {}),
               ...(deezerPreviewUrl ? { deezerPreviewUrl } : {}),
+              // skip 標記跟上面的網址/id 欄位不同，一律直接覆蓋成 CSV 裡的值（不分是否為空）——
+              // 這正是這兩個欄位存在的目的：管理者在 CSV 裡把它明確標成 true 或清空，
+              // 匯入時就要忠實反映 CSV 目前寫的狀態，不能比照網址欄位「留空就不動」的邏輯，
+              // 不然這個「已確認沒有來源」的標記本身也會被匯入悄悄蓋掉、失去作用。
+              appleMusicSkip,
+              deezerSkip,
               themes: { deleteMany: {}, create: themeIds.map((themeId) => ({ themeId })) },
             },
           });
@@ -182,6 +190,8 @@ export async function POST(request: NextRequest) {
             appleMusicPreviewUrl: appleMusicPreviewUrl || null,
             deezerTrackId: deezerTrackId || null,
             deezerPreviewUrl: deezerPreviewUrl || null,
+            appleMusicSkip,
+            deezerSkip,
             durationSec,
             lyrics,
             themes: themeIds.length > 0 ? { create: themeIds.map((themeId) => ({ themeId })) } : undefined,

@@ -15,6 +15,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       appleMusicPreviewUrl,
       deezerTrackId,
       deezerPreviewUrl,
+      appleMusicSkip,
+      deezerSkip,
       durationSec,
       lyrics,
       themeIds,
@@ -48,6 +50,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         ...(appleMusicPreviewUrl !== undefined ? { appleMusicPreviewUrl: appleMusicPreviewUrl || null } : {}),
         ...(deezerTrackId !== undefined ? { deezerTrackId: deezerTrackId || null } : {}),
         ...(deezerPreviewUrl !== undefined ? { deezerPreviewUrl: deezerPreviewUrl || null } : {}),
+        ...(appleMusicSkip !== undefined ? { appleMusicSkip: Boolean(appleMusicSkip) } : {}),
+        ...(deezerSkip !== undefined ? { deezerSkip: Boolean(deezerSkip) } : {}),
         ...(durationSec !== undefined ? { durationSec: Number(durationSec) } : {}),
         ...(lyrics !== undefined ? { lyrics } : {}),
         ...(Array.isArray(themeIds)

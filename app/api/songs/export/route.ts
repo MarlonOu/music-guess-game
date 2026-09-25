@@ -21,8 +21,10 @@ export async function GET() {
       youtubeVideoId: string | null;
       appleMusicTrackId: string | null;
       appleMusicPreviewUrl: string | null;
+      appleMusicSkip: boolean;
       deezerTrackId: string | null;
       deezerPreviewUrl: string | null;
+      deezerSkip: boolean;
       durationSec: number;
       themes: { theme: { name: string } }[];
       lyrics: string;
@@ -32,8 +34,10 @@ export async function GET() {
       youtubeVideoId: s.youtubeVideoId ?? '',
       appleMusicTrackId: s.appleMusicTrackId ?? '',
       appleMusicPreviewUrl: s.appleMusicPreviewUrl ?? '',
+      appleMusicSkip: s.appleMusicSkip ? 'true' : '',
       deezerTrackId: s.deezerTrackId ?? '',
       deezerPreviewUrl: s.deezerPreviewUrl ?? '',
+      deezerSkip: s.deezerSkip ? 'true' : '',
       durationSec: String(s.durationSec),
       themes: s.themes.map((t) => t.theme.name).join(THEME_LIST_SEPARATOR),
       lyrics: s.lyrics,

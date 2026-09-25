@@ -1081,6 +1081,8 @@ function YouTubePlaylistImportAccordion({ onImported, onNotice }: { onImported: 
           '',
           '',
           '',
+          '',
+          '',
           String(r.durationSec),
           '',
           '',
@@ -1257,8 +1259,10 @@ interface SongFormState {
   youtubeVideoId: string;
   appleMusicTrackId: string;
   appleMusicPreviewUrl: string;
+  appleMusicSkip: boolean;
   deezerTrackId: string;
   deezerPreviewUrl: string;
+  deezerSkip: boolean;
   durationSec: string;
   lyrics: string;
   themeIds: string[];
@@ -1270,8 +1274,10 @@ const EMPTY_SONG_FORM: SongFormState = {
   youtubeVideoId: '',
   appleMusicTrackId: '',
   appleMusicPreviewUrl: '',
+  appleMusicSkip: false,
   deezerTrackId: '',
   deezerPreviewUrl: '',
+  deezerSkip: false,
   durationSec: '',
   lyrics: '',
   themeIds: [],
@@ -1340,10 +1346,11 @@ function ImportExportBar({
         </button>
         <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleFileChange} style={{ display: 'none' }} />
         <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
-          欄位：title, artist, youtubeVideoId, appleMusicTrackId, appleMusicPreviewUrl, deezerTrackId,
-          deezerPreviewUrl, durationSec, themes（用 ; 分隔多個）, lyrics。youtubeVideoId／
-          appleMusicPreviewUrl／deezerPreviewUrl 至少要有一欄有值。其中一個對到既有資料會被更新；
-          都對不上、但歌名＋歌手都相符時視為重複，會略過不匯入。
+          欄位：title, artist, youtubeVideoId, appleMusicTrackId, appleMusicPreviewUrl, appleMusicSkip,
+          deezerTrackId, deezerPreviewUrl, deezerSkip, durationSec, themes（用 ; 分隔多個）, lyrics。
+          youtubeVideoId／appleMusicPreviewUrl／deezerPreviewUrl 至少要有一欄有值。
+          appleMusicSkip／deezerSkip 填 true 代表「已確認這個平台找不到，批次腳本不要再自動搜尋」，
+          其餘值都當作未勾選。其中一個來源對到既有資料會被更新；都對不上、但歌名＋歌手都相符時視為重複，會略過不匯入。
         </span>
       </div>
 
@@ -1517,7 +1524,9 @@ function SongSection({
                 <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', marginLeft: '8px' }}>
                   {artistName(s.artistId)}
                   {s.appleMusicPreviewUrl && ' · 🍎 Apple Music'}
+                  {!s.appleMusicPreviewUrl && s.appleMusicSkip && ' · 🍎 已確認無'}
                   {s.deezerPreviewUrl && ' · 🎵 Deezer'}
+                  {!s.deezerPreviewUrl && s.deezerSkip && ' · 🎵 已確認無'}
                   {s.youtubeVideoId && ' · ▶ YouTube'}
                   {!s.appleMusicPreviewUrl && !s.deezerPreviewUrl && !s.youtubeVideoId && (
                     <span style={{ color: 'var(--error)' }}> · ⚠ 沒有可播放來源</span>
@@ -1678,8 +1687,12 @@ function SongForm({
           youtubeVideoId: prefill?.videoId ?? editing.youtubeVideoId ?? '',
           appleMusicTrackId: applePrefill?.trackId ?? editing.appleMusicTrackId ?? '',
           appleMusicPreviewUrl: applePrefill?.previewUrl ?? editing.appleMusicPreviewUrl ?? '',
+          // 剛從搜尋結果選了一筆新的來源，代表管理者已經找到真正的來源了，
+          // 之前設定的「已確認沒有」標記就不該再成立，自動清掉；沒有選新結果的話維持原值。
+          appleMusicSkip: applePrefill ? false : editing.appleMusicSkip,
           deezerTrackId: deezerPrefill?.trackId ?? editing.deezerTrackId ?? '',
           deezerPreviewUrl: deezerPrefill?.previewUrl ?? editing.deezerPreviewUrl ?? '',
+          deezerSkip: deezerPrefill ? false : editing.deezerSkip,
           durationSec: String(
             prefill?.durationSec ?? applePrefill?.durationSec ?? deezerPrefill?.durationSec ?? editing.durationSec
           ),
@@ -1786,14 +1799,22 @@ function SongForm({
       artistId = artistResult.data.id;
     }
 
+    // 這裡刻意直接送出 trim 過的值（可能是空字串），不要再用 `|| undefined` 把空字串轉成
+    // undefined——之前那樣寫會導致 JSON.stringify 送出請求時，把值是 undefined 的欄位整個
+    // 拿掉，讓伺服器收到的請求裡根本沒有這個欄位，被誤判成「這個欄位沒有被觸碰、維持原值」，
+    // 導致清空 Apple/Deezer 來源存檔後其實沒有真的清空、還是保留舊值。這個表單每次送出
+    // 本來就是完整的一組欄位（不是只想更新其中幾個的局部更新），直接把目前欄位的實際值
+    // （可能是空字串）送出去，伺服器那邊看到空字串就會正確地把該欄位存成 null。
     const payload = {
       title,
       artistId,
-      youtubeVideoId: youtubeVideoId || undefined,
-      appleMusicTrackId: appleMusicTrackId || undefined,
-      appleMusicPreviewUrl: appleMusicPreviewUrl || undefined,
-      deezerTrackId: deezerTrackId || undefined,
-      deezerPreviewUrl: deezerPreviewUrl || undefined,
+      youtubeVideoId,
+      appleMusicTrackId,
+      appleMusicPreviewUrl,
+      appleMusicSkip: form.appleMusicSkip,
+      deezerTrackId,
+      deezerPreviewUrl,
+      deezerSkip: form.deezerSkip,
       durationSec,
       lyrics: form.lyrics,
       themeIds: form.themeIds,
@@ -1857,6 +1878,14 @@ function SongForm({
           style={{ ...inputStyle, flex: 1, minWidth: '140px' }}
         />
       </div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+        <input
+          type="checkbox"
+          checked={form.appleMusicSkip}
+          onChange={(e) => setForm((f) => ({ ...f, appleMusicSkip: e.target.checked }))}
+        />
+        已確認 Apple Music 上真的找不到這首歌（不要讓批次腳本再自動搜尋補上）
+      </label>
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         <input
           value={form.deezerPreviewUrl}
@@ -1871,6 +1900,14 @@ function SongForm({
           style={{ ...inputStyle, flex: 1, minWidth: '140px' }}
         />
       </div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+        <input
+          type="checkbox"
+          checked={form.deezerSkip}
+          onChange={(e) => setForm((f) => ({ ...f, deezerSkip: e.target.checked }))}
+        />
+        已確認 Deezer 上真的找不到這首歌（不要讓批次腳本再自動搜尋補上）
+      </label>
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         <input
           value={form.youtubeVideoId}
