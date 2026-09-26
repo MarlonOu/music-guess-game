@@ -42,12 +42,12 @@ export function AudioStatusIndicator({ status }: { status: AudioPlaybackStatus }
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
       <div
         style={{
-          width: '96px',
-          height: '96px',
+          width: '68px',
+          height: '68px',
           borderRadius: '50%',
           position: 'relative',
           background:
-            'repeating-radial-gradient(circle, var(--groove) 0px, var(--groove) 3px, var(--bg-raised) 3px, var(--bg-raised) 7px)',
+            'repeating-radial-gradient(circle, var(--groove) 0px, var(--groove) 2px, var(--bg-raised) 2px, var(--bg-raised) 5px)',
           border: `2px solid ${STATUS_BORDER_COLOR[status]}`,
           opacity: status === 'idle' || status === 'finished' ? 0.55 : 1,
           animation:
@@ -67,7 +67,7 @@ export function AudioStatusIndicator({ status }: { status: AudioPlaybackStatus }
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '1.5rem',
+              fontSize: '1.1rem',
             }}
           >
             {status === 'error' ? '⚠️' : '✓'}
