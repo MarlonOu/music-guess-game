@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Papa from 'papaparse';
 import { prisma } from '../../../../lib/db';
-import { THEME_LIST_SEPARATOR } from '../../../../lib/csv/songCsv';
+import { THEME_LIST_SEPARATOR, ALIAS_LIST_SEPARATOR } from '../../../../lib/csv/songCsv';
 
 interface ImportRowResult {
   row: number;
@@ -110,6 +110,12 @@ export async function POST(request: NextRequest) {
       const durationSec = Number(row.durationSec) || 0;
       const lyrics = row.lyrics ?? '';
       const themesCell = row.themes ?? '';
+      // 跟 themes 同樣的處理方式：CSV 這一欄代表「這首歌完整的別名清單」，匯入時直接覆蓋，
+      // 不是「有填才覆蓋、留空不動」——留空就是代表這首歌現在沒有別名，不是「沒有要更動別名」。
+      const aliases = (row.aliases ?? '')
+        .split(ALIAS_LIST_SEPARATOR)
+        .map((a) => a.trim())
+        .filter((a) => a.length > 0);
 
       if (!title || !artistName || (!youtubeVideoId && !appleMusicPreviewUrl && !deezerPreviewUrl)) {
         results.push({
@@ -159,6 +165,7 @@ export async function POST(request: NextRequest) {
               // 不然這個「已確認沒有來源」的標記本身也會被匯入悄悄蓋掉、失去作用。
               appleMusicSkip,
               deezerSkip,
+              aliases,
               themes: { deleteMany: {}, create: themeIds.map((themeId) => ({ themeId })) },
             },
           });
@@ -192,6 +199,7 @@ export async function POST(request: NextRequest) {
             deezerPreviewUrl: deezerPreviewUrl || null,
             appleMusicSkip,
             deezerSkip,
+            aliases,
             durationSec,
             lyrics,
             themes: themeIds.length > 0 ? { create: themeIds.map((themeId) => ({ themeId })) } : undefined,

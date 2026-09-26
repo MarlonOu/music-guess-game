@@ -19,6 +19,8 @@ export interface Song {
   appleMusicSkip: boolean;
   /** 同上，給 Deezer 用 */
   deezerSkip: boolean;
+  /** 這首歌其他也算答對的說法（別名清單），見 lib/engine/answerUtils.ts 的比對邏輯說明 */
+  aliases: string[];
   durationSec: number;
   lyrics: string;
   createdAt: string;

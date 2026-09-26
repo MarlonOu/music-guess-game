@@ -32,10 +32,11 @@ export const randomClipMode: GameModeStrategy = {
       clipStartSec: getRandomClipStart(effectiveDuration, clipDurationSec),
       clipDurationSec,
       correctTitle: song.title,
+      aliases: song.aliases,
     };
   },
 
   judgeAnswer(payload: QuestionPayload, userAnswer: string): boolean {
-    return isAnswerCorrect(userAnswer, payload.correctTitle);
+    return isAnswerCorrect(userAnswer, payload.correctTitle, payload.aliases);
   },
 };

@@ -14,10 +14,11 @@ export const introMode: GameModeStrategy = {
       renderType: 'audio-intro',
       introEndSec: FIXED_INTRO_DURATION_SEC,
       correctTitle: song.title,
+      aliases: song.aliases,
     };
   },
 
   judgeAnswer(payload: QuestionPayload, userAnswer: string): boolean {
-    return isAnswerCorrect(userAnswer, payload.correctTitle);
+    return isAnswerCorrect(userAnswer, payload.correctTitle, payload.aliases);
   },
 };

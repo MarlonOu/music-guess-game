@@ -14,6 +14,7 @@ function toSong(row: {
   deezerPreviewUrl: string | null;
   appleMusicSkip: boolean;
   deezerSkip: boolean;
+  aliases: string[];
   durationSec: number;
   lyrics: string;
   createdAt: Date;
@@ -31,6 +32,7 @@ function toSong(row: {
     deezerPreviewUrl: row.deezerPreviewUrl ?? undefined,
     appleMusicSkip: row.appleMusicSkip,
     deezerSkip: row.deezerSkip,
+    aliases: row.aliases,
     durationSec: row.durationSec,
     lyrics: row.lyrics,
     createdAt: row.createdAt.toISOString(),
@@ -82,6 +84,7 @@ export async function POST(request: NextRequest) {
       deezerPreviewUrl,
       appleMusicSkip,
       deezerSkip,
+      aliases,
       durationSec,
       lyrics,
       themeIds,
@@ -112,6 +115,7 @@ export async function POST(request: NextRequest) {
         deezerPreviewUrl: deezerPreviewUrl || null,
         appleMusicSkip: Boolean(appleMusicSkip),
         deezerSkip: Boolean(deezerSkip),
+        aliases: Array.isArray(aliases) ? aliases.filter((a: unknown) => typeof a === 'string' && a.trim().length > 0) : [],
         durationSec: Number(durationSec) || 0,
         lyrics: lyrics ?? '',
         themes: Array.isArray(themeIds) && themeIds.length > 0

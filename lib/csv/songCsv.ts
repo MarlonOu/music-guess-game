@@ -17,11 +17,15 @@
  *   未勾選。這兩欄存在的理由：appleMusicPreviewUrl／deezerPreviewUrl 留空這件事本身沒辦法
  *   分辨「還沒查過」跟「查過了、確認沒有、管理者刻意留空」，兩者存起來長得一模一樣，
  *   沒有這個獨立標記的話，重新跑一次批次腳本就會把管理者刻意清空的欄位又填回錯誤的比對結果。
- * - themes 欄位多個主題用「;」分隔（CSV 本身已用「,」分隔欄位，同一欄內不能再用逗號）。
+ * - aliases 是「這首歌其他也算答對的說法」（別名清單），用來處理歌名有多種常見叫法的情況
+ *   （中英合併標題的簡稱、純英文譯名、常見暱稱、繁簡體差異等），見
+ *   lib/engine/answerUtils.ts 的比對邏輯說明。多筆別名用「;」分隔，跟 themes 欄位一樣。
+ * - themes／aliases 這兩欄多個值都用「;」分隔（CSV 本身已用「,」分隔欄位，同一欄內不能再用逗號）。
  */
 export const SONG_CSV_COLUMNS = [
   'title',
   'artist',
+  'aliases',
   'youtubeVideoId',
   'appleMusicTrackId',
   'appleMusicPreviewUrl',
@@ -37,6 +41,7 @@ export const SONG_CSV_COLUMNS = [
 export type SongCsvRow = {
   title: string;
   artist: string;
+  aliases: string;
   youtubeVideoId: string;
   appleMusicTrackId: string;
   appleMusicPreviewUrl: string;
@@ -50,3 +55,5 @@ export type SongCsvRow = {
 };
 
 export const THEME_LIST_SEPARATOR = ';';
+/** aliases 欄位多筆別名的分隔符，跟 THEME_LIST_SEPARATOR 用同一個符號，維持 CSV 裡「多值欄位」的慣例一致 */
+export const ALIAS_LIST_SEPARATOR = ';';

@@ -14,6 +14,8 @@ export interface QuestionPayload {
   lyricLineText?: string;
   lyricLineIndex?: number;
   correctTitle: string;
+  /** 這首歌其他也算答對的說法，見 lib/engine/answerUtils.ts 的比對邏輯說明 */
+  aliases?: string[];
 }
 
 export interface GameModeStrategy {

@@ -57,6 +57,14 @@ model Song {
   appleMusicSkip Boolean @default(false) @map("apple_music_skip")
   /// 同上，但是給 Deezer 用（scripts/fetch-deezer-previews.mjs）
   deezerSkip     Boolean @default(false) @map("deezer_skip")
+  /// 這首歌其他也算答對的說法（別名清單），用來處理「歌名有多種常見叫法」的情況——
+  /// 最典型的是中英合併標題（例如官方標題是「好好（想把你寫成一首歌）」，但玩家平常
+  /// 都簡稱「好好」）、純英文譯名、常見暱稱、繁簡體差異等。跟 title 本身平行比對，
+  /// 命中任何一筆都算答對（見 lib/engine/answerUtils.ts），完全由管理者手動維護，
+  /// 刻意不做「自動從 title 拆出中英文」這種猜測性質的處理——分隔點在哪裡、
+  /// 括號裡的內容是不是真的算獨立答案，這些判斷需要人看過才知道，自動化拆分容易誤判
+  /// （詳見後台歌曲表單旁的說明）。預設空陣列，只有真的需要的歌才手動補。
+  aliases String[] @default([]) @map("aliases")
   durationSec     Int      @map("duration_sec")
   lyrics          String
   createdAt       DateTime @default(now()) @map("created_at")

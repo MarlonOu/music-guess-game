@@ -1076,6 +1076,7 @@ function YouTubePlaylistImportAccordion({ onImported, onNotice }: { onImported: 
         data: selectedRows.map((r) => [
           r.title,
           r.artistName.trim() || '(未知歌手)',
+          '',
           r.videoId,
           '',
           '',
@@ -1263,6 +1264,7 @@ interface SongFormState {
   deezerTrackId: string;
   deezerPreviewUrl: string;
   deezerSkip: boolean;
+  aliases: string[];
   durationSec: string;
   lyrics: string;
   themeIds: string[];
@@ -1278,6 +1280,7 @@ const EMPTY_SONG_FORM: SongFormState = {
   deezerTrackId: '',
   deezerPreviewUrl: '',
   deezerSkip: false,
+  aliases: [],
   durationSec: '',
   lyrics: '',
   themeIds: [],
@@ -1346,8 +1349,9 @@ function ImportExportBar({
         </button>
         <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleFileChange} style={{ display: 'none' }} />
         <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
-          欄位：title, artist, youtubeVideoId, appleMusicTrackId, appleMusicPreviewUrl, appleMusicSkip,
-          deezerTrackId, deezerPreviewUrl, deezerSkip, durationSec, themes（用 ; 分隔多個）, lyrics。
+          欄位：title, artist, aliases（其他也算答對的說法，用 ; 分隔多個，選填）, youtubeVideoId,
+          appleMusicTrackId, appleMusicPreviewUrl, appleMusicSkip, deezerTrackId, deezerPreviewUrl,
+          deezerSkip, durationSec, themes（用 ; 分隔多個）, lyrics。
           youtubeVideoId／appleMusicPreviewUrl／deezerPreviewUrl 至少要有一欄有值。
           appleMusicSkip／deezerSkip 填 true 代表「已確認這個平台找不到，批次腳本不要再自動搜尋」，
           其餘值都當作未勾選。其中一個來源對到既有資料會被更新；都對不上、但歌名＋歌手都相符時視為重複，會略過不匯入。
@@ -1712,6 +1716,7 @@ function SongForm({
           deezerTrackId: deezerPrefill?.trackId ?? editing.deezerTrackId ?? '',
           deezerPreviewUrl: deezerPrefill?.previewUrl ?? editing.deezerPreviewUrl ?? '',
           deezerSkip: deezerPrefill ? false : editing.deezerSkip,
+          aliases: editing.aliases,
           durationSec: String(
             prefill?.durationSec ?? applePrefill?.durationSec ?? deezerPrefill?.durationSec ?? editing.durationSec
           ),
@@ -1738,8 +1743,31 @@ function SongForm({
   // 下拉選單選到「+ 新增歌手…」時，改用這個文字輸入直接打字建立新歌手，
   // 不用先跳去上面的歌手管理區塊新增完再回來選。
   const [newArtistName, setNewArtistName] = useState('');
+  // 別名清單的新增輸入框（見下方「答案比對」區塊）
+  const [newAlias, setNewAlias] = useState('');
+  // Apple/Deezer 的 track id 純粹是給批次腳本重新查詢核對用，日常編輯很少需要看到，
+  // 預設收起來，表單不會一次塞滿太多欄位；已經有值的話（例如舊資料本來就填過）預設展開，
+  // 避免管理者以為那筆資料不見了。
+  const [showAdvancedSourceFields, setShowAdvancedSourceFields] = useState(
+    Boolean(editing?.appleMusicTrackId || editing?.deezerTrackId)
+  );
   // 表單自己的驗證/送出錯誤，顯示在送出按鈕旁邊，而不是丟到頁面最上方（太容易被忽略）
   const [formError, setFormError] = useState<string | null>(null);
+
+  function addAlias() {
+    const trimmed = newAlias.trim();
+    if (!trimmed) return;
+    if (form.aliases.includes(trimmed)) {
+      setNewAlias('');
+      return;
+    }
+    setForm((f) => ({ ...f, aliases: [...f.aliases, trimmed] }));
+    setNewAlias('');
+  }
+
+  function removeAlias(alias: string) {
+    setForm((f) => ({ ...f, aliases: f.aliases.filter((a) => a !== alias) }));
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1834,6 +1862,7 @@ function SongForm({
       deezerTrackId,
       deezerPreviewUrl,
       deezerSkip: form.deezerSkip,
+      aliases: form.aliases,
       durationSec,
       lyrics: form.lyrics,
       themeIds: form.themeIds,
@@ -1852,6 +1881,7 @@ function SongForm({
 
   return (
     <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      {/* ===== 基本資訊 ===== */}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         <input
           value={form.title}
@@ -1871,6 +1901,13 @@ function SongForm({
           ))}
           <option value={NEW_ARTIST_OPTION}>+ 新增歌手…</option>
         </select>
+        <input
+          value={form.durationSec}
+          onChange={(e) => setForm((f) => ({ ...f, durationSec: e.target.value }))}
+          placeholder="總長（秒）"
+          type="number"
+          style={{ ...inputStyle, width: '110px' }}
+        />
       </div>
 
       {form.artistId === NEW_ARTIST_OPTION && (
@@ -1882,73 +1919,6 @@ function SongForm({
           autoFocus
         />
       )}
-
-      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-        <input
-          value={form.appleMusicPreviewUrl}
-          onChange={(e) => setForm((f) => ({ ...f, appleMusicPreviewUrl: e.target.value }))}
-          placeholder="Apple Music 試聽網址（建議優先填，或由上方搜尋帶入）"
-          style={{ ...inputStyle, flex: 2, minWidth: '200px' }}
-        />
-        <input
-          value={form.appleMusicTrackId}
-          onChange={(e) => setForm((f) => ({ ...f, appleMusicTrackId: e.target.value }))}
-          placeholder="Apple Music track id（選填，供之後重新查詢核對用）"
-          style={{ ...inputStyle, flex: 1, minWidth: '140px' }}
-        />
-      </div>
-      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
-        <input
-          type="checkbox"
-          checked={form.appleMusicSkip}
-          onChange={(e) => setForm((f) => ({ ...f, appleMusicSkip: e.target.checked }))}
-        />
-        已確認 Apple Music 上真的找不到這首歌（不要讓批次腳本再自動搜尋補上）
-      </label>
-      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-        <input
-          value={form.deezerPreviewUrl}
-          onChange={(e) => setForm((f) => ({ ...f, deezerPreviewUrl: e.target.value }))}
-          placeholder="Deezer 試聽網址（Apple Music 找不到時的備援，或由上方搜尋帶入）"
-          style={{ ...inputStyle, flex: 2, minWidth: '200px' }}
-        />
-        <input
-          value={form.deezerTrackId}
-          onChange={(e) => setForm((f) => ({ ...f, deezerTrackId: e.target.value }))}
-          placeholder="Deezer track id（選填，供之後重新查詢核對用）"
-          style={{ ...inputStyle, flex: 1, minWidth: '140px' }}
-        />
-      </div>
-      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
-        <input
-          type="checkbox"
-          checked={form.deezerSkip}
-          onChange={(e) => setForm((f) => ({ ...f, deezerSkip: e.target.checked }))}
-        />
-        已確認 Deezer 上真的找不到這首歌（不要讓批次腳本再自動搜尋補上）
-      </label>
-      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-        <input
-          value={form.youtubeVideoId}
-          onChange={(e) => setForm((f) => ({ ...f, youtubeVideoId: e.target.value }))}
-          placeholder="YouTube videoId（非完整網址，或由上方搜尋帶入；其他來源都沒有時為必填）"
-          style={{ ...inputStyle, flex: 2, minWidth: '160px' }}
-        />
-        <input
-          value={form.durationSec}
-          onChange={(e) => setForm((f) => ({ ...f, durationSec: e.target.value }))}
-          placeholder="總長（秒，可由上方搜尋自動帶入）"
-          type="number"
-          style={{ ...inputStyle, width: '110px' }}
-        />
-      </div>
-      <textarea
-        value={form.lyrics}
-        onChange={(e) => setForm((f) => ({ ...f, lyrics: e.target.value }))}
-        placeholder="歌詞（供 LYRIC_LINE 模式使用，每行一句；請自行輸入，避免著作權疑慮我方不代為填入）"
-        rows={3}
-        style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }}
-      />
 
       {themes.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -1987,6 +1957,142 @@ function SongForm({
           </div>
         </div>
       )}
+
+      {/* ===== 播放來源 ===== */}
+      <div style={{ borderTop: '1px solid var(--groove)', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', fontWeight: 600 }}>
+          播放來源（YouTube／Apple Music／Deezer 至少要有一個）
+        </span>
+
+        <input
+          value={form.youtubeVideoId}
+          onChange={(e) => setForm((f) => ({ ...f, youtubeVideoId: e.target.value }))}
+          placeholder="YouTube videoId（非完整網址，或由上方搜尋帶入）"
+          style={inputStyle}
+        />
+
+        <input
+          value={form.appleMusicPreviewUrl}
+          onChange={(e) => setForm((f) => ({ ...f, appleMusicPreviewUrl: e.target.value }))}
+          placeholder="Apple Music 試聽網址（建議優先填，或由上方搜尋帶入）"
+          style={inputStyle}
+        />
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+          <input
+            type="checkbox"
+            checked={form.appleMusicSkip}
+            onChange={(e) => setForm((f) => ({ ...f, appleMusicSkip: e.target.checked }))}
+          />
+          已確認 Apple Music 上真的找不到這首歌（不要讓批次腳本再自動搜尋補上）
+        </label>
+
+        <input
+          value={form.deezerPreviewUrl}
+          onChange={(e) => setForm((f) => ({ ...f, deezerPreviewUrl: e.target.value }))}
+          placeholder="Deezer 試聽網址（Apple Music 找不到時的備援，或由上方搜尋帶入）"
+          style={inputStyle}
+        />
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+          <input
+            type="checkbox"
+            checked={form.deezerSkip}
+            onChange={(e) => setForm((f) => ({ ...f, deezerSkip: e.target.checked }))}
+          />
+          已確認 Deezer 上真的找不到這首歌（不要讓批次腳本再自動搜尋補上）
+        </label>
+
+        <button
+          type="button"
+          onClick={() => setShowAdvancedSourceFields((v) => !v)}
+          style={{ ...editButtonStyle, alignSelf: 'flex-start' }}
+        >
+          {showAdvancedSourceFields ? '收起 track id 欄位 ▲' : '顯示 track id 欄位（選填，供重新查詢核對用）▼'}
+        </button>
+        {showAdvancedSourceFields && (
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <input
+              value={form.appleMusicTrackId}
+              onChange={(e) => setForm((f) => ({ ...f, appleMusicTrackId: e.target.value }))}
+              placeholder="Apple Music track id"
+              style={{ ...inputStyle, flex: 1, minWidth: '140px' }}
+            />
+            <input
+              value={form.deezerTrackId}
+              onChange={(e) => setForm((f) => ({ ...f, deezerTrackId: e.target.value }))}
+              placeholder="Deezer track id"
+              style={{ ...inputStyle, flex: 1, minWidth: '140px' }}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* ===== 答案比對 ===== */}
+      <div style={{ borderTop: '1px solid var(--groove)', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', fontWeight: 600 }}>
+          別名（其他也算答對的說法，選填）
+        </span>
+        <p style={{ color: 'var(--ink-dim)', fontSize: '0.78rem', margin: 0 }}>
+          用在「歌名有多種常見叫法」的情況——例如官方標題是「好好（想把你寫成一首歌）」但大家平常
+          簡稱「好好」、純英文譯名、常見暱稱、繁簡體差異等。玩家答對 title 本身或任何一筆別名都算對，
+          純文字比對，不需要打完整標點符號（見下方比對規則說明）。
+        </p>
+        {form.aliases.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {form.aliases.map((alias) => (
+              <span
+                key={alias}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 10px',
+                  borderRadius: '999px',
+                  border: '1px solid var(--groove)',
+                  fontSize: '0.85rem',
+                }}
+              >
+                {alias}
+                <button
+                  type="button"
+                  onClick={() => removeAlias(alias)}
+                  aria-label={`移除別名「${alias}」`}
+                  style={{ background: 'none', border: 'none', color: 'var(--ink-dim)', cursor: 'pointer', padding: 0, lineHeight: 1 }}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <input
+            value={newAlias}
+            onChange={(e) => setNewAlias(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                addAlias();
+              }
+            }}
+            placeholder="輸入別名後按 Enter 或點新增"
+            style={{ ...inputStyle, flex: 1 }}
+          />
+          <button type="button" onClick={addAlias} style={editButtonStyle}>
+            新增
+          </button>
+        </div>
+      </div>
+
+      {/* ===== 歌詞 ===== */}
+      <div style={{ borderTop: '1px solid var(--groove)', paddingTop: '10px' }}>
+        <textarea
+          value={form.lyrics}
+          onChange={(e) => setForm((f) => ({ ...f, lyrics: e.target.value }))}
+          placeholder="歌詞（供 LYRIC_LINE 模式使用，每行一句；請自行輸入，避免著作權疑慮我方不代為填入）"
+          rows={3}
+          style={{ ...inputStyle, width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
+        />
+      </div>
 
       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
         <button type="submit" style={buttonStyle}>

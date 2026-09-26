@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import Papa from 'papaparse';
 import { prisma } from '../../../../lib/db';
-import { SONG_CSV_COLUMNS, THEME_LIST_SEPARATOR, type SongCsvRow } from '../../../../lib/csv/songCsv';
+import { SONG_CSV_COLUMNS, THEME_LIST_SEPARATOR, ALIAS_LIST_SEPARATOR, type SongCsvRow } from '../../../../lib/csv/songCsv';
 
 // GET /api/songs/export → 匯出全部歌曲為 CSV（格式定義見 lib/csv/songCsv.ts）
 // 屬於讀取操作，跟 GET /api/songs 一樣不需要管理者密碼（見 proxy.ts 只保護非 GET 的異動請求）。
@@ -18,6 +18,7 @@ export async function GET() {
     const rows: SongCsvRow[] = songs.map((s: {
       title: string;
       artist: { name: string };
+      aliases: string[];
       youtubeVideoId: string | null;
       appleMusicTrackId: string | null;
       appleMusicPreviewUrl: string | null;
@@ -31,6 +32,7 @@ export async function GET() {
     }) => ({
       title: s.title,
       artist: s.artist.name,
+      aliases: s.aliases.join(ALIAS_LIST_SEPARATOR),
       youtubeVideoId: s.youtubeVideoId ?? '',
       appleMusicTrackId: s.appleMusicTrackId ?? '',
       appleMusicPreviewUrl: s.appleMusicPreviewUrl ?? '',

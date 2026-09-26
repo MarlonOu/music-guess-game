@@ -76,7 +76,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (room.status === 'playing' && room.answerMode === 'text' && !room.revealed && room.songQueue[room.currentRoundIndex]) {
       const songId = room.songQueue[room.currentRoundIndex];
       const song = await prisma.song.findUnique({ where: { id: songId } });
-      if (song && isAnswerCorrect(text, song.title)) {
+      if (song && isAnswerCorrect(text, song.title, song.aliases)) {
         // advanceRoundAfterReveal 用樂觀鎖保護：只有「這次呼叫讀到的還是當下真正那一輪」
         // 才會真的觸發轉換（回傳 true）。避免兩個人幾乎同時答對時，兩邊都以為自己是第一個、
         // 都加分、都各自把房間推進一次（等於直接跳過一整題）。
