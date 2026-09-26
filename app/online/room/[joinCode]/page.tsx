@@ -186,7 +186,13 @@ export default function OnlineRoomPage() {
   return (
     <main
       style={{
-        minHeight: '100vh',
+        // 固定 height（不是 minHeight）搭配 flex 版面，讓聊天室能用 flex:1 吃掉剩餘空間——
+        // 這是「動態」的核心：不管現在是準備室/遊戲中/結算畫面（三種狀態上方內容高度差很多），
+        // 也不管玩家名單有幾筆，聊天室永遠自動填滿扣掉其他內容後剩下的空間，不用猜一個
+        // 寫死的像素數字。overflowY: 'auto' 是保險：極端情況下（例如玩家多到名單本身就很長）
+        // 就算聊天室已經縮到最小還是放不下，讓整個頁面能捲動，不會裁切或擋住任何內容。
+        height: '100vh',
+        overflowY: 'auto',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -194,7 +200,7 @@ export default function OnlineRoomPage() {
         gap: '24px',
       }}
     >
-      <header style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+      <header style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
         <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem', letterSpacing: '0.1em' }}>
           MUSIC GUESS · ONLINE
         </span>
@@ -220,7 +226,7 @@ export default function OnlineRoomPage() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -12 }}
             transition={{ duration: 0.3 }}
-            style={{ width: '100%', display: 'flex', justifyContent: 'center' }}
+            style={{ width: '100%', display: 'flex', justifyContent: 'center', flexShrink: 0 }}
           >
             <LobbyView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={setRoom} />
           </motion.div>
@@ -232,7 +238,7 @@ export default function OnlineRoomPage() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -12 }}
             transition={{ duration: 0.3 }}
-            style={{ width: '100%', display: 'flex', justifyContent: 'center' }}
+            style={{ width: '100%', display: 'flex', justifyContent: 'center', flexShrink: 0 }}
           >
             <PlayingView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={setRoom} />
           </motion.div>
@@ -244,23 +250,28 @@ export default function OnlineRoomPage() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -12 }}
             transition={{ duration: 0.3 }}
-            style={{ width: '100%', display: 'flex', justifyContent: 'center' }}
+            style={{ width: '100%', display: 'flex', justifyContent: 'center', flexShrink: 0 }}
           >
             <FinishedView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={setRoom} />
           </motion.div>
         )}
       </AnimatePresence>
 
-      {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
+      {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem', flexShrink: 0 }}>{error}</p>}
 
       {/* 選擇題搶答模式不需要聊天室——答題完全透過選項按鈕，聊天室原本只是被動保留給
           純聊天用途，但在畫面寸土寸金的手機上多一塊沒有實際功能的區塊反而是干擾，
-          乾脆整個不顯示，畫面更乾淨。打字搶答模式維持不變（聊天室本身就是搶答的管道）。 */}
+          乾脆整個不顯示，畫面更乾淨。打字搶答模式維持不變（聊天室本身就是搶答的管道）。
+          flex: 1 + minHeight: 0：這是讓聊天室變成「自動吃掉剩餘空間」那個元素的關鍵——
+          minHeight: 0 是必要的，沒有這行的話，flex 子元素預設不會縮小到比自己內容還小，
+          聊天室內部的捲動區域就沒辦法正確生效，會變成撐開整個容器而不是內部自己捲動。 */}
       {room.answerMode !== 'choice' && (
-        <ChatBox joinCode={joinCode} playerId={playerId} messages={messages} onMessageSent={handleMessageSent} answerMode={room.answerMode} />
+        <div style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', justifyContent: 'center' }}>
+          <ChatBox joinCode={joinCode} playerId={playerId} messages={messages} onMessageSent={handleMessageSent} answerMode={room.answerMode} />
+        </div>
       )}
 
-      <button onClick={handleLeaveClick} className="btn-text">
+      <button onClick={handleLeaveClick} className="btn-text" style={{ flexShrink: 0 }}>
         離開房間
       </button>
     </main>
@@ -1098,6 +1109,11 @@ function ChatBox({
         borderRadius: '14px',
         border: '1px solid var(--groove)',
         background: 'var(--bg-raised)',
+        // 這個容器本身也要 flex:1 + minHeight:0，才能把外層（父層那個 wrapper div）分配給它的
+        // 剩餘空間，繼續往下傳給訊息列表——中間任何一層漏掉 minHeight:0，這個「自動撐滿剩餘
+        // 空間」的鏈就會斷掉，變回用內容自然高度撐開，跟原本 maxHeight 那個問題一樣。
+        flex: 1,
+        minHeight: 0,
       }}
     >
       <div
@@ -1106,7 +1122,13 @@ function ChatBox({
           display: 'flex',
           flexDirection: 'column',
           gap: '6px',
-          maxHeight: '220px',
+          // 用 flex:1 吃掉這個卡片內部扣掉輸入框之後的所有剩餘空間，而不是寫死的高度數字——
+          // 這樣不管上面準備室/遊戲中/結算畫面內容多高、玩家名單多長，聊天室從第一次渲染
+          // （0 則訊息）開始就已經是「剩餘空間該有的大小」，捲動也從第一則訊息就生效，
+          // 不是等訊息累積到填滿某個寫死的數字才開始捲動。minHeight 給一個很小的地板，
+          // 純粹避免極端情況下（例如視窗非常矮）被壓縮到完全看不見。
+          flex: 1,
+          minHeight: '60px',
           overflowY: 'auto',
           overscrollBehavior: 'contain',
         }}
@@ -1131,7 +1153,7 @@ function ChatBox({
           </p>
         ))}
       </div>
-      <form onSubmit={handleSend} style={{ display: 'flex', gap: '8px' }}>
+      <form onSubmit={handleSend} style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
