@@ -283,8 +283,11 @@ function JoinPrompt({ joinCode, onJoined }: { joinCode: string; onJoined: (playe
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    // 真正的使用者手勢（表單送出），在任何 await 之前立刻呼叫，不等待其完成。
-    getGlobalAudioController().unlock();
+    // 真正的使用者手勢（表單送出），一定要先等 unlock() 真正跑完才能繼續——理由跟速通模式
+    // 修過的那個 bug完全一樣：這個表單支援中途加入一場已經在進行中的比賽，加入後可能立刻
+    // 就要播放當下這一題的音樂，如果不等 unlock() 跑完就讓後面的流程搶著用同一個播放器，
+    // 會導致解鎖用的測試影片沒被正確消音、玩家聽到不該聽到的東西，實際歌曲反而放不出來。
+    await getGlobalAudioController().unlock();
     const trimmed = displayName.trim();
     if (trimmed.length === 0) {
       setError('請輸入暱稱');

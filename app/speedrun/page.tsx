@@ -101,15 +101,19 @@ export default function SpeedrunPage() {
     return () => clearInterval(timer);
   }, [phase]);
 
-  // 換題（或剛進入 playing 狀態）就播放目前這題的音訊，同時標記「開始等待這一題的音樂
-  // 真的開始播放」——這個時間戳從現在起算，直到下面那個監看 audioStatus 的 effect
-  // 偵測到真的開始播放為止，這段期間碼表會凍結（見上面那個 effect）。
+  // 換題（或剛進入 playing 狀態）就播放目前這題的音訊。
+  // 注意：「標記開始等待播放」這件事故意不是在這個 effect 裡做，而是在觸發 phase 變成
+  // 'playing' 的那個地方（handleStart／換題的 setTimeout 回呼）同步做——這是修正一個
+  // 實際發生過的小競態：這個播放 effect 跟下面「碼表更新」那個 effect 是兩個獨立的
+  // useEffect，同一次換題觸發時，React 依宣告順序先跑碼表更新的 effect（它會立刻執行一次
+  // tick()），這時候如果「等待播放」的標記還沒設定好，就會被誤判成「沒有在等待」而多跳動
+  //一次，等這個播放 effect 才把標記設好，畫面上會看起來像「先跳一點點時間才凍結」。
+  // 把標記設定挪到觸發換題的那個同步程式碼位置，就能保證在任何 effect 執行之前就已經生效。
   useEffect(() => {
     if (phase !== 'playing') return;
     const controller = audioControllerRef.current;
     const q = questions[questionIndex];
     if (!controller || !q || !q.source || !q.playbackId) return;
-    waitingForAudioStartedAtRef.current = estimateServerNow();
     controller.play(q.source, q.playbackId, q.startSec, q.durationSec);
   }, [phase, questionIndex, questions]);
 
@@ -141,6 +145,9 @@ export default function SpeedrunPage() {
           pausedMsRef.current += estimateServerNow() - transitionStartedAtRef.current;
           transitionStartedAtRef.current = null;
         }
+        // 在觸發 phase 變成 'playing' 之前，同步設好「開始等待下一題播放」的標記，
+        // 保證任何 effect（包含碼表更新那個）執行的當下這個標記都已經生效。
+        waitingForAudioStartedAtRef.current = estimateServerNow();
         setQuestionIndex((i) => i + 1);
         setPhase('playing');
       }, 0);
@@ -156,9 +163,14 @@ export default function SpeedrunPage() {
       setError('請輸入暱稱');
       return;
     }
-    // 真正的使用者手勢（按鈕點擊），在任何 await 之前先觸發播放解鎖，不等待其完成——
-    // 理由跟線上模式加入房間時的做法一樣，見 AudioController.unlock() 的說明。
-    audioControllerRef.current?.unlock();
+    // 真正的使用者手勢（按鈕點擊），一定要先等 unlock() 真正跑完才能繼續往下——這是修正
+    // 一個實際發生過的 bug：unlock() 內部會借用同一個播放器短暫播放/暫停一支解鎖用的
+    // 測試影片（見 AudioController.unlock() 的完整說明），如果不等它，直接讓後面的
+    // /start API 呼叫（速度快的話可能很快就回來）觸發第一題的真正播放，兩邊會搶著操作
+    // 同一個播放器實例：真正的播放請求把解鎖用的影片換掉、還沒跑完的 unlock() 卻在稍後
+    // 誤把「已經換成真正歌曲」的播放器暫停/停止掉——結果就是解鎖用的影片沒被正確消音、
+    // 玩家聽到了不該聽到的東西，第一題（如果來源恰好是 YouTube）反而放不出來。
+    await audioControllerRef.current?.unlock();
 
     setError(null);
     setPhase('loading');
@@ -177,6 +189,8 @@ export default function SpeedrunPage() {
     raceStartRef.current = estimateServerNow();
     pausedMsRef.current = 0;
     transitionStartedAtRef.current = null;
+    // 同上：在觸發 phase 變成 'playing' 之前，同步設好「開始等待第一題播放」的標記。
+    waitingForAudioStartedAtRef.current = estimateServerNow();
     setElapsedMs(0);
     setPhase('playing');
   }

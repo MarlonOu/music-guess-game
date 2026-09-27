@@ -67,8 +67,9 @@ function OnlinePageInner() {
 
   async function handleJoin(e: React.FormEvent) {
     e.preventDefault();
-    // 同 handleCreate：真實使用者手勢，在任何 await 之前立刻觸發解鎖。
-    getGlobalAudioController().unlock();
+    // 同樣道理（見 JoinPrompt 的說明）：加入的可能是一場已經在進行中的比賽（開放中途加入），
+    // 一定要等 unlock() 真正跑完才能繼續，避免跟稍後可能立刻觸發的真正播放搶用同一個播放器。
+    await getGlobalAudioController().unlock();
     const trimmedName = displayName.trim();
     const trimmedCode = joinCode.trim().toUpperCase();
     if (trimmedName.length === 0) {
