@@ -7,7 +7,7 @@ import { AudioController, type AudioPlaybackStatus } from '../../lib/audio/audio
 import { speedrunRepository } from '../../lib/repository/speedrunRepository';
 import { estimateServerNow } from '../../lib/client/serverClock';
 import type { SpeedrunQuestion, SpeedrunSubmitResponse, SpeedrunLeaderboardEntry } from '../../lib/types/speedrun';
-import { SPEEDRUN_TRANSITION_SEC } from '../../lib/constants/speedrun';
+import { SPEEDRUN_TRANSITION_SEC, SPEEDRUN_AUDIO_WAIT_CAP_MS } from '../../lib/constants/speedrun';
 import { WRONG_ANSWER_LOCKOUT_MS } from '../../lib/constants/choiceMode';
 
 const QUESTION_COUNT = 10;
@@ -39,11 +39,23 @@ export default function SpeedrunPage() {
   const transitionStartedAtRef = useRef<number | null>(null);
   // 「正在等待這一題的音樂真的開始播放」的時間戳，null 代表目前沒有在等待（音樂已經在播，
   // 或還沒開始要求播放）。跟 pausedMsRef／transitionStartedAtRef 是同一套機制：等待期間
-  // 碼表凍結不動，等待結束（偵測到真的開始播放）才把這段等待耗掉的時間累加進 pausedMsRef，
-  // 這樣裝置網路不好、音訊緩衝拖延到的時間就不會被算進碼表——伺服器那邊也會做對應的扣除
-  // （見 lib/server/speedrunSession.ts 的 reportAudioStarted 說明，含防濫用的上限機制），
+  // 碼表凍結不動，等待結束（偵測到真的開始播放、明確播放錯誤、或等太久逾時，見下面
+  // resolveAudioWaitRef 的說明）才把這段等待耗掉的時間累加進 pausedMsRef，這樣裝置網路
+  // 不好、音訊緩衝拖延到的時間就不會被算進碼表——伺服器那邊也會做對應的扣除（見
+  // lib/server/speedrunSession.ts 的 reportAudioStarted 說明，含防濫用的上限機制），
   // 確保畫面顯示的數字最終跟伺服器認定的成績兜得起來。
   const waitingForAudioStartedAtRef = useRef<number | null>(null);
+  // 「等太久還沒開始播放就強制結束等待」的計時器 id，跟伺服器扣除上限用同一個秒數
+  // （SPEEDRUN_AUDIO_WAIT_CAP_MS）：這是修正一個實際發生過的 bug——某些歌曲的音源
+  // 播放會卡住（沒有明確的錯誤事件、也一直不會進入播放狀態），沒有這個逾時機制的話，
+  // 碼表會永遠凍結、也完全聽不到音樂，玩家只能矇對才能繼續，而且矇對之後才發現伺服器
+  // 那邊時間其實一直在跑（超過上限的部分沒被扣除），成績被記成很難看的數字。有了逾時，
+  // 最壞情況也只會卡住這個上限的秒數就自動恢復，不會無限卡住。
+  const waitingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // questionIndex／token 的「隨時最新」鏡像，供 resolveAudioWait 這種可能從舊的 closure
+  // （例如很早之前排定的 setTimeout 回呼）被呼叫到的函式讀取，避免讀到過期的值。
+  const questionIndexRef = useRef(0);
+  const tokenRef = useRef<string | null>(null);
 
   const [phase, setPhase] = useState<Phase>('intro');
   const [displayName, setDisplayName] = useState('');
@@ -76,6 +88,10 @@ export default function SpeedrunPage() {
       controller.setOnStatusChange(undefined);
       controller.dispose();
       audioControllerRef.current = null;
+      if (waitingTimeoutRef.current !== null) {
+        clearTimeout(waitingTimeoutRef.current);
+        waitingTimeoutRef.current = null;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -117,19 +133,55 @@ export default function SpeedrunPage() {
     controller.play(q.source, q.playbackId, q.startSec, q.durationSec);
   }, [phase, questionIndex, questions]);
 
-  // 偵測到音樂真的開始播放了：把剛剛「等待播放」耗掉的時間累加進 pausedMsRef（碼表從這裡
-  // 繼續往下跳，不會因為前面凍結的這段時間而整段消失，只是不計分），並回報給伺服器
-  // （見 lib/server/speedrunSession.ts 的 reportAudioStarted，伺服器那邊有防濫用的上限）。
-  // 用 waitingForAudioStartedAtRef 是否為 null 當防重複觸發的鎖：同一次等待只處理一次，
-  // 不會因為這個 effect 的依賴陣列變動而重複扣、重複回報。
+  // 讓 questionIndexRef／tokenRef 隨時鏡像最新的 state，供 resolveAudioWait 這種可能
+  // 從舊 closure 被呼叫到的函式讀取。
   useEffect(() => {
-    if (audioStatus !== 'playing') return;
+    questionIndexRef.current = questionIndex;
+  }, [questionIndex]);
+  useEffect(() => {
+    tokenRef.current = token;
+  }, [token]);
+
+  // 開始等待「這一題的音樂真的開始播放」：記錄起始時間戳，同時排一個逾時保險——
+  // 見 waitingTimeoutRef 宣告處的說明，逾時秒數跟伺服器扣除上限對齊，最壞情況也只會
+  // 卡住這麼久就自動恢復，不會無限卡住。每次開始新的等待都要先清掉舊的逾時計時器，
+  // 避免上一題還沒觸發的逾時，跑到這一題才誤觸發。
+  function startAudioWait() {
+    if (waitingTimeoutRef.current !== null) {
+      clearTimeout(waitingTimeoutRef.current);
+      waitingTimeoutRef.current = null;
+    }
+    waitingForAudioStartedAtRef.current = estimateServerNow();
+    waitingTimeoutRef.current = setTimeout(() => {
+      waitingTimeoutRef.current = null;
+      resolveAudioWait();
+    }, SPEEDRUN_AUDIO_WAIT_CAP_MS);
+  }
+
+  // 統一的「結束等待播放」處理：不管是真的偵測到開始播放、明確的播放錯誤、還是等太久逾時，
+  // 都要走這一條路徑，確保碼表一定會恢復跳動、伺服器那邊也一定會收到回報（至少能套用
+  // 上限內的扣除），不會讓玩家因為某首歌播放失敗或卡住，就被判定「整段等待時間都不算數、
+  // 畫面卡住不動、又聽不到音樂」。用 waitingForAudioStartedAtRef 是否為 null 當防重複觸發
+  // 的鎖：三種觸發管道裡不管哪一個先到，只會真正處理一次。
+  function resolveAudioWait() {
     if (waitingForAudioStartedAtRef.current === null) return;
     const waitMs = estimateServerNow() - waitingForAudioStartedAtRef.current;
     pausedMsRef.current += Math.max(0, waitMs);
     waitingForAudioStartedAtRef.current = null;
-    if (token) speedrunRepository.reportAudioStarted(token, questionIndex);
-  }, [audioStatus, questionIndex, token]);
+    if (waitingTimeoutRef.current !== null) {
+      clearTimeout(waitingTimeoutRef.current);
+      waitingTimeoutRef.current = null;
+    }
+    if (tokenRef.current) speedrunRepository.reportAudioStarted(tokenRef.current, questionIndexRef.current);
+  }
+
+  // 偵測到音樂真的開始播放、或明確發生播放錯誤，都視為「等待結束」——錯誤不用等到逾時，
+  // 反正已經確定這首歌這次放不出來了，愈早解除凍結、讓玩家能繼續（矇對或反正碼表恢復跳動）
+  // 愈好。
+  useEffect(() => {
+    if (audioStatus !== 'playing' && audioStatus !== 'error') return;
+    resolveAudioWait();
+  }, [audioStatus]);
 
   // 緩衝畫面（答對後、下一題正式開始前的讀秒動畫）：每秒遞減，數到 0 才真正推進到下一題、
   // 切回 playing 狀態（觸發上面那個 effect 重新播放新題目的音訊）。
@@ -145,9 +197,10 @@ export default function SpeedrunPage() {
           pausedMsRef.current += estimateServerNow() - transitionStartedAtRef.current;
           transitionStartedAtRef.current = null;
         }
-        // 在觸發 phase 變成 'playing' 之前，同步設好「開始等待下一題播放」的標記，
-        // 保證任何 effect（包含碼表更新那個）執行的當下這個標記都已經生效。
-        waitingForAudioStartedAtRef.current = estimateServerNow();
+        // 在觸發 phase 變成 'playing' 之前，同步設好「開始等待下一題播放」的標記
+        // （含逾時保險，見 startAudioWait 的說明），保證任何 effect（包含碼表更新那個）
+        // 執行的當下這個標記都已經生效。
+        startAudioWait();
         setQuestionIndex((i) => i + 1);
         setPhase('playing');
       }, 0);
@@ -155,7 +208,7 @@ export default function SpeedrunPage() {
     }
     const timer = setTimeout(() => setTransitionSecondsLeft((s) => s - 1), 1000);
     return () => clearTimeout(timer);
-  }, [phase, transitionSecondsLeft]);
+  }, [phase, transitionSecondsLeft]); // eslint-disable-line react-hooks/exhaustive-deps -- startAudioWait 內部只讀寫 ref，不依賴任何 render 範圍內的變數，加進依賴陣列只會讓這個 effect 因為它每次 render 都重新建立而白白重跑，沒有實際好處
 
   async function handleStart() {
     const trimmed = displayName.trim();
@@ -189,8 +242,9 @@ export default function SpeedrunPage() {
     raceStartRef.current = estimateServerNow();
     pausedMsRef.current = 0;
     transitionStartedAtRef.current = null;
-    // 同上：在觸發 phase 變成 'playing' 之前，同步設好「開始等待第一題播放」的標記。
-    waitingForAudioStartedAtRef.current = estimateServerNow();
+    // 同上：在觸發 phase 變成 'playing' 之前，同步設好「開始等待第一題播放」的標記
+    // （含逾時保險，見 startAudioWait 的說明）。
+    startAudioWait();
     setElapsedMs(0);
     setPhase('playing');
   }
@@ -229,6 +283,15 @@ export default function SpeedrunPage() {
     audioControllerRef.current?.stop();
 
     if (result.data.finished) {
+      // 這裡直接把畫面上的碼表「校準」成伺服器剛剛回傳的權威數字，不要繼續讓本地的
+      // setInterval 多跳幾下——這是修正一個實際發生過的落差：本地碼表會一路跳到 phase
+      // 真正切換到 'submitting' 為止，而這中間還包含這次 check() 請求本身的網路來回時間；
+      // 但伺服器認定的 totalTimeMs 是在「剛剛處理這次請求的當下」就算好的，比本地碼表最後
+      // 顯示的那個數字還要早一點。兩邊沒對齊的話，玩家會看到「最後一題結束當下顯示的秒數」
+      // 跟「結算畫面顯示的成績」差了一截（差距大概就是這次請求來回的網路時間），而且看起來
+      // 總是「结算成績比較少」，容易讓人誤以為成績算錯了。直接採用伺服器回傳的數字，
+      // 兩邊就會完全一致。
+      setElapsedMs(result.data.totalTimeMs ?? 0);
       await submitScore();
     } else {
       // 除了第一題以外，答對後不直接跳下一題，先進入緩衝畫面讓玩家喘口氣、看一下讀秒動畫，
