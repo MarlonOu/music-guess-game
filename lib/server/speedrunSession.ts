@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { SPEEDRUN_TRANSITION_SEC } from '../constants/speedrun';
+import { SPEEDRUN_TRANSITION_SEC, SPEEDRUN_AUDIO_WAIT_CAP_MS } from '../constants/speedrun';
 
 /**
  * 速通模式（單機、隨機片段猜歌＋選擇題搶答，10 題計時）進行中的挑戰狀態。
@@ -13,11 +13,22 @@ import { SPEEDRUN_TRANSITION_SEC } from '../constants/speedrun';
  * 不採信客戶端自己回報的數字——否則玩家只要竄改前端請求就能偽造任意成績上榜。
  * 客戶端畫面上顯示的碼表，只是給玩家看的即時體驗，不是最終判定成績的依據。
  *
- * 碼表只計「真正在播放音樂」的時間：每答對一題（非最後一題）都會有一段固定
- * SPEEDRUN_TRANSITION_SEC 秒的緩衝畫面，這段期間音樂是停止的，不該算進成績。
- * 扣除的量是「(題目數 - 1) × 緩衝秒數」這個固定值，不是採信客戶端回報的任何時間戳——
- * 緩衝畫面的長度完全由這裡的常數決定，不是客戶端可以自己操縱影響的東西，所以直接用
- * 固定公式扣除，不會有辦法透過偽造請求佔到便宜（少扣或多扣都對自己的成績沒有幫助）。
+ * 碼表只計「真正在播放音樂」的時間，扣除兩種「沒有真正在播放」的區間：
+ * 1. 緩衝畫面：每答對一題（非最後一題）都有一段固定 SPEEDRUN_TRANSITION_SEC 秒的緩衝畫面，
+ *    這段期間音樂是停止的。扣除量是「(題目數 - 1) × 緩衝秒數」這個固定值，不是採信客戶端
+ *    回報的任何時間戳——緩衝畫面的長度完全由程式碼裡的常數決定，不是客戶端能操縱的東西，
+ *    所以直接用固定公式扣除，沒有被濫用的空間。
+ * 2. 音訊緩衝／網路等待：裝置網路不好時，從「這一題開始」到「音樂真的開始播放」中間可能會
+ *    有一段空檔，這段時間玩家根本聽不到音樂，理論上也不該算進成績。這段就沒辦法用固定公式
+ *    算了（每個人網路狀況不一樣），只能靠客戶端回報「音樂真的開始播放了」（見
+ *    reportAudioStarted）。這裡刻意跟緩衝畫面的扣除方式不同、多做兩件事以防被濫用：
+ *    (a) 每題扣除的量設一個上限（SPEEDRUN_AUDIO_WAIT_CAP_MS），即使有人刻意慢一點才回報
+ *        「音樂開始了」想多扣一點時間，每題最多也只能佔到這麼多便宜，10 題累積下來的影響
+ *        有限，不會變成可以隨意灌水的大洞；
+ *    (b) 每一題只採信第一次回報，同一題重複回報不會重複扣除。
+ *    這是刻意接受的取捨：完全不能保證杜絕濫用（客戶端回報的時間點終究是客戶端說了算），
+ *    但這是個朋友間同樂用的排行榜，不是正式競賽，用「設上限」換取「網路不好的人成績更公平」
+ *    是合理的權衡。
  */
 interface SpeedrunSession {
   /** 這場挑戰的 10 首歌，依出題順序排列；songIds[i] 是第 i 題（0-based）的正確答案 */
@@ -28,6 +39,12 @@ interface SpeedrunSession {
   currentIndex: number;
   /** 答對最後一題的那一刻的時間戳；還沒完成挑戰時為 null */
   finishedAt: number | null;
+  /** 目前這一題「開始等待音樂播放」的時間戳（見 reportAudioStarted 的說明） */
+  currentQuestionStartedAt: number;
+  /** 目前這一題是不是已經回報過「音樂開始播放了」，避免同一題重複回報、重複扣除 */
+  audioWaitReportedForIndex: number | null;
+  /** 累積目前為止所有題目的「等待音樂播放」扣除量（每題已經套用過上限） */
+  totalAudioWaitMs: number;
 }
 
 const sessions = new Map<string, SpeedrunSession>();
@@ -44,13 +61,13 @@ function cleanupExpiredSessions(): void {
 }
 
 /**
- * 把「起訖時間戳的原始差值」換算成「扣掉緩衝畫面時間後」的實際計分秒數。
+ * 把「起訖時間戳的原始差值」換算成「扣掉緩衝畫面與音訊等待時間後」的實際計分毫秒數。
  * questionCount 題目共有 questionCount - 1 個題目間的緩衝畫面（最後一題答對後直接結算，
  * 沒有下一個緩衝畫面），每個緩衝固定 SPEEDRUN_TRANSITION_SEC 秒。
  */
-function toScoredMs(rawMs: number, questionCount: number): number {
+function toScoredMs(rawMs: number, questionCount: number, totalAudioWaitMs: number): number {
   const transitionCount = Math.max(0, questionCount - 1);
-  const deducted = rawMs - transitionCount * SPEEDRUN_TRANSITION_SEC * 1000;
+  const deducted = rawMs - transitionCount * SPEEDRUN_TRANSITION_SEC * 1000 - totalAudioWaitMs;
   return Math.max(0, deducted);
 }
 
@@ -58,8 +75,35 @@ function toScoredMs(rawMs: number, questionCount: number): number {
 export function createSpeedrunSession(songIds: string[]): { token: string } {
   cleanupExpiredSessions();
   const token = randomUUID();
-  sessions.set(token, { songIds, startedAt: Date.now(), currentIndex: 0, finishedAt: null });
+  const now = Date.now();
+  sessions.set(token, {
+    songIds,
+    startedAt: now,
+    currentIndex: 0,
+    finishedAt: null,
+    currentQuestionStartedAt: now,
+    audioWaitReportedForIndex: null,
+    totalAudioWaitMs: 0,
+  });
   return { token };
+}
+
+/**
+ * 客戶端偵測到「目前這一題的音樂真的開始播放了」時呼叫，用來扣除網路不好、音訊緩衝
+ * 拖延到的等待時間（見上方型別定義的說明）。questionIndex 必須跟目前伺服器記錄的
+ * currentIndex 一致，才會採信——避免用過期或超前的題號回報造成計算錯亂。
+ * 同一題只有第一次回報會生效，之後重複回報（例如網路重試）會被忽略，不會重複扣除。
+ */
+export function reportAudioStarted(token: string, questionIndex: number): void {
+  const session = sessions.get(token);
+  if (!session) return;
+  if (questionIndex !== session.currentIndex) return;
+  if (session.audioWaitReportedForIndex === questionIndex) return;
+
+  const waitMs = Date.now() - session.currentQuestionStartedAt;
+  const cappedWaitMs = Math.max(0, Math.min(waitMs, SPEEDRUN_AUDIO_WAIT_CAP_MS));
+  session.totalAudioWaitMs += cappedWaitMs;
+  session.audioWaitReportedForIndex = questionIndex;
 }
 
 /**
@@ -86,11 +130,18 @@ export function checkSpeedrunAnswer(
   const finished = session.currentIndex >= session.songIds.length;
   if (finished && session.finishedAt === null) {
     session.finishedAt = Date.now();
+  } else if (!finished) {
+    // 換到下一題了，重置「這一題開始等待音樂播放」的時間戳跟回報狀態，
+    // 讓 reportAudioStarted 能正確採信下一題的回報。
+    session.currentQuestionStartedAt = Date.now();
+    session.audioWaitReportedForIndex = null;
   }
   return {
     correct: true,
     finished,
-    totalTimeMs: finished ? toScoredMs(session.finishedAt! - session.startedAt, session.songIds.length) : null,
+    totalTimeMs: finished
+      ? toScoredMs(session.finishedAt! - session.startedAt, session.songIds.length, session.totalAudioWaitMs)
+      : null,
   };
 }
 
@@ -101,7 +152,7 @@ export function checkSpeedrunAnswer(
 export function finalizeSpeedrunSession(token: string): { totalTimeMs: number } | null {
   const session = sessions.get(token);
   if (!session || session.finishedAt === null) return null;
-  const totalTimeMs = toScoredMs(session.finishedAt - session.startedAt, session.songIds.length);
+  const totalTimeMs = toScoredMs(session.finishedAt - session.startedAt, session.songIds.length, session.totalAudioWaitMs);
   sessions.delete(token);
   return { totalTimeMs };
 }

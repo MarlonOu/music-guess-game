@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { AudioController } from '../../lib/audio/audioController';
+import { AudioController, type AudioPlaybackStatus } from '../../lib/audio/audioController';
 import { speedrunRepository } from '../../lib/repository/speedrunRepository';
 import { estimateServerNow } from '../../lib/client/serverClock';
 import type { SpeedrunQuestion, SpeedrunSubmitResponse, SpeedrunLeaderboardEntry } from '../../lib/types/speedrun';
@@ -37,6 +37,13 @@ export default function SpeedrunPage() {
   // （見 lib/server/speedrunSession.ts），確保畫面顯示的數字跟最終成績兜得起來。
   const pausedMsRef = useRef(0);
   const transitionStartedAtRef = useRef<number | null>(null);
+  // 「正在等待這一題的音樂真的開始播放」的時間戳，null 代表目前沒有在等待（音樂已經在播，
+  // 或還沒開始要求播放）。跟 pausedMsRef／transitionStartedAtRef 是同一套機制：等待期間
+  // 碼表凍結不動，等待結束（偵測到真的開始播放）才把這段等待耗掉的時間累加進 pausedMsRef，
+  // 這樣裝置網路不好、音訊緩衝拖延到的時間就不會被算進碼表——伺服器那邊也會做對應的扣除
+  // （見 lib/server/speedrunSession.ts 的 reportAudioStarted 說明，含防濫用的上限機制），
+  // 確保畫面顯示的數字最終跟伺服器認定的成績兜得起來。
+  const waitingForAudioStartedAtRef = useRef<number | null>(null);
 
   const [phase, setPhase] = useState<Phase>('intro');
   const [displayName, setDisplayName] = useState('');
@@ -56,14 +63,17 @@ export default function SpeedrunPage() {
 
   const [results, setResults] = useState<SpeedrunSubmitResponse | null>(null);
   const [introLeaderboard, setIntroLeaderboard] = useState<SpeedrunLeaderboardEntry[] | null>(null);
+  const [audioStatus, setAudioStatus] = useState<AudioPlaybackStatus>('idle');
 
   // 建立這個頁面自己的播放器實例（比照單機模式，不用線上模式那種跨頁面共用的全域實例——
   // 速通模式是單一頁面從頭玩到尾的線性流程，離開頁面播放器就該一併釋放）。
   useEffect(() => {
     const controller = new AudioController(playerContainerId);
     audioControllerRef.current = controller;
+    controller.setOnStatusChange(setAudioStatus);
     controller.preload();
     return () => {
+      controller.setOnStatusChange(undefined);
       controller.dispose();
       audioControllerRef.current = null;
     };
@@ -72,12 +82,14 @@ export default function SpeedrunPage() {
 
   // 碼表更新：從 raceStartRef 記錄的時間點起算的原始經過時間，扣掉 pausedMsRef 累積的緩衝畫面
   // 時間，只在 'playing' 狀態才更新（緩衝畫面期間音樂沒在播，畫面就該凍結不動，不再跳動）。
+  // 還在等待這一題音樂真的開始播放時（waitingForAudioStartedAtRef 不是 null）也一併凍結，
+  // 這是回應「裝置網路不好時，該真的確認有在播放音樂才開始讀秒」這個需求的畫面呈現部分。
   // 用校正過的伺服器時間（見 lib/client/serverClock.ts）而不是裝置自己的 Date.now()，
   // 避免裝置時鐘不準造成顯示跟伺服器實際判定的成績有落差。
   useEffect(() => {
     if (phase !== 'playing') return;
     const tick = () => {
-      if (raceStartRef.current !== null) {
+      if (raceStartRef.current !== null && waitingForAudioStartedAtRef.current === null) {
         setElapsedMs(estimateServerNow() - raceStartRef.current - pausedMsRef.current);
       }
     };
@@ -89,14 +101,31 @@ export default function SpeedrunPage() {
     return () => clearInterval(timer);
   }, [phase]);
 
-  // 換題（或剛進入 playing 狀態）就播放目前這題的音訊
+  // 換題（或剛進入 playing 狀態）就播放目前這題的音訊，同時標記「開始等待這一題的音樂
+  // 真的開始播放」——這個時間戳從現在起算，直到下面那個監看 audioStatus 的 effect
+  // 偵測到真的開始播放為止，這段期間碼表會凍結（見上面那個 effect）。
   useEffect(() => {
     if (phase !== 'playing') return;
     const controller = audioControllerRef.current;
     const q = questions[questionIndex];
     if (!controller || !q || !q.source || !q.playbackId) return;
+    waitingForAudioStartedAtRef.current = estimateServerNow();
     controller.play(q.source, q.playbackId, q.startSec, q.durationSec);
   }, [phase, questionIndex, questions]);
+
+  // 偵測到音樂真的開始播放了：把剛剛「等待播放」耗掉的時間累加進 pausedMsRef（碼表從這裡
+  // 繼續往下跳，不會因為前面凍結的這段時間而整段消失，只是不計分），並回報給伺服器
+  // （見 lib/server/speedrunSession.ts 的 reportAudioStarted，伺服器那邊有防濫用的上限）。
+  // 用 waitingForAudioStartedAtRef 是否為 null 當防重複觸發的鎖：同一次等待只處理一次，
+  // 不會因為這個 effect 的依賴陣列變動而重複扣、重複回報。
+  useEffect(() => {
+    if (audioStatus !== 'playing') return;
+    if (waitingForAudioStartedAtRef.current === null) return;
+    const waitMs = estimateServerNow() - waitingForAudioStartedAtRef.current;
+    pausedMsRef.current += Math.max(0, waitMs);
+    waitingForAudioStartedAtRef.current = null;
+    if (token) speedrunRepository.reportAudioStarted(token, questionIndex);
+  }, [audioStatus, questionIndex, token]);
 
   // 緩衝畫面（答對後、下一題正式開始前的讀秒動畫）：每秒遞減，數到 0 才真正推進到下一題、
   // 切回 playing 狀態（觸發上面那個 effect 重新播放新題目的音訊）。
