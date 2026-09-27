@@ -48,6 +48,9 @@ export default function SpeedrunPage() {
   const [questionIndex, setQuestionIndex] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [locked, setLocked] = useState(false);
+  // 是否有一個答題請求正在處理中，見 handleChoiceClick 裡的完整說明——這是防止快速連點
+  // 造成競態、誤判挑戰逾時的關鍵鎖。
+  const [answering, setAnswering] = useState(false);
   const [wrongSongId, setWrongSongId] = useState<string | null>(null);
   const [transitionSecondsLeft, setTransitionSecondsLeft] = useState(SPEEDRUN_TRANSITION_SEC);
 
@@ -150,8 +153,19 @@ export default function SpeedrunPage() {
   }
 
   async function handleChoiceClick(songId: string) {
-    if (locked || !token) return;
+    // answering 這個「有請求正在處理中」的鎖，是修正「非常快速連續點擊會跳回開頭畫面，
+    // 顯示挑戰已逾時」這個問題的關鍵。根因：原本沒有這個鎖，快速連點（甚至只是手指點兩下
+    // 太快）會在第一次點擊的回應還沒回來、questionIndex 這個 state 還沒更新之前，
+    // 就送出第二個請求，而且第二個請求帶的還是「舊的」questionIndex（React state 還沒更新）。
+    // 伺服器依送達順序處理：第一個請求先讓 session 往前推進一題，緊接著處理的第二個請求
+    // 一比對，發現自己帶的 questionIndex 已經跟 session 目前的進度對不上，就回傳「找不到／
+    // 已逾時」的錯誤——即使第一次點擊其實已經答對了，這個晚到的失敗回應還是會把整個畫面
+    // 重置回開頭。加上這個鎖之後，同一時間只會有一個請求在處理中，後面的點擊直接忽略，
+    // 不會再送出第二個帶著過期 questionIndex 的請求，這個時序問題就不會發生。
+    if (locked || answering || !token) return;
+    setAnswering(true);
     const result = await speedrunRepository.check(token, questionIndex, songId);
+    setAnswering(false);
     if (!result.ok || !result.data) {
       setError(result.error ?? '判定失敗，請重新開始挑戰');
       setPhase('intro');
@@ -343,7 +357,7 @@ export default function SpeedrunPage() {
                 <motion.button
                   key={choice.songId}
                   onClick={() => handleChoiceClick(choice.songId)}
-                  disabled={locked}
+                  disabled={locked || answering}
                   className={`choice-btn ${isWrongPick ? 'is-wrong' : ''}`}
                   whileTap={{ scale: 0.95 }}
                 >
