@@ -133,7 +133,17 @@ export function checkSpeedrunAnswer(
   } else if (!finished) {
     // 換到下一題了，重置「這一題開始等待音樂播放」的時間戳跟回報狀態，
     // 讓 reportAudioStarted 能正確採信下一題的回報。
-    session.currentQuestionStartedAt = Date.now();
+    //
+    // 這裡故意不是單純的 Date.now()，而是加上 SPEEDRUN_TRANSITION_SEC 的偏移——
+    // 這是修正一個實際發生過的重複扣除 bug：客戶端答對之後不會立刻去載入下一題的音樂，
+    // 而是要先跑完 SPEEDRUN_TRANSITION_SEC 秒的緩衝畫面倒數，才會真正呼叫 play()。
+    // 如果這裡直接用 Date.now()（也就是答對的那一刻）當作「開始等待播放」的起點，
+    // 之後 reportAudioStarted 算出來的等待時間，會把整段緩衝畫面倒數的時間也算進去——
+    // 但緩衝畫面的時間已經在 toScoredMs() 用固定公式扣過一次了，等於同一段時間被扣了兩次，
+    // 10 題裡有 9 題都會重複扣，累加起來足以把大半的實際遊玩時間都吃掉，成績算得遠比
+    // 玩家實際花費的時間短很多。加上這個偏移之後，「開始等待播放」的起點會落在「緩衝畫面
+    // 倒數結束、客戶端實際開始嘗試載入下一題音樂」的那個時間點附近，兩種扣除才不會重疊。
+    session.currentQuestionStartedAt = Date.now() + SPEEDRUN_TRANSITION_SEC * 1000;
     session.audioWaitReportedForIndex = null;
   }
   return {
