@@ -187,6 +187,13 @@ export class AudioController {
   private disposed = false;
   private playing = false;
   private unlocked = false;
+  // YouTube 那端的解鎖狀態，獨立於上面的 unlocked（那個現在專指「本機 <audio> 元素、
+  // 也就是 Apple/Deezer 那條路徑」的解鎖狀態）。見 unlock()／ensureYoutubeUnlocked() 的
+  // 完整說明：YouTube 解鎖需要跟 youtube.com 要好幾個網路資源，在手機（尤其行動網路）上
+  // 常常慢很多；這個欄位加上 youtubeUnlockPromise 讓「YouTube 解鎖」可以延後到真的需要
+  // 播放 YouTube 來源的那一刻才進行，不會拖慢每一場「不管三七二十一先卡在原地」的等待。
+  private youtubeUnlocked = false;
+  private youtubeUnlockPromise: Promise<void> | null = null;
   /** 該片段自動停止的剩餘毫秒數；null 代表無上限（或尚未開始播放） */
   private remainingMs: number | null = null;
   /** 目前這段播放（play 或 resume）實際開始的時間戳，供 pause 時換算剩餘時間 */
@@ -261,6 +268,11 @@ export class AudioController {
    * 復原），這個全新的頁面實例其實從來沒有被解鎖過，呼叫端要用這個方法判斷是否需要先跟
    * 玩家要一次手勢（例如顯示「點一下繼續播放」的按鈕）才能讓之後的自動播放正常出聲，
    * 不然 play() 在行動裝置上會被瀏覽器悄悄擋下，玩家會遇到「這題完全沒聲音」的狀況。
+   *
+   * 這裡回報的是「本機 <audio> 元素（Apple/Deezer 用的那條路徑）」的解鎖狀態，不含
+   * YouTube 那端——YouTube 的解鎖改成延後到真的要播 YouTube 來源時才進行（見 unlock()／
+   * ensureYoutubeUnlocked() 的說明），呼叫端不需要、也不應該在這裡等 YouTube 解鎖完成，
+   * play() 內部會在真的需要的時候自己處理。
    */
   isUnlocked(): boolean {
     return this.unlocked;
@@ -315,63 +327,111 @@ export class AudioController {
    * 誠實聲明：瀏覽器的自動播放政策完全由各家廠商自行控制且可能隨版本調整，
    * 任何前端技巧都無法提供 100% 保證，這個方法只是目前能做到最可靠的緩解措施。
    */
+  /**
+   * 解鎖播放權限，讓之後不是由使用者直接手勢觸發的播放（例如線上模式輪詢到換題時自動播放）
+   * 也能正常出聲。
+   *
+   * 這裡刻意只確實等待「本機 <audio> 元素」（Apple Music／Deezer 用的那條路徑）的解鎖——
+   * 這部分完全不需要網路，幾乎瞬間完成。YouTube 那端的解鎖（需要跟 youtube.com 要好幾個
+   * 網路資源：IFrame API 腳本、播放器 iframe 本身）改成用 ensureYoutubeUnlocked() 在背景
+   * 啟動，不等它完成就讓這個函式回傳。
+   *
+   * 這是修正一個實際發生過的問題：舊版把 YouTube 那段也一起確實等完才回傳，導致「開始挑戰」
+   * 之類的操作，不管接下來第一題實際上是不是 YouTube 來源，一律要先付出等待整個 YouTube
+   * 解鎖流程（可能牽涉好幾個網路請求）的代價——桌機通常網路穩定，感覺不太出來；手機
+   * （尤其行動網路）载入 youtube.com 的這些資源常常慢很多，使用者會卡在「準備中」的畫面
+   * 一段不算短的時間，而且題庫如果剛好第一題是 Apple/Deezer 來源，這個等待根本是不必要的
+   * （我們題庫的來源優先序本來就是 Apple Music → Deezer → YouTube，多數歌曲實際上不需要
+   * 用到 YouTube）。改成背景啟動之後，真正需要播放 YouTube 來源的那一刻（見 play() 裡的
+   * 說明），才會去等這個背景解鎖真正完成——這樣不需要 YouTube 的場次完全不受影響，
+   * 需要的話也只需要在第一次遇到時付出一次代價，不會重複等待。
+   */
   async unlock(): Promise<void> {
-    if (this.unlocked) return;
+    if (this.unlocked) {
+      // Apple 那端已經解鎖過了，YouTube 那端還是要確保背景解鎖有被啟動過
+      // （萬一這次呼叫是第一次真的會用到 YouTube 的場合）。
+      this.ensureYoutubeUnlocked();
+      return;
+    }
     try {
       const audio = this.ensureAudioElement();
       audio.muted = true;
       audio.src = SILENT_AUDIO_DATA_URI;
-      const appleUnlockPromise = audio
+      await audio
         .play()
         .then(() => audio.pause())
         .catch(() => {
-          // Apple 這端解鎖失敗不影響 YouTube 那端繼續嘗試，兩邊各自獨立、互不阻擋
+          // 靜默失敗即可，之後實際播放時會重試
         });
-
-      // 這裡不需要拿到 player 實例本身，全部透過 safeCallPlayer 呼叫（統一防呆，見該方法說明），
-      // ensurePlayer() 純粹是確保播放器已經初始化完成。
-      await this.ensurePlayer();
-      // 先靜音再載入：有些手機瀏覽器的 YouTube IFrame 實作，loadVideoById() 載入新影片時
-      // 會把先前設定的音量/靜音狀態重置回預設值，導致「載入前先 setVolume(0)」這一步
-      // 實際上對接下來要播的這支影片沒有生效。載入完成後再呼叫一次 mute()，確保萬一真的
-      // 被重置了也能補救回來——用 mute() 而不是只用 setVolume(0)，因為靜音狀態通常比
-      // 音量數值更可靠，不容易被同樣的重置行為影響。
-      this.safeCallPlayer('mute');
-      this.safeCallPlayer('loadVideoById', { videoId: UNLOCK_VIDEO_ID, startSeconds: 0 });
-      this.safeCallPlayer('mute');
-      this.safeCallPlayer('playVideo');
-
-      // 這是先前「加入房間後會聽到/看到 Me at the Zoo」這支解鎖用影片的成因：舊版在這裡
-      // 固定等待 150ms 就直接呼叫 pauseVideo()，但手機（尤其行動網路）啟動 iframe 播放器、
-      // 真正開始播放前的延遲變化很大，網路稍慢時 150ms 常常還等不到播放真的開始，
-      // pauseVideo() 這時對「還沒真的開始播放的內容」沒有效果；等它真正開始播放時，
-      // 已經沒有人會再暫停它了——如果使用者這時候還在準備室、比賽都還沒開始，
-      // 就完全沒有後續的真正播放呼叫可以蓋過去，這支解鎖影片就會一路播下去被使用者聽到看到。
-      // 修法：不用猜時間，改成真的等播放器回報「已經進入播放狀態」（複用 playYoutube() 判斷
-      // 播放是否成功的同一套 pendingPlayResult／handleStateChange 機制）才呼叫暫停，
-      // 並保留一個 4 秒的安全上限，避免萬一事件真的沒觸發（例如影片被封鎖）卡住整個解鎖流程。
-      await Promise.race([
-        new Promise<void>((resolve) => {
-          this.pendingPlayResult = { resolve, reject: () => resolve() };
-        }),
-        new Promise<void>((resolve) => setTimeout(resolve, 4000)),
-      ]);
-      this.pendingPlayResult = null;
-
-      this.safeCallPlayer('pauseVideo');
-      // 額外呼叫 stopVideo()：pauseVideo() 只是暫停在目前播放位置，理論上不該再自己動起來，
-      // 但這裡是解鎖用的技術性播放，不是真的要保留播放進度給誰接續播放，直接完全停止、
-      // 歸零播放狀態更保險，避免任何殘留狀態被意外恢復播放。
-      this.safeCallPlayer('stopVideo');
-      this.safeCallPlayer('unMute');
-      this.safeCallPlayer('setVolume', 100);
       audio.muted = false;
-
-      await appleUnlockPromise;
       this.unlocked = true;
     } catch (err) {
-      console.warn('[AudioController] unlock() 失敗，將盡力於實際播放時重試：', err);
+      console.warn('[AudioController] unlock() 的 <audio> 元素解鎖失敗，將盡力於實際播放時重試：', err);
     }
+    // 不 await——YouTube 解鎖在背景進行，不擋住這個函式回傳。
+    this.ensureYoutubeUnlocked();
+  }
+
+  /**
+   * 確保 YouTube 那端的解鎖流程已經啟動（如果還沒啟動過的話），回傳一個等到它完成
+   * （不管成功或失敗，這裡都會正常 resolve，不會 reject——播放本身的錯誤處理已經有
+   * 一套獨立的機制，見 play()／playYoutube()，這裡只負責「解鎖有沒有做過」）的 promise。
+   * 同一個播放器實例，不管呼叫幾次，只會真的執行一次解鎖流程（用 youtubeUnlockPromise
+   * 快取結果／進行中的嘗試），重複呼叫都會拿到同一個 promise。
+   */
+  private ensureYoutubeUnlocked(): Promise<void> {
+    if (this.youtubeUnlocked) return Promise.resolve();
+    if (this.youtubeUnlockPromise) return this.youtubeUnlockPromise;
+
+    this.youtubeUnlockPromise = (async () => {
+      try {
+        // 這裡不需要拿到 player 實例本身，全部透過 safeCallPlayer 呼叫（統一防呆，見該方法說明），
+        // ensurePlayer() 純粹是確保播放器已經初始化完成。
+        await this.ensurePlayer();
+        // 先靜音再載入：有些手機瀏覽器的 YouTube IFrame 實作，loadVideoById() 載入新影片時
+        // 會把先前設定的音量/靜音狀態重置回預設值，導致「載入前先 setVolume(0)」這一步
+        // 實際上對接下來要播的這支影片沒有生效。載入完成後再呼叫一次 mute()，確保萬一真的
+        // 被重置了也能補救回來——用 mute() 而不是只用 setVolume(0)，因為靜音狀態通常比
+        // 音量數值更可靠，不容易被同樣的重置行為影響。
+        this.safeCallPlayer('mute');
+        this.safeCallPlayer('loadVideoById', { videoId: UNLOCK_VIDEO_ID, startSeconds: 0 });
+        this.safeCallPlayer('mute');
+        this.safeCallPlayer('playVideo');
+
+        // 這是先前「加入房間後會聽到/看到 Me at the Zoo」這支解鎖用影片的成因：舊版在這裡
+        // 固定等待 150ms 就直接呼叫 pauseVideo()，但手機（尤其行動網路）啟動 iframe 播放器、
+        // 真正開始播放前的延遲變化很大，網路稍慢時 150ms 常常還等不到播放真的開始，
+        // pauseVideo() 這時對「還沒真的開始播放的內容」沒有效果；等它真正開始播放時，
+        // 已經沒有人會再暫停它了——如果使用者這時候還在準備室、比賽都還沒開始，
+        // 就完全沒有後續的真正播放呼叫可以蓋過去，這支解鎖影片就會一路播下去被使用者聽到看到。
+        // 修法：不用猜時間，改成真的等播放器回報「已經進入播放狀態」（複用 playYoutube() 判斷
+        // 播放是否成功的同一套 pendingPlayResult／handleStateChange 機制）才呼叫暫停，
+        // 並保留一個 4 秒的安全上限，避免萬一事件真的沒觸發（例如影片被封鎖）卡住整個解鎖流程。
+        await Promise.race([
+          new Promise<void>((resolve) => {
+            this.pendingPlayResult = { resolve, reject: () => resolve() };
+          }),
+          new Promise<void>((resolve) => setTimeout(resolve, 4000)),
+        ]);
+        this.pendingPlayResult = null;
+
+        this.safeCallPlayer('pauseVideo');
+        // 額外呼叫 stopVideo()：pauseVideo() 只是暫停在目前播放位置，理論上不該再自己動起來，
+        // 但這裡是解鎖用的技術性播放，不是真的要保留播放進度給誰接續播放，直接完全停止、
+        // 歸零播放狀態更保險，避免任何殘留狀態被意外恢復播放。
+        this.safeCallPlayer('stopVideo');
+        this.safeCallPlayer('unMute');
+        this.safeCallPlayer('setVolume', 100);
+        this.youtubeUnlocked = true;
+      } catch (err) {
+        console.warn('[AudioController] YouTube 端解鎖失敗，將盡力於實際播放時重試：', err);
+        // 失敗的話清掉快取，讓下一次真的需要播放 YouTube 時可以重新嘗試，
+        // 而不是永久卡在這次失敗的結果（例如這次網路暫時不通，下次可能就通了）。
+        this.youtubeUnlockPromise = null;
+      }
+    })();
+
+    return this.youtubeUnlockPromise;
   }
 
   private clearStopHandle(): void {
@@ -610,6 +670,12 @@ export class AudioController {
     this.activeSource = source;
 
     if (source === 'youtube') {
+      // 真正要播 YouTube 來源之前，先確保 YouTube 那端的解鎖流程已經完成（如果 unlock()
+      // 當初有被呼叫過，這裡多半已經在背景跑完了，幾乎不會真的等到；如果還沒完成，
+      // 或 unlock() 根本沒被呼叫過，這裡就是「延後到真的需要的那一刻才付出代價」——
+      // 見 unlock()／ensureYoutubeUnlocked() 的完整說明）。ensureYoutubeUnlocked() 內部
+      // 已經有自己的逾時保護，不會無限期卡住。
+      await this.ensureYoutubeUnlocked();
       await this.playYoutube(idOrUrl, startSec, durationSec);
       return;
     }
