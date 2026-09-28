@@ -79,6 +79,13 @@ const YT_READY_POLL_TIMEOUT_MS = 5000;
 // 比桌機更容易慢，太短的話反而容易在網路只是稍微慢一點、其實還是能載入成功的情況下
 // 就提早放棄。
 const YT_SCRIPT_LOAD_TIMEOUT_MS = 8000;
+// 播放器物件本身建立、等待 onReady 事件的逾時秒數——這是跟上面兩個逾時（腳本載入、
+// window.YT 就緒）完全獨立的另一個環節：腳本載入成功、window.YT.Player 這個建構子
+// 存在了，不代表「建立出來的播放器 iframe 本身」也已經準備好——這個 iframe 是另一個
+// 從 youtube.com 載入的資源（通常比一開始那支小小的 API 腳本更大、更慢），手機網路
+// 環境下這一步卡很久是實際發生過的情況，而且原本完全沒有逾時保護，卡多久就要等多久，
+// 使用者完全感覺不出到底還要等多久、是不是真的壞了。給一樣的 8 秒。
+const YT_PLAYER_READY_TIMEOUT_MS = 8000;
 const YT_READY_POLL_INTERVAL_MS = 50;
 // 供 unlock() 使用的極短公開影片 id（YouTube 上第一支公開影片，長期穩定存在），
 // 純粹作為播放解鎖的技術性觸發用途，播放時間極短、音量歸零，不構成實質播放內容。
@@ -505,25 +512,41 @@ export class AudioController {
 
     const container = this.ensureContainerElement();
 
-    await new Promise<void>((resolve, reject) => {
-      try {
-        this.player = new window.YT!.Player(container, {
-          height: '200',
-          width: '200',
-          playerVars: { controls: 0, disablekb: 1, playsinline: 1, origin: window.location.origin },
-          events: {
-            onReady: () => resolve(),
-            onError: (event) => {
-              this.handleError(event);
-              reject(new Error('YouTube Player 初始化失敗'));
-            },
-            onStateChange: (event) => this.handleStateChange(event),
-          },
-        });
-      } catch (e) {
-        reject(e instanceof Error ? e : new Error('YouTube Player 初始化失敗'));
-      }
-    });
+    // 用 Promise.race 幫「建立播放器物件、等待 onReady」這一步加上逾時保護（見上面
+    // YT_PLAYER_READY_TIMEOUT_MS 的說明）。逾時的話除了讓這次呼叫失敗往外拋出錯誤，
+    // 也要把 this.player 清掉——建構子呼叫本身是同步的，就算 onReady 遲遲不來，
+    // this.player 這個時候已經被賦值了（只是還沒真正就緒），不清掉的話，之後
+    // ensurePlayer() 的呼叫端會看到 this.player 不是 null 就誤判「已經可以用了」，
+    // 拿一個沒真正初始化完成的播放器物件去用。
+    try {
+      await Promise.race([
+        new Promise<void>((resolve, reject) => {
+          try {
+            this.player = new window.YT!.Player(container, {
+              height: '200',
+              width: '200',
+              playerVars: { controls: 0, disablekb: 1, playsinline: 1, origin: window.location.origin },
+              events: {
+                onReady: () => resolve(),
+                onError: (event) => {
+                  this.handleError(event);
+                  reject(new Error('YouTube Player 初始化失敗'));
+                },
+                onStateChange: (event) => this.handleStateChange(event),
+              },
+            });
+          } catch (e) {
+            reject(e instanceof Error ? e : new Error('YouTube Player 初始化失敗'));
+          }
+        }),
+        new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error('等待 YouTube Player 就緒逾時')), YT_PLAYER_READY_TIMEOUT_MS)
+        ),
+      ]);
+    } catch (err) {
+      this.player = null;
+      throw err;
+    }
   }
 
   /**
