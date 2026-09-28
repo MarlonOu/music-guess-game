@@ -55,6 +55,8 @@ export default function SpeedrunPage() {
   // questionIndex／token 的「隨時最新」鏡像，供 resolveAudioWait 這種可能從舊的 closure
   // （例如很早之前排定的 setTimeout 回呼）被呼叫到的函式讀取，避免讀到過期的值。
   const questionIndexRef = useRef(0);
+  // 防止 handleStart() 被重複呼叫的鎖，見該函式內的完整說明。
+  const startingRef = useRef(false);
   const tokenRef = useRef<string | null>(null);
 
   const [phase, setPhase] = useState<Phase>('intro');
@@ -211,42 +213,66 @@ export default function SpeedrunPage() {
   }, [phase, transitionSecondsLeft]); // eslint-disable-line react-hooks/exhaustive-deps -- startAudioWait 內部只讀寫 ref，不依賴任何 render 範圍內的變數，加進依賴陣列只會讓這個 effect 因為它每次 render 都重新建立而白白重跑，沒有實際好處
 
   async function handleStart() {
+    // startingRef 是防止重複呼叫的鎖，用 ref（不是 state）是關鍵：如果用 state 檢查
+    // 「目前 phase 是不是還在 intro」，使用者在 React 重新渲染、按鈕拿到反映最新 phase
+    // 的新版 onClick 之前連續點兩下，兩次點擊抓到的都還是同一個「舊」的事件處理函式
+    // （closure 裡的 phase 都還是舊值），state 檢查會兩次都通過，鎖不住。ref 是同步讀寫，
+    // 不受渲染時機影響，才能真正擋下「使用者覺得沒反應、不耐煩點第二下」這種情況。
+    //
+    // 這是修正一個實際發生過的 bug：因為 unlock() 現在會確實等待完成（見下面的說明），
+    // 從點擊「開始挑戰」到畫面真正有反應，中間會有一段沒有任何視覺回饋的空檔，使用者
+    // 常常會在這段空檔內誤以為第一次點擊沒反應而點第二下，觸發第二次 handleStart()。
+    // 沒有這個鎖的話，兩次呼叫會各自向伺服器要一組不同的挑戰（不同的 token／題目），
+    // 誰的網路回應比較晚回來，就會用他那組悄悄蓋掉畫面上正在進行的挑戰——玩家會覺得
+    // 「明明已經在答題了，答完第一題卻莫名其妙被重置回開頭重新開始」，其實是兩個獨立的
+    // 挑戰互相蓋台。
+    if (startingRef.current) return;
     const trimmed = displayName.trim();
     if (trimmed.length === 0) {
       setError('請輸入暱稱');
       return;
     }
-    // 真正的使用者手勢（按鈕點擊），一定要先等 unlock() 真正跑完才能繼續往下——這是修正
-    // 一個實際發生過的 bug：unlock() 內部會借用同一個播放器短暫播放/暫停一支解鎖用的
-    // 測試影片（見 AudioController.unlock() 的完整說明），如果不等它，直接讓後面的
-    // /start API 呼叫（速度快的話可能很快就回來）觸發第一題的真正播放，兩邊會搶著操作
-    // 同一個播放器實例：真正的播放請求把解鎖用的影片換掉、還沒跑完的 unlock() 卻在稍後
-    // 誤把「已經換成真正歌曲」的播放器暫停/停止掉——結果就是解鎖用的影片沒被正確消音、
-    // 玩家聽到了不該聽到的東西，第一題（如果來源恰好是 YouTube）反而放不出來。
-    await audioControllerRef.current?.unlock();
-
-    setError(null);
+    startingRef.current = true;
+    // 立刻切到 loading 畫面，讓使用者一點下去就看得到反應，減少「以為沒反應而多點一次」
+    // 的機率——即使真的又點了，上面那個 ref 鎖也會確保不會造成問題。
     setPhase('loading');
-    const result = await speedrunRepository.start();
-    if (!result.ok || !result.data) {
-      setError(result.error ?? '開始挑戰失敗');
-      setPhase('intro');
-      return;
-    }
 
-    setToken(result.data.token);
-    setQuestions(result.data.questions);
-    setQuestionIndex(0);
-    setResults(null);
-    setSubmitError(null);
-    raceStartRef.current = estimateServerNow();
-    pausedMsRef.current = 0;
-    transitionStartedAtRef.current = null;
-    // 同上：在觸發 phase 變成 'playing' 之前，同步設好「開始等待第一題播放」的標記
-    // （含逾時保險，見 startAudioWait 的說明）。
-    startAudioWait();
-    setElapsedMs(0);
-    setPhase('playing');
+    try {
+      // 真正的使用者手勢（按鈕點擊），一定要先等 unlock() 真正跑完才能繼續往下——這是修正
+      // 一個實際發生過的 bug：unlock() 內部會借用同一個播放器短暫播放/暫停一支解鎖用的
+      // 測試影片（見 AudioController.unlock() 的完整說明），如果不等它，直接讓後面的
+      // /start API 呼叫（速度快的話可能很快就回來）觸發第一題的真正播放，兩邊會搶著操作
+      // 同一個播放器實例：真正的播放請求把解鎖用的影片換掉、還沒跑完的 unlock() 卻在稍後
+      // 誤把「已經換成真正歌曲」的播放器暫停/停止掉——結果就是解鎖用的影片沒被正確消音、
+      // 玩家聽到了不該聽到的東西，第一題（如果來源恰好是 YouTube）反而放不出來。
+      await audioControllerRef.current?.unlock();
+
+      setError(null);
+      const result = await speedrunRepository.start();
+      if (!result.ok || !result.data) {
+        setError(result.error ?? '開始挑戰失敗');
+        setPhase('intro');
+        return;
+      }
+
+      setToken(result.data.token);
+      setQuestions(result.data.questions);
+      setQuestionIndex(0);
+      setResults(null);
+      setSubmitError(null);
+      raceStartRef.current = estimateServerNow();
+      pausedMsRef.current = 0;
+      transitionStartedAtRef.current = null;
+      // 同上：在觸發 phase 變成 'playing' 之前，同步設好「開始等待第一題播放」的標記
+      // （含逾時保險，見 startAudioWait 的說明）。
+      startAudioWait();
+      setElapsedMs(0);
+      setPhase('playing');
+    } finally {
+      // 不管成功、失敗、還是中途因為沒填暱稱提早 return，都要把鎖解開，
+      // 讓使用者修正問題（例如補填暱稱）之後可以正常重新點擊開始。
+      startingRef.current = false;
+    }
   }
 
   async function handleChoiceClick(songId: string) {
