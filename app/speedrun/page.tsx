@@ -102,12 +102,21 @@ export default function SpeedrunPage() {
   // 時間，只在 'playing' 狀態才更新（緩衝畫面期間音樂沒在播，畫面就該凍結不動，不再跳動）。
   // 還在等待這一題音樂真的開始播放時（waitingForAudioStartedAtRef 不是 null）也一併凍結，
   // 這是回應「裝置網路不好時，該真的確認有在播放音樂才開始讀秒」這個需求的畫面呈現部分。
+  //
+  // answering 為 true（點下選項、還在等伺服器判定對不對的這段時間）也要凍結——這是修正
+  // 一個實際發生過的落差：原本碼表會一直跳到「判定請求」的回應真正回來為止，也就是說
+  // 玩家點下正確答案的當下，畫面上的數字其實還會再多跳個零點幾秒到一秒（這次請求本身
+  // 的網路來回時間），玩家直覺會以為「我點下去那一刻看到的數字」就是這一題結束的時間，
+  // 但伺服器認定的成績是用「收到這次請求的當下」算的，比玩家實際看到畫面凍結時顯示的
+  // 數字還要早一點，兩者兜不起來就會覺得「結算成績比剛剛看到的少了快一秒」。凍結的做法
+  // 讓畫面上的數字在「點下去的那一刻」就跟玩家的直覺對齊，之後答錯的話會在下面 else
+  // 分支自然「追上」正確的經過時間（不會漏算，只是視覺上延後才跳出來）。
   // 用校正過的伺服器時間（見 lib/client/serverClock.ts）而不是裝置自己的 Date.now()，
   // 避免裝置時鐘不準造成顯示跟伺服器實際判定的成績有落差。
   useEffect(() => {
     if (phase !== 'playing') return;
     const tick = () => {
-      if (raceStartRef.current !== null && waitingForAudioStartedAtRef.current === null) {
+      if (raceStartRef.current !== null && waitingForAudioStartedAtRef.current === null && !answering) {
         setElapsedMs(estimateServerNow() - raceStartRef.current - pausedMsRef.current);
       }
     };
@@ -117,7 +126,7 @@ export default function SpeedrunPage() {
     tick();
     const timer = setInterval(tick, STOPWATCH_TICK_MS);
     return () => clearInterval(timer);
-  }, [phase]);
+  }, [phase, answering]);
 
   // 換題（或剛進入 playing 狀態）就播放目前這題的音訊。
   // 注意：「標記開始等待播放」這件事故意不是在這個 effect 裡做，而是在觸發 phase 變成

@@ -74,6 +74,11 @@ const YT_ERROR_MEANINGS: Record<number, string> = {
 
 const PLAY_TIMEOUT_MS = 10000;
 const YT_READY_POLL_TIMEOUT_MS = 5000;
+// 腳本本身載入的逾時秒數，跟上面 YT_READY_POLL_TIMEOUT_MS（腳本載入「之後」等待 window.YT
+// 真正就緒的逾時）是兩個獨立的保護，涵蓋不同的卡住環節。給比較寬鬆的 8 秒，手機網路
+// 比桌機更容易慢，太短的話反而容易在網路只是稍微慢一點、其實還是能載入成功的情況下
+// 就提早放棄。
+const YT_SCRIPT_LOAD_TIMEOUT_MS = 8000;
 const YT_READY_POLL_INTERVAL_MS = 50;
 // 供 unlock() 使用的極短公開影片 id（YouTube 上第一支公開影片，長期穩定存在），
 // 純粹作為播放解鎖的技術性觸發用途，播放時間極短、音量歸零，不構成實質播放內容。
@@ -85,23 +90,52 @@ const SILENT_AUDIO_DATA_URI = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAA
 /**
  * 注入 YouTube IFrame API 腳本並等待其就緒。
  * 全域 script 只注入一次（多個 AudioController 實例共用同一份 API 載入 promise）。
+ *
+ * 這裡刻意加了 onerror 處理跟逾時保護——這是修正一個實際發生過的 bug：原本這個函式完全
+ * 沒有逾時機制，只靠 <script> 標籤真的載入成功、觸發 window.onYouTubeIframeAPIReady
+ * 才會 resolve。在某些手機網路環境下，這個腳本的請求會直接卡住（不是乾淨的 HTTP
+ * 錯誤，連 onerror 事件都不會觸發，就是單純沒有回應），這個 Promise 就永遠不會
+ * resolve 也不會 reject，導致上層 unlock() 整個卡死——unlock() 自己雖然有 4 秒的逾時
+ * 保護，但那個保護包在「這個函式完成之後」的下一個步驟，這個函式本身卡住的話，
+ * 4 秒逾時根本沒有機會生效。
+ *
+ * 逾時或載入失敗時，除了讓這次呼叫的 promise reject，也要把模組層級快取的
+ * apiLoadPromise 重設回 null——不這樣做的話，這次失敗會被永久快取住，這個分頁之後
+ * 每一次呼叫都會立刻拿到同一個已經失敗的 promise，即使玩家的網路後來恢復正常，
+ * 也沒有機會重新嘗試載入。
  */
 function loadYouTubeIframeApi(): Promise<void> {
   if (typeof window === 'undefined') return Promise.resolve();
   if (window.YT?.Player) return Promise.resolve();
   if (apiLoadPromise) return apiLoadPromise;
 
-  apiLoadPromise = new Promise((resolve) => {
+  apiLoadPromise = new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const settleResolve = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    const settleReject = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      apiLoadPromise = null; // 讓下一次呼叫可以重新嘗試，而不是永久卡在同一個失敗結果
+      reject(err);
+    };
+
     const previousCallback = window.onYouTubeIframeAPIReady;
     window.onYouTubeIframeAPIReady = () => {
       previousCallback?.();
-      resolve();
+      settleResolve();
     };
+
+    setTimeout(() => settleReject(new Error('等待 YouTube IFrame API 腳本載入逾時')), YT_SCRIPT_LOAD_TIMEOUT_MS);
 
     if (document.getElementById('youtube-iframe-api')) return;
     const script = document.createElement('script');
     script.id = 'youtube-iframe-api';
     script.src = 'https://www.youtube.com/iframe_api';
+    script.onerror = () => settleReject(new Error('YouTube IFrame API 腳本載入失敗'));
     document.head.appendChild(script);
   });
 
