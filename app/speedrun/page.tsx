@@ -268,6 +268,14 @@ export default function SpeedrunPage() {
       startAudioWait();
       setElapsedMs(0);
       setPhase('playing');
+    } catch (err) {
+      // 防禦性的保底：理論上 speedrunRepository 內部已經把 fetch() 的例外都接住轉換成
+      // 正常的錯誤回傳值了，這裡是多一層保險，避免任何其他沒預期到的例外（不管來自
+      // unlock() 還是別的地方）沒被接住，導致後面「失敗了切回開頭畫面」的程式碼被跳過、
+      // 畫面卡死在「題目準備中」出不來。
+      console.error('[handleStart] 未預期的例外：', err);
+      setError('開始挑戰失敗，請再試一次');
+      setPhase('intro');
     } finally {
       // 不管成功、失敗、還是中途因為沒填暱稱提早 return，都要把鎖解開，
       // 讓使用者修正問題（例如補填暱稱）之後可以正常重新點擊開始。
