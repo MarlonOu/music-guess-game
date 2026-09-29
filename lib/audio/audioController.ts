@@ -375,7 +375,13 @@ export class AudioController {
     }
     try {
       const audio = this.ensureAudioElement();
-      audio.muted = true;
+      // 不設定 audio.muted = true，理由跟下面 YouTube 那段解鎖同一套（見 ensureYoutubeUnlocked()
+      // 裡對應的完整說明）：muted 屬性通常會讓瀏覽器直接豁免自動播放政策的手勢要求，
+      // 而這正是解鎖機制想要「觸發」的那個手勢要求——用一個豁免手勢要求的方式去嘗試建立
+      // 手勢授權狀態，邏輯上是矛盾的，多半也不會真的生效。改成單純靠 SILENT_AUDIO_DATA_URI
+      // 這支音檔本身內容就是靜音，維持 muted 屬性是 false（瀏覽器預設值），玩家聽起來
+      // 一樣沒有聲音，但這次播放會被瀏覽器當成一次真正需要（也就真正會核發）手勢授權的
+      // 播放操作來處理。
       audio.src = SILENT_AUDIO_DATA_URI;
       await audio
         .play()
@@ -383,7 +389,6 @@ export class AudioController {
         .catch(() => {
           // 靜默失敗即可，之後實際播放時會重試
         });
-      audio.muted = false;
       this.unlocked = true;
     } catch (err) {
       console.warn('[AudioController] unlock() 的 <audio> 元素解鎖失敗，將盡力於實際播放時重試：', err);
@@ -434,14 +439,24 @@ export class AudioController {
       // ensurePlayer() 純粹是確保播放器已經初始化完成。這裡故意不包在 try/catch 裡——
       // 讓 ensurePlayer() 失敗時的例外直接往外傳，呼叫端才能正確判定失敗（見上方說明）。
       await this.ensurePlayer();
-      // 先靜音再載入：有些手機瀏覽器的 YouTube IFrame 實作，loadVideoById() 載入新影片時
-      // 會把先前設定的音量/靜音狀態重置回預設值，導致「載入前先 setVolume(0)」這一步
-      // 實際上對接下來要播的這支影片沒有生效。載入完成後再呼叫一次 mute()，確保萬一真的
-      // 被重置了也能補救回來——用 mute() 而不是只用 setVolume(0)，因為靜音狀態通常比
-      // 音量數值更可靠，不容易被同樣的重置行為影響。
-      this.safeCallPlayer('mute');
+      // 用 setVolume(0) 而不是 mute()，這是解鎖流程真正的關鍵：mute() 會設定瀏覽器底層的
+      // 靜音屬性（DOM 的 muted），而多數瀏覽器的自動播放政策會直接豁免「靜音播放」，
+      // 不需要使用者手勢就能自動播放——這代表用 mute() 播放解鎖影片，從機制上就從來沒有
+      // 真正做到「解鎖」這件事：瀏覽器根本不需要去檢查、也就不會核發「這個播放器實例
+      // 已經因為使用者手勢而取得播放授權」這個狀態，因為靜音播放本來就不需要這個狀態。
+      // 這是修正一個實際發生過、找了很久的問題：單機模式直接呼叫播放（見 playYoutube()，
+      // 從頭到尾沒有呼叫過 mute()，只有 unMute()＋setVolume(100)）在手機上完全正常，
+      // 但速通模式先跑一遍解鎖流程、之後同一個播放器實例卻還是會在自動播放真正歌曲時
+      // 被擋下——兩者的關鍵差異就是解鎖流程這裡多做了 mute()，讓這次播放從一開始就被
+      // 瀏覽器歸類成「不需要手勢授權的靜音播放」，沒有建立起後續自動播放所需要的授權狀態。
+      // 改用 setVolume(0) 維持「非靜音」但音量歸零，玩家聽起來一樣沒有聲音，但瀏覽器
+      // 會把這次播放當成一次真正需要（也就真正會核發）手勢授權的播放操作來處理。
+      this.safeCallPlayer('setVolume', 0);
       this.safeCallPlayer('loadVideoById', { videoId: UNLOCK_VIDEO_ID, startSeconds: 0 });
-      this.safeCallPlayer('mute');
+      // 載入新影片後再設一次音量：有些手機瀏覽器的 YouTube IFrame 實作，loadVideoById()
+      // 載入新影片時會把先前設定的音量重置回預設值，導致「載入前先 setVolume(0)」這一步
+      // 實際上對接下來要播的這支影片沒有生效，這裡補一次確保萬一真的被重置了也能救回來。
+      this.safeCallPlayer('setVolume', 0);
       this.safeCallPlayer('playVideo');
 
       // 這是先前「加入房間後會聽到/看到 Me at the Zoo」這支解鎖用影片的成因：舊版在這裡
