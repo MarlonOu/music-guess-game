@@ -45,6 +45,17 @@ interface SpeedrunSession {
   audioWaitReportedForIndex: number | null;
   /** 累積目前為止所有題目的「等待音樂播放」扣除量（每題已經套用過上限） */
   totalAudioWaitMs: number;
+  /**
+   * 挑戰完成的那一刻，就把最終成績算好、凍結存在這裡；finalizeSpeedrunSession() 之後
+   * 只讀取這個凍結的數字，不會重新計算一次。這是修正一個實際發生過的落差：如果
+   * finalizeSpeedrunSession() 是「用 finishedAt／totalAudioWaitMs 等欄位重新算一次」，
+   * 而不是「直接讀已經算好的結果」，中間萬一有任何一個延遲送達的
+   * reportAudioStarted 請求剛好在這個空檔被處理到、動了 totalAudioWaitMs，
+   * 兩次算出來的 totalTimeMs 就會對不上——玩家在答對最後一題的當下看到（並被存起來）
+   * 的成績，跟稍後送出上榜的成績會不一致。凍結成一個值之後，不管中間發生什麼，
+   * 最終送出的一定是「答對那一刻」就已經確定下來的同一個數字。
+   */
+  finalScoreMs: number | null;
 }
 
 const sessions = new Map<string, SpeedrunSession>();
@@ -84,6 +95,7 @@ export function createSpeedrunSession(songIds: string[]): { token: string } {
     currentQuestionStartedAt: now,
     audioWaitReportedForIndex: null,
     totalAudioWaitMs: 0,
+    finalScoreMs: null,
   });
   return { token };
 }
@@ -130,6 +142,19 @@ export function checkSpeedrunAnswer(
   const finished = session.currentIndex >= session.songIds.length;
   if (finished && session.finishedAt === null) {
     session.finishedAt = Date.now();
+    // 就是在這裡凍結最終成績（見上方型別定義裡 finalScoreMs 欄位的完整說明）：這是修正
+    // 一個實際發生過的落差——玩家答對最後一題當下看到的成績，跟稍後 submit() 送出上榜的
+    // 成績差了將近一秒。根因是如果不在這裡凍結，finalizeSpeedrunSession() 事後會用
+    // session.totalAudioWaitMs 重新算一次，而這個欄位在「答對最後一題」到「玩家送出成績」
+    // 這中間，仍然可能被一個延遲送達的 reportAudioStarted 請求動到（例如上一題的回報因為
+    // 網路慢，剛好在這個空檔才姍姍來遲），兩次算出來的數字就會對不上。在這裡把答對那一刻
+    // 就已經確定下來的數字凍結住，之後 finalizeSpeedrunSession() 只讀這個凍結值，
+    // 不管中間發生什麼都不會再變動。
+    session.finalScoreMs = toScoredMs(
+      session.finishedAt - session.startedAt,
+      session.songIds.length,
+      session.totalAudioWaitMs
+    );
   } else if (!finished) {
     // 換到下一題了，重置「這一題開始等待音樂播放」的時間戳跟回報狀態，
     // 讓 reportAudioStarted 能正確採信下一題的回報。
@@ -149,9 +174,7 @@ export function checkSpeedrunAnswer(
   return {
     correct: true,
     finished,
-    totalTimeMs: finished
-      ? toScoredMs(session.finishedAt! - session.startedAt, session.songIds.length, session.totalAudioWaitMs)
-      : null,
+    totalTimeMs: finished ? session.finalScoreMs : null,
   };
 }
 
@@ -161,8 +184,8 @@ export function checkSpeedrunAnswer(
  */
 export function finalizeSpeedrunSession(token: string): { totalTimeMs: number } | null {
   const session = sessions.get(token);
-  if (!session || session.finishedAt === null) return null;
-  const totalTimeMs = toScoredMs(session.finishedAt - session.startedAt, session.songIds.length, session.totalAudioWaitMs);
+  if (!session || session.finishedAt === null || session.finalScoreMs === null) return null;
+  const totalTimeMs = session.finalScoreMs;
   sessions.delete(token);
   return { totalTimeMs };
 }

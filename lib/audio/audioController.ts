@@ -520,13 +520,28 @@ export class AudioController {
     if (!el) {
       el = document.createElement('div');
       el.id = this.containerElementId;
-      // 移到畫面外而非縮小尺寸或 display:none——YouTube IFrame API 要求至少 200x200
-      // 的可視尺寸才能正常運作，尺寸太小或不可視會導致播放失敗。
+      // YouTube IFrame API 要求至少 200x200 的尺寸才能正常運作，尺寸太小會導致播放失敗，
+      // 所以不能用縮小尺寸或 display:none 把它藏起來。
+      //
+      // 這裡刻意用「留在可視範圍內、但用 opacity:0 讓它看不見」，而不是先前「移到
+      // top/left: -9999px、放到畫面可視範圍非常遠的地方」——這是修正一個實際發生過的
+      // bug：把元素定位到視窗範圍以外很遠的地方，在部分行動瀏覽器（尤其 iOS Safari）上
+      // 會被瀏覽器的可視範圍判斷機制認定成「不在畫面內」，套用類似背景分頁的節流機制，
+      // 暫停或大幅延遲這個 iframe 裡面的媒體播放與資源載入——即使整個分頁本身明明是
+      // 在前景使用中。症狀完全符合實際回報的情況：卡在「準備中」畫面很久、時間長短不固定，
+      // 但只要切到其他 APP 再切回來（這個動作會讓瀏覽器重新評估畫面的可視狀態），
+      // 就會忽然恢復正常。改成留在視窗座標 (0,0) 範圍內、只用 opacity:0 讓它看不見，
+      // 瀏覽器的可視範圍判斷會正確認定這個元素「有在畫面內」，不會被套用這種節流。
+      // 額外加上 pointer-events:none 避免這個看不見但確實存在的 200x200 元素擋到
+      // 使用者對底下其他元素的點擊。
       el.style.position = 'fixed';
-      el.style.top = '-9999px';
-      el.style.left = '-9999px';
+      el.style.top = '0';
+      el.style.left = '0';
       el.style.width = '200px';
       el.style.height = '200px';
+      el.style.opacity = '0';
+      el.style.pointerEvents = 'none';
+      el.style.zIndex = '-1';
       document.body.appendChild(el);
     }
     return el;

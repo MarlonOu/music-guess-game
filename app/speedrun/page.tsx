@@ -78,6 +78,11 @@ export default function SpeedrunPage() {
   const [results, setResults] = useState<SpeedrunSubmitResponse | null>(null);
   const [introLeaderboard, setIntroLeaderboard] = useState<SpeedrunLeaderboardEntry[] | null>(null);
   const [audioStatus, setAudioStatus] = useState<AudioPlaybackStatus>('idle');
+  // 「題目準備中」畫面停留超過一段時間，就顯示一個提示，讓使用者知道可以怎麼做，
+  // 不用眼睜睜看著一句「題目準備中…」完全狀況不明——加上前面幫所有請求補的逾時保護後，
+  // 最壞情況也會在 15 秒內自動失敗並跳出錯誤訊息，這個提示純粹是讓等待的這段時間
+  // 使用者不會覺得毫無頭緒、以為程式當掉了。
+  const [loadingTakingAWhile, setLoadingTakingAWhile] = useState(false);
 
   // 建立這個頁面自己的播放器實例（比照單機模式，不用線上模式那種跨頁面共用的全域實例——
   // 速通模式是單一頁面從頭玩到尾的線性流程，離開頁面播放器就該一併釋放）。
@@ -186,6 +191,16 @@ export default function SpeedrunPage() {
     if (tokenRef.current) speedrunRepository.reportAudioStarted(tokenRef.current, questionIndexRef.current);
   }
 
+  // 「題目準備中」停留超過 5 秒才顯示提示，避免正常情況下（載入通常一兩秒內就完成）
+  // 也閃一下這個提示造成不必要的干擾。重置成 false 的動作放在 handleStart() 裡
+  // setPhase('loading') 的同一個地方做（同步的一般程式碼，不是在 effect 裡呼叫 setState），
+  // 這裡的 effect 只負責「進入 loading 超過 5 秒就設成 true」這一件事。
+  useEffect(() => {
+    if (phase !== 'loading') return;
+    const timer = setTimeout(() => setLoadingTakingAWhile(true), 5000);
+    return () => clearTimeout(timer);
+  }, [phase]);
+
   // 偵測到音樂真的開始播放、或明確發生播放錯誤，都視為「等待結束」——錯誤不用等到逾時，
   // 反正已經確定這首歌這次放不出來了，愈早解除凍結、讓玩家能繼續（矇對或反正碼表恢復跳動）
   // 愈好。
@@ -193,6 +208,25 @@ export default function SpeedrunPage() {
     if (audioStatus !== 'playing' && audioStatus !== 'error') return;
     resolveAudioWait();
   }, [audioStatus]);
+
+  // 監聽分頁從背景切回前景（例如切去別的 App 再切回來）：這是直接回應一個實際觀察到的
+  // 現象——手機瀏覽器在某些情況下（可能是省電機制、也可能是背景分頁的資源／逾時計時器
+  // 被瀏覽器悄悄延後執行）會讓「等待音樂開始播放」卡住遠超過設定的上限秒數，但只要
+  // 切到別的 App 再切回來，遊戲就能繼續——這很可能是手機瀏覽器對「不在前景使用中」的
+  // 分頁做了某種延後處理，切換分頁的動作本身重新觸發了正常執行。
+  // 與其要求玩家自己發現這個訣竅、手動切來切去，這裡直接監聽 visibilitychange 事件，
+  // 分頁重新變成可見時，如果還在等待播放中，就直接視同等待結束處理——這個事件本身
+  // 是瀏覽器對「使用者真的切回來了」這個動作的直接反應，不會受到上述計時器延後的影響，
+  // 比單純多加幾秒鐘的逾時更可靠。
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.visibilityState !== 'visible') return;
+      if (waitingForAudioStartedAtRef.current === null) return;
+      resolveAudioWait();
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
 
   // 緩衝畫面（答對後、下一題正式開始前的讀秒動畫）：每秒遞減，數到 0 才真正推進到下一題、
   // 切回 playing 狀態（觸發上面那個 effect 重新播放新題目的音訊）。
@@ -245,6 +279,7 @@ export default function SpeedrunPage() {
     // 立刻切到 loading 畫面，讓使用者一點下去就看得到反應，減少「以為沒反應而多點一次」
     // 的機率——即使真的又點了，上面那個 ref 鎖也會確保不會造成問題。
     setPhase('loading');
+    setLoadingTakingAWhile(false);
 
     try {
       // 真正的使用者手勢（按鈕點擊），一定要先等 unlock() 真正跑完才能繼續往下——這是修正
@@ -303,6 +338,10 @@ export default function SpeedrunPage() {
     // 重置回開頭。加上這個鎖之後，同一時間只會有一個請求在處理中，後面的點擊直接忽略，
     // 不會再送出第二個帶著過期 questionIndex 的請求，這個時序問題就不會發生。
     if (locked || answering || !token) return;
+    // 暫時的診斷記錄：記下點擊當下畫面上顯示的數字（使用者視覺上看到的那個值），
+    // 之後跟 check()／submit() 回傳的 totalTimeMs 比對，才能確定「玩家覺得看到的秒數」
+    // 到底跟伺服器算出來的數字差在哪個環節。
+    console.log('[速通除錯] 點擊當下畫面顯示的 elapsedMs：', elapsedMs);
     setAnswering(true);
     const result = await speedrunRepository.check(token, questionIndex, songId);
     setAnswering(false);
@@ -335,6 +374,11 @@ export default function SpeedrunPage() {
       // 總是「结算成績比較少」，容易讓人誤以為成績算錯了。直接採用伺服器回傳的數字，
       // 兩邊就會完全一致。
       setElapsedMs(result.data.totalTimeMs ?? 0);
+      // 暫時的診斷記錄：比對「這次判定回應」跟「稍後送出成績」兩邊各自算出來的 totalTimeMs
+      // 是否一致——理論上兩者用的是同一批伺服器端資料、應該完全相同，加這個記錄是為了
+      // 拿到具體數字，下次再重現「結算成績比看到的少了將近一秒」時能直接比對出落差
+      // 到底出現在哪一段，而不是繼續憑空推測。之後確認問題後可以拿掉。
+      console.log('[速通除錯] check() 回傳的 totalTimeMs：', result.data.totalTimeMs);
       await submitScore();
     } else {
       // 除了第一題以外，答對後不直接跳下一題，先進入緩衝畫面讓玩家喘口氣、看一下讀秒動畫，
@@ -356,6 +400,9 @@ export default function SpeedrunPage() {
       return;
     }
     setResults(result.data);
+    // 同上，比對這邊（submit() 送出成績時，伺服器最終確定的 totalTimeMs）跟前面 check()
+    // 那次回傳的數字是否一致。
+    console.log('[速通除錯] submit() 回傳的 totalTimeMs：', result.data.totalTimeMs);
     setPhase('results');
   }
 
@@ -459,7 +506,17 @@ export default function SpeedrunPage() {
         </motion.div>
       )}
 
-      {phase === 'loading' && <p style={{ color: 'var(--ink-dim)' }}>題目準備中…</p>}
+      {phase === 'loading' && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+          <p style={{ color: 'var(--ink-dim)' }}>題目準備中…</p>
+          {loadingTakingAWhile && (
+            <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', textAlign: 'center', maxWidth: '280px' }}>
+              等比較久嗎？如果遲遲沒反應，試試切到別的 App 再切回來，
+              或最多等 15 秒會自動顯示錯誤訊息讓你重新開始。
+            </p>
+          )}
+        </div>
+      )}
 
       {phase === 'playing' && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', width: '100%', maxWidth: '420px' }}>
