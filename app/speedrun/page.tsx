@@ -162,12 +162,22 @@ export default function SpeedrunPage() {
   // 見 waitingTimeoutRef 宣告處的說明，逾時秒數跟伺服器扣除上限對齊，最壞情況也只會
   // 卡住這麼久就自動恢復，不會無限卡住。每次開始新的等待都要先清掉舊的逾時計時器，
   // 避免上一題還沒觸發的逾時，跑到這一題才誤觸發。
-  function startAudioWait() {
+  //
+  // startedAt 參數：換題時（答對非最後一題）會先跑一段緩衝畫面倒數，緩衝結束才呼叫這裡；
+  // 呼叫端會把緩衝畫面開始的那個時間戳直接傳進來（而不是用「現在」），讓「緩衝畫面」跟
+  // 「等待這一題音樂播放」合併成同一段連續的「死時間」一起量測、一起回報給伺服器——
+  // 這是修正一個實際發生過的落差：先前緩衝畫面的扣除是伺服器端用固定公式算的
+  // （題目數-1 乘上固定秒數），沒有考慮到 setTimeout 本身的時序不會剛好精準命中這個秒數
+  // （瀏覽器排程、React 重新渲染等開銷都會讓實際耗費的時間比理論值多一點點），這個微小
+  // 誤差雖然每次都很小，累積 9 次換題後會變成看得出來的落差（成績比玩家實際體驗到的
+  // 快了將近一秒）。合併成同一段連續量測、直接回報實際量到的毫秒數，就不會再有這個問題——
+  // 沒有傳 startedAt 時（第一題，沒有前面的緩衝畫面）就單純用「現在」當起點。
+  function startAudioWait(startedAt?: number) {
     if (waitingTimeoutRef.current !== null) {
       clearTimeout(waitingTimeoutRef.current);
       waitingTimeoutRef.current = null;
     }
-    waitingForAudioStartedAtRef.current = estimateServerNow();
+    waitingForAudioStartedAtRef.current = startedAt ?? estimateServerNow();
     waitingTimeoutRef.current = setTimeout(() => {
       waitingTimeoutRef.current = null;
       resolveAudioWait();
@@ -181,14 +191,17 @@ export default function SpeedrunPage() {
   // 的鎖：三種觸發管道裡不管哪一個先到，只會真正處理一次。
   function resolveAudioWait() {
     if (waitingForAudioStartedAtRef.current === null) return;
-    const waitMs = estimateServerNow() - waitingForAudioStartedAtRef.current;
-    pausedMsRef.current += Math.max(0, waitMs);
+    const waitMs = Math.max(0, estimateServerNow() - waitingForAudioStartedAtRef.current);
+    pausedMsRef.current += waitMs;
     waitingForAudioStartedAtRef.current = null;
     if (waitingTimeoutRef.current !== null) {
       clearTimeout(waitingTimeoutRef.current);
       waitingTimeoutRef.current = null;
     }
-    if (tokenRef.current) speedrunRepository.reportAudioStarted(tokenRef.current, questionIndexRef.current);
+    // 把這裡量到的 waitMs 直接回報給伺服器，讓伺服器只需要負責套用上限、不用自己再猜測
+    // 一個起算時間點——這是修正「成績比畫面上看到的少了將近一秒」的根本作法，見
+    // lib/server/speedrunSession.ts reportAudioWait 的完整說明。
+    if (tokenRef.current) speedrunRepository.reportAudioStarted(tokenRef.current, questionIndexRef.current, waitMs);
   }
 
   // 「題目準備中」停留超過 5 秒才顯示提示，避免正常情況下（載入通常一兩秒內就完成）
@@ -236,16 +249,15 @@ export default function SpeedrunPage() {
       // 用 setTimeout 把狀態更新包進非同步回呼裡，不要在 effect 本體內直接同步呼叫 setState
       // （即使數到 0 這裡邏輯上「該立刻」推進，仍要透過回呼觸發，避免連鎖同步渲染）。
       const timer = setTimeout(() => {
-        // 這段緩衝畫面結束了，把它耗掉的時間累加進 pausedMsRef，之後碼表的計算才會把這段
-        // 時間扣掉。要在切回 playing 之前先累加好，不然切回去那一刻的 tick() 會算錯。
-        if (transitionStartedAtRef.current !== null) {
-          pausedMsRef.current += estimateServerNow() - transitionStartedAtRef.current;
-          transitionStartedAtRef.current = null;
-        }
+        // 把緩衝畫面開始的時間戳直接交給 startAudioWait，合併成同一段連續的「死時間」——
+        // 見 startAudioWait 的完整說明。這裡不再像先前版本那樣單獨把這段緩衝畫面的時間
+        // 累加進 pausedMsRef，避免跟合併後的量測重複計算。
+        const transitionBeganAt = transitionStartedAtRef.current;
+        transitionStartedAtRef.current = null;
         // 在觸發 phase 變成 'playing' 之前，同步設好「開始等待下一題播放」的標記
         // （含逾時保險，見 startAudioWait 的說明），保證任何 effect（包含碼表更新那個）
         // 執行的當下這個標記都已經生效。
-        startAudioWait();
+        startAudioWait(transitionBeganAt ?? undefined);
         setQuestionIndex((i) => i + 1);
         setPhase('playing');
       }, 0);
@@ -338,10 +350,6 @@ export default function SpeedrunPage() {
     // 重置回開頭。加上這個鎖之後，同一時間只會有一個請求在處理中，後面的點擊直接忽略，
     // 不會再送出第二個帶著過期 questionIndex 的請求，這個時序問題就不會發生。
     if (locked || answering || !token) return;
-    // 暫時的診斷記錄：記下點擊當下畫面上顯示的數字（使用者視覺上看到的那個值），
-    // 之後跟 check()／submit() 回傳的 totalTimeMs 比對，才能確定「玩家覺得看到的秒數」
-    // 到底跟伺服器算出來的數字差在哪個環節。
-    console.log('[速通除錯] 點擊當下畫面顯示的 elapsedMs：', elapsedMs);
     setAnswering(true);
     const result = await speedrunRepository.check(token, questionIndex, songId);
     setAnswering(false);
@@ -374,11 +382,6 @@ export default function SpeedrunPage() {
       // 總是「结算成績比較少」，容易讓人誤以為成績算錯了。直接採用伺服器回傳的數字，
       // 兩邊就會完全一致。
       setElapsedMs(result.data.totalTimeMs ?? 0);
-      // 暫時的診斷記錄：比對「這次判定回應」跟「稍後送出成績」兩邊各自算出來的 totalTimeMs
-      // 是否一致——理論上兩者用的是同一批伺服器端資料、應該完全相同，加這個記錄是為了
-      // 拿到具體數字，下次再重現「結算成績比看到的少了將近一秒」時能直接比對出落差
-      // 到底出現在哪一段，而不是繼續憑空推測。之後確認問題後可以拿掉。
-      console.log('[速通除錯] check() 回傳的 totalTimeMs：', result.data.totalTimeMs);
       await submitScore();
     } else {
       // 除了第一題以外，答對後不直接跳下一題，先進入緩衝畫面讓玩家喘口氣、看一下讀秒動畫，
@@ -400,9 +403,6 @@ export default function SpeedrunPage() {
       return;
     }
     setResults(result.data);
-    // 同上，比對這邊（submit() 送出成績時，伺服器最終確定的 totalTimeMs）跟前面 check()
-    // 那次回傳的數字是否一致。
-    console.log('[速通除錯] submit() 回傳的 totalTimeMs：', result.data.totalTimeMs);
     setPhase('results');
   }
 

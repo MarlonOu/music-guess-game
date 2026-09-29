@@ -46,9 +46,9 @@ async function fetchWithTimeout(input: string, init?: RequestInit): Promise<Resp
 export interface SpeedrunRepository {
   start(): Promise<RepositoryResult<SpeedrunStartResponse>>;
   check(token: string, questionIndex: number, songId: string): Promise<RepositoryResult<SpeedrunCheckResponse>>;
-  /** 回報目前這一題的音樂真的開始播放了，用來扣除網路不好造成的等待時間；盡量回報，
+  /** 回報目前這一題自己量測到的等待毫秒數，用來扣除網路不好造成的等待時間；盡量回報，
    *  失敗也不影響主流程，所以不回傳判定結果、呼叫端不需要處理錯誤 */
-  reportAudioStarted(token: string, questionIndex: number): void;
+  reportAudioStarted(token: string, questionIndex: number, waitMs: number): void;
   submit(token: string, displayName: string): Promise<RepositoryResult<SpeedrunSubmitResponse>>;
   getLeaderboard(): Promise<RepositoryResult<SpeedrunLeaderboardEntry[]>>;
 }
@@ -89,14 +89,14 @@ export const speedrunRepository: SpeedrunRepository = {
     }
   },
 
-  reportAudioStarted(token, questionIndex) {
+  reportAudioStarted(token, questionIndex, waitMs) {
     // 特意不 await、不處理失敗——這只是盡量而為的回報，失敗頂多就是這一題的網路等待時間
     // 沒被扣除，不影響答題本身，不值得為此讓呼叫端多寫一套錯誤處理。仍然套用逾時，
     // 避免留下一個永遠掛著的請求佔用連線資源。
     fetchWithTimeout('/api/speedrun/audio-started', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, questionIndex }),
+      body: JSON.stringify({ token, questionIndex, waitMs }),
     }).catch(() => {
       // 同上，靜默忽略
     });
