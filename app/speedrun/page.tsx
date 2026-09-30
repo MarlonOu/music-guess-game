@@ -58,6 +58,11 @@ export default function SpeedrunPage() {
   const questionIndexRef = useRef(0);
   // 防止 handleStart() 被重複呼叫的鎖，見該函式內的完整說明。
   const startingRef = useRef(false);
+  // 見下方「換題就播放目前這題的音訊」那個 effect、以及 handleStart() 裡的完整說明：
+  // 第一題的播放刻意直接留在 handleStart() 自己的呼叫鏈裡（不透過這個 effect 觸發），
+  // 這個旗標讓該 effect 知道「這次 phase 變成 playing、questionIndex 變成 0」的這一次
+  // 觸發，播放已經在別的地方直接做過了，不需要它自己再重複呼叫一次。
+  const skipNextAutoPlayRef = useRef(false);
   const tokenRef = useRef<string | null>(null);
 
   const [phase, setPhase] = useState<Phase>('intro');
@@ -142,8 +147,24 @@ export default function SpeedrunPage() {
   // tick()），這時候如果「等待播放」的標記還沒設定好，就會被誤判成「沒有在等待」而多跳動
   //一次，等這個播放 effect 才把標記設好，畫面上會看起來像「先跳一點點時間才凍結」。
   // 把標記設定挪到觸發換題的那個同步程式碼位置，就能保證在任何 effect 執行之前就已經生效。
+  //
+  // 第一題（questionIndex === 0）的播放不是由這個 effect 觸發，而是 handleStart() 直接
+  // 呼叫（見 skipNextAutoPlayRef 宣告處、跟 handleStart() 內的完整說明）——這是修正一個
+  // 實際發生過、花了很多輪才抓到的問題：這個 effect 是由 React 狀態變化（phase 變成
+  // 'playing'）間接觸發的，中間隔著一次 render／effect 觸發的過程，不是跟使用者點擊
+  // 「開始挑戰」同一條呼叫鏈；行動裝置瀏覽器（尤其 iOS Safari）對「播放呼叫要直接連在
+  // 使用者手勢後面」的要求非常嚴格，隔著 React 的 effect 觸發，YouTube 播放器就可能
+  // 收不到播放狀態變化的事件回報（onStateChange 完全不觸發，但 onReady 正常），即使
+  // 呼叫本身有送達、指令也沒有報錯。單機模式能正常播放 YouTube 就是因為它的播放按鈕
+  // 直接在 onClick 裡呼叫 play()，沒有這種中間隔層。第二題以後沒辦法避免（本來就是
+  // 答對自動換題、沒有使用者手勢可以依附），只能靠第一題這次「乾淨」的直接呼叫，
+  // 讓瀏覽器正確核發這個播放器實例接下來整場遊戲的自動播放授權。
   useEffect(() => {
     if (phase !== 'playing') return;
+    if (skipNextAutoPlayRef.current) {
+      skipNextAutoPlayRef.current = false;
+      return;
+    }
     const controller = audioControllerRef.current;
     const q = questions[questionIndex];
     if (!controller || !q || !q.source || !q.playbackId) return;
@@ -319,6 +340,29 @@ export default function SpeedrunPage() {
       // （含逾時保險，見 startAudioWait 的說明）。
       startAudioWait();
       setElapsedMs(0);
+
+      // 第一題的播放直接在這裡呼叫，不透過「換題就播放」那個 effect——這是修正一個
+      // 實際發生過、花了很多輪才抓到的根因：那個 effect 是由 phase 變成 'playing' 這個
+      // React 狀態變化「間接」觸發的，中間隔著一次 render／effect 觸發，不是跟使用者
+      // 點擊「開始挑戰」同一條直接的呼叫鏈。行動裝置瀏覽器（尤其 iOS Safari）對「播放
+      // 呼叫要直接連在使用者手勢後面」的要求非常嚴格，隔著 React 的 effect 觸發，
+      // YouTube 播放器就可能收不到播放狀態變化的事件回報（onStateChange 完全不觸發，
+      // 但 onReady 正常，指令本身沒有報錯），即使 async/await 串起來的整條鏈實際耗時
+      // 很短也一樣——關鍵不是花了多少時間，是有沒有經過 React 的 render／effect 邊界。
+      // 單機模式能正常播放 YouTube，就是因為它的播放按鈕直接在 onClick 裡呼叫 play()，
+      // 沒有這種中間隔層；這裡讓第一題也採用同樣「直接呼叫」的模式。
+      // skipNextAutoPlayRef 讓下面那個 effect 知道這次不用它出手（見該 effect 的說明），
+      // 不會因為 phase／questionIndex 變化又重複呼叫一次。
+      skipNextAutoPlayRef.current = true;
+      const firstQuestion = result.data.questions[0];
+      if (firstQuestion?.source && firstQuestion.playbackId) {
+        audioControllerRef.current?.play(
+          firstQuestion.source,
+          firstQuestion.playbackId,
+          firstQuestion.startSec,
+          firstQuestion.durationSec
+        );
+      }
       setPhase('playing');
     } catch (err) {
       // 防禦性的保底：理論上 speedrunRepository 內部已經把 fetch() 的例外都接住轉換成

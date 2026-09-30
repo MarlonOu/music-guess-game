@@ -74,9 +74,15 @@ const YT_ERROR_MEANINGS: Record<number, string> = {
 
 const PLAY_TIMEOUT_MS = 10000;
 // Apple/原生 <audio> 端解鎖等待 audio.play() 的逾時秒數。實測這個裝置上這個呼叫幾乎
-// 沒有真正成功過（每次都吃滿逾時），縮短這個數字純粹是減少「反正等再久也不會成功」
-// 的白白等待，不影響解鎖的實際效果（本來就沒真的解鎖成功，縮短逾時不會讓情況變差）。
-const APPLE_UNLOCK_TIMEOUT_MS = 1500;
+// 沒有真正成功過（每次都吃滿逾時），但真正播放 Apple 來源的歌曲時完全不受影響、正常
+// 運作——代表這個解鎖動作在這類裝置上根本沒有實際效果，縮短逾時純粹是減少「反正
+// 不會成功」的白白等待，不影響任何實際播放行為（本來就沒真的靠它解鎖成功過）。
+const APPLE_UNLOCK_TIMEOUT_MS = 800;
+// YouTube 端解鎖影片的逾時秒數，同樣道理縮短——見上方 APPLE_UNLOCK_TIMEOUT_MS 的說明，
+// 這裡額外的差異是：即使解鎖「等待結果」是 timeout（沒能在時限內確認影片真的開始播放），
+// 也不代表解鎖指令本身沒有送達 iframe，縮短只是不要浪費太多時間空等確認，不影響
+// 後面實際播放歌曲時各自獨立的邏輯。
+const YOUTUBE_UNLOCK_TIMEOUT_MS = 1500;
 const YT_READY_POLL_TIMEOUT_MS = 5000;
 // 腳本本身載入的逾時秒數，跟上面 YT_READY_POLL_TIMEOUT_MS（腳本載入「之後」等待 window.YT
 // 真正就緒的逾時）是兩個獨立的保護，涵蓋不同的卡住環節。給比較寬鬆的 8 秒，手機網路
@@ -356,7 +362,7 @@ export class AudioController {
       const audio = this.ensureAudioElement();
       audio.muted = true;
       audio.src = SILENT_AUDIO_DATA_URI;
-      console.log('[AudioController] unlock() 開始等待 Apple 端 audio.play()（最多 1.5 秒）');
+      console.log(`[AudioController] unlock() 開始等待 Apple 端 audio.play()（最多 ${APPLE_UNLOCK_TIMEOUT_MS / 1000} 秒）`);
       await Promise.race([
         audio
           .play()
@@ -382,7 +388,7 @@ export class AudioController {
       this.safeCallPlayer('loadVideoById', { videoId: UNLOCK_VIDEO_ID, startSeconds: 0 });
       this.safeCallPlayer('mute');
       this.safeCallPlayer('playVideo');
-      console.log('[AudioController] unlock() 已呼叫 playVideo()，開始等待進入播放狀態（最多 4 秒）');
+      console.log(`[AudioController] unlock() 已呼叫 playVideo()，開始等待進入播放狀態（最多 ${YOUTUBE_UNLOCK_TIMEOUT_MS / 1000} 秒）`);
 
       // 這是先前「加入房間後會聽到/看到 Me at the Zoo」這支解鎖用影片的成因：舊版在這裡
       // 固定等待 150ms 就直接呼叫 pauseVideo()，但手機（尤其行動網路）啟動 iframe 播放器、
@@ -397,7 +403,7 @@ export class AudioController {
         new Promise<'playing'>((resolve) => {
           this.pendingPlayResult = { resolve: () => resolve('playing'), reject: () => resolve('playing') };
         }),
-        new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 4000)),
+        new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), YOUTUBE_UNLOCK_TIMEOUT_MS)),
       ]);
       console.log(`[AudioController] unlock() 等待結束，結果：${raceResult}`);
       this.pendingPlayResult = null;
