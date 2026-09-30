@@ -73,6 +73,10 @@ const YT_ERROR_MEANINGS: Record<number, string> = {
 };
 
 const PLAY_TIMEOUT_MS = 10000;
+// Apple/原生 <audio> 端解鎖等待 audio.play() 的逾時秒數。實測這個裝置上這個呼叫幾乎
+// 沒有真正成功過（每次都吃滿逾時），縮短這個數字純粹是減少「反正等再久也不會成功」
+// 的白白等待，不影響解鎖的實際效果（本來就沒真的解鎖成功，縮短逾時不會讓情況變差）。
+const APPLE_UNLOCK_TIMEOUT_MS = 1500;
 const YT_READY_POLL_TIMEOUT_MS = 5000;
 // 腳本本身載入的逾時秒數，跟上面 YT_READY_POLL_TIMEOUT_MS（腳本載入「之後」等待 window.YT
 // 真正就緒的逾時）是兩個獨立的保護，涵蓋不同的卡住環節。給比較寬鬆的 8 秒，手機網路
@@ -352,7 +356,7 @@ export class AudioController {
       const audio = this.ensureAudioElement();
       audio.muted = true;
       audio.src = SILENT_AUDIO_DATA_URI;
-      console.log('[AudioController] unlock() 開始等待 Apple 端 audio.play()（最多 4 秒）');
+      console.log('[AudioController] unlock() 開始等待 Apple 端 audio.play()（最多 1.5 秒）');
       await Promise.race([
         audio
           .play()
@@ -360,7 +364,7 @@ export class AudioController {
           .catch(() => {
             // 靜默失敗即可，之後實際播放時會重試
           }),
-        new Promise<void>((resolve) => setTimeout(resolve, 4000)),
+        new Promise<void>((resolve) => setTimeout(resolve, APPLE_UNLOCK_TIMEOUT_MS)),
       ]);
       audio.muted = false;
       console.log('[AudioController] unlock() Apple 端已結束，開始 YouTube 端');
@@ -673,6 +677,7 @@ export class AudioController {
    * loadState 設為 'error'，呼叫端需檢查此狀態並顯示對應 UI（不拋出例外中斷遊戲流程）。
    */
   async play(source: AudioSource, idOrUrl: string, startSec: number, durationSec?: number): Promise<void> {
+    console.log(`[AudioController] play() 被呼叫，source=${source}, idOrUrl=${idOrUrl}, startSec=${startSec}`);
     this.clearStopHandle();
     this.loadState = 'loading';
     this.setStatus('loading');
@@ -696,8 +701,10 @@ export class AudioController {
    * （例如嵌入權限關閉）會在呼叫已經回傳「成功」之後才非同步發生，被靜默吃掉。
    */
   private async playYoutube(videoId: string, startSec: number, durationSec?: number): Promise<void> {
+    console.log(`[AudioController] playYoutube() 開始，videoId=${videoId}`);
     try {
       const player = await this.ensurePlayer();
+      console.log('[AudioController] playYoutube() ensurePlayer() 已完成，開始載入真正歌曲');
 
       await new Promise<void>((resolve, reject) => {
         const timeoutHandle = setTimeout(() => {
@@ -707,10 +714,12 @@ export class AudioController {
 
         this.pendingPlayResult = {
           resolve: () => {
+            console.log('[AudioController] playYoutube() 收到 onStateChange=PLAYING，播放成功');
             clearTimeout(timeoutHandle);
             resolve();
           },
           reject: (err) => {
+            console.log('[AudioController] playYoutube() 收到 onError 或明確失敗：', err);
             clearTimeout(timeoutHandle);
             reject(err);
           },
@@ -723,6 +732,7 @@ export class AudioController {
         player.unMute();
         player.setVolume(100);
         player.playVideo();
+        console.log(`[AudioController] playYoutube() 已呼叫 playVideo()，開始等待進入播放狀態（最多 ${PLAY_TIMEOUT_MS / 1000} 秒）`);
       });
 
       this.loadState = 'ready';
@@ -731,6 +741,7 @@ export class AudioController {
       this.armStopTimer();
       this.setStatus('playing');
       this.updateMediaSession('playing');
+      console.log('[AudioController] playYoutube() 完成');
     } catch (err) {
       console.error('[AudioController] playYoutube() 失敗：', err);
       this.loadState = 'error';
