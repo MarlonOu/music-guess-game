@@ -9,6 +9,7 @@ import { estimateServerNow } from '../../lib/client/serverClock';
 import type { SpeedrunQuestion, SpeedrunSubmitResponse, SpeedrunLeaderboardEntry } from '../../lib/types/speedrun';
 import { SPEEDRUN_TRANSITION_SEC, SPEEDRUN_AUDIO_WAIT_CAP_MS } from '../../lib/constants/speedrun';
 import { WRONG_ANSWER_LOCKOUT_MS } from '../../lib/constants/choiceMode';
+import { OnScreenConsole } from '../../components/debug/OnScreenConsole';
 
 const QUESTION_COUNT = 10;
 /** 碼表畫面更新頻率；不需要真的到毫秒等級的更新頻率，肉眼看起來夠平滑即可，
@@ -456,6 +457,7 @@ export default function SpeedrunPage() {
         gap: '24px',
       }}
     >
+      <OnScreenConsole />
       <motion.header
         initial={{ opacity: 0, y: -12 }}
         animate={{ opacity: 1, y: 0 }}
