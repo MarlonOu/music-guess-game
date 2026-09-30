@@ -285,6 +285,7 @@ export default function SpeedrunPage() {
     // 的機率——即使真的又點了，上面那個 ref 鎖也會確保不會造成問題。
     setPhase('loading');
     setLoadingTakingAWhile(false);
+    console.log('[handleStart] 開始，audioControllerRef.current 是否存在：', Boolean(audioControllerRef.current));
 
     try {
       // 真正的使用者手勢（按鈕點擊），一定要先等 unlock() 真正跑完才能繼續往下——這是修正
@@ -295,9 +296,11 @@ export default function SpeedrunPage() {
       // 誤把「已經換成真正歌曲」的播放器暫停/停止掉——結果就是解鎖用的影片沒被正確消音、
       // 玩家聽到了不該聽到的東西，第一題（如果來源恰好是 YouTube）反而放不出來。
       await audioControllerRef.current?.unlock();
+      console.log('[handleStart] unlock() 已完成（或沒有播放器實例、直接跳過），準備呼叫 /api/speedrun/start');
 
       setError(null);
       const result = await speedrunRepository.start();
+      console.log('[handleStart] speedrunRepository.start() 已回傳，ok=', result.ok);
       if (!result.ok || !result.data) {
         setError(result.error ?? '開始挑戰失敗');
         setPhase('intro');

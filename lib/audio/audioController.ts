@@ -113,20 +113,29 @@ const SILENT_AUDIO_DATA_URI = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAA
  */
 function loadYouTubeIframeApi(): Promise<void> {
   if (typeof window === 'undefined') return Promise.resolve();
-  if (window.YT?.Player) return Promise.resolve();
-  if (apiLoadPromise) return apiLoadPromise;
+  if (window.YT?.Player) {
+    console.log('[AudioController] loadYouTubeIframeApi()：window.YT.Player 已存在，直接回傳');
+    return Promise.resolve();
+  }
+  if (apiLoadPromise) {
+    console.log('[AudioController] loadYouTubeIframeApi()：已經有進行中的 apiLoadPromise，直接等待它');
+    return apiLoadPromise;
+  }
+  console.log('[AudioController] loadYouTubeIframeApi()：開始注入 <script> 標籤');
 
   apiLoadPromise = new Promise<void>((resolve, reject) => {
     let settled = false;
     const settleResolve = () => {
       if (settled) return;
       settled = true;
+      console.log('[AudioController] loadYouTubeIframeApi()：onYouTubeIframeAPIReady 觸發，resolve');
       resolve();
     };
     const settleReject = (err: Error) => {
       if (settled) return;
       settled = true;
       apiLoadPromise = null; // 讓下一次呼叫可以重新嘗試，而不是永久卡在同一個失敗結果
+      console.log(`[AudioController] loadYouTubeIframeApi()：reject，原因：${err.message}`);
       reject(err);
     };
 
@@ -138,12 +147,16 @@ function loadYouTubeIframeApi(): Promise<void> {
 
     setTimeout(() => settleReject(new Error('等待 YouTube IFrame API 腳本載入逾時')), YT_SCRIPT_LOAD_TIMEOUT_MS);
 
-    if (document.getElementById('youtube-iframe-api')) return;
+    if (document.getElementById('youtube-iframe-api')) {
+      console.log('[AudioController] loadYouTubeIframeApi()：<script> 標籤已經存在（可能是別的呼叫已經插入過），只等待 callback');
+      return;
+    }
     const script = document.createElement('script');
     script.id = 'youtube-iframe-api';
     script.src = 'https://www.youtube.com/iframe_api';
     script.onerror = () => settleReject(new Error('YouTube IFrame API 腳本載入失敗'));
     document.head.appendChild(script);
+    console.log('[AudioController] loadYouTubeIframeApi()：<script> 標籤已插入 document.head');
   });
 
   return apiLoadPromise;
@@ -324,6 +337,7 @@ export class AudioController {
    */
   async unlock(): Promise<void> {
     if (this.unlocked) return;
+    console.log('[AudioController] unlock() 開始');
     try {
       const audio = this.ensureAudioElement();
       audio.muted = true;
@@ -334,10 +348,12 @@ export class AudioController {
         .catch(() => {
           // Apple 這端解鎖失敗不影響 YouTube 那端繼續嘗試，兩邊各自獨立、互不阻擋
         });
+      console.log('[AudioController] unlock() Apple 端已觸發，準備呼叫 ensurePlayer()');
 
       // 這裡不需要拿到 player 實例本身，全部透過 safeCallPlayer 呼叫（統一防呆，見該方法說明），
       // ensurePlayer() 純粹是確保播放器已經初始化完成。
       await this.ensurePlayer();
+      console.log('[AudioController] unlock() ensurePlayer() 已完成，開始載入解鎖影片');
       // 先靜音再載入：有些手機瀏覽器的 YouTube IFrame 實作，loadVideoById() 載入新影片時
       // 會把先前設定的音量/靜音狀態重置回預設值，導致「載入前先 setVolume(0)」這一步
       // 實際上對接下來要播的這支影片沒有生效。載入完成後再呼叫一次 mute()，確保萬一真的
@@ -347,6 +363,7 @@ export class AudioController {
       this.safeCallPlayer('loadVideoById', { videoId: UNLOCK_VIDEO_ID, startSeconds: 0 });
       this.safeCallPlayer('mute');
       this.safeCallPlayer('playVideo');
+      console.log('[AudioController] unlock() 已呼叫 playVideo()，開始等待進入播放狀態（最多 4 秒）');
 
       // 這是先前「加入房間後會聽到/看到 Me at the Zoo」這支解鎖用影片的成因：舊版在這裡
       // 固定等待 150ms 就直接呼叫 pauseVideo()，但手機（尤其行動網路）啟動 iframe 播放器、
@@ -357,12 +374,13 @@ export class AudioController {
       // 修法：不用猜時間，改成真的等播放器回報「已經進入播放狀態」（複用 playYoutube() 判斷
       // 播放是否成功的同一套 pendingPlayResult／handleStateChange 機制）才呼叫暫停，
       // 並保留一個 4 秒的安全上限，避免萬一事件真的沒觸發（例如影片被封鎖）卡住整個解鎖流程。
-      await Promise.race([
-        new Promise<void>((resolve) => {
-          this.pendingPlayResult = { resolve, reject: () => resolve() };
+      const raceResult = await Promise.race([
+        new Promise<'playing'>((resolve) => {
+          this.pendingPlayResult = { resolve: () => resolve('playing'), reject: () => resolve('playing') };
         }),
-        new Promise<void>((resolve) => setTimeout(resolve, 4000)),
+        new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 4000)),
       ]);
+      console.log(`[AudioController] unlock() 等待結束，結果：${raceResult}`);
       this.pendingPlayResult = null;
 
       this.safeCallPlayer('pauseVideo');
@@ -376,6 +394,7 @@ export class AudioController {
 
       await appleUnlockPromise;
       this.unlocked = true;
+      console.log('[AudioController] unlock() 完成');
     } catch (err) {
       console.warn('[AudioController] unlock() 失敗，將盡力於實際播放時重試：', err);
     }
@@ -410,18 +429,25 @@ export class AudioController {
   }
 
   private async ensurePlayer(): Promise<YouTubePlayer> {
-    if (this.player) return this.player;
+    if (this.player) {
+      console.log('[AudioController] ensurePlayer()：this.player 已存在，直接回傳');
+      return this.player;
+    }
 
     if (!this.readyPromise) {
+      console.log('[AudioController] ensurePlayer()：沒有進行中的 readyPromise，呼叫 createPlayer()');
       this.readyPromise = this.createPlayer().catch((err) => {
         // 失敗時清掉快取，讓下一次呼叫可以重新嘗試，
         // 而不是永久卡在同一個失敗結果（先前版本的問題）。
         this.readyPromise = null;
         throw err;
       });
+    } else {
+      console.log('[AudioController] ensurePlayer()：已經有進行中的 readyPromise，直接等待它');
     }
 
     await this.readyPromise;
+    console.log('[AudioController] ensurePlayer()：readyPromise 已完成');
     if (!this.player) throw new Error('YouTube Player 初始化失敗');
     return this.player;
   }
@@ -530,8 +556,11 @@ export class AudioController {
   }
 
   private async createPlayer(): Promise<void> {
+    console.log('[AudioController] createPlayer()：開始，準備載入 IFrame API script');
     await loadYouTubeIframeApi();
+    console.log('[AudioController] createPlayer()：IFrame API script 已就緒，開始等待 window.YT.Player');
     await waitForYT();
+    console.log('[AudioController] createPlayer()：window.YT.Player 已就緒，開始建立 Player 物件');
 
     if (this.disposed || !window.YT) {
       throw new Error('YouTube IFrame API 不可用');
@@ -554,7 +583,10 @@ export class AudioController {
               width: '200',
               playerVars: { controls: 0, disablekb: 1, playsinline: 1, origin: window.location.origin },
               events: {
-                onReady: () => resolve(),
+                onReady: () => {
+                  console.log('[AudioController] createPlayer()：onReady 觸發');
+                  resolve();
+                },
                 onError: (event) => {
                   this.handleError(event);
                   reject(new Error('YouTube Player 初始化失敗'));
@@ -562,6 +594,7 @@ export class AudioController {
                 onStateChange: (event) => this.handleStateChange(event),
               },
             });
+            console.log('[AudioController] createPlayer()：new YT.Player(...) 建構子已呼叫完成，等待 onReady');
           } catch (e) {
             reject(e instanceof Error ? e : new Error('YouTube Player 初始化失敗'));
           }
@@ -570,6 +603,7 @@ export class AudioController {
           setTimeout(() => reject(new Error('等待 YouTube Player 就緒逾時')), YT_PLAYER_READY_TIMEOUT_MS)
         ),
       ]);
+      console.log('[AudioController] createPlayer()：完成');
     } catch (err) {
       this.player = null;
       throw err;
