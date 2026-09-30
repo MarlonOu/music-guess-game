@@ -509,7 +509,12 @@ export class AudioController {
         if (this.activeSource !== 'youtube' && this.playing) this.finishPlayback();
       });
       audio.addEventListener('error', () => {
-        if (this.activeSource === 'youtube' || this.activeSource === null) return;
+        // dispose() 清理資源時會把 src 設成空字串，瀏覽器對此的標準行為是觸發這個 error
+        // 事件（空字串不是有效的媒體來源）——這是正常的清理動作，不是真的播放失敗，
+        // 沒有這個判斷的話，只要上一首歌剛好是走這個 <audio> 元素的來源（Apple／Deezer），
+        // 每次離開頁面清理播放器都會誤印出一則「播放失敗」的錯誤訊息，容易在排查其他
+        // 問題時造成混淆（曾經真的發生過，一則無關的假錯誤訊息讓人誤以為找到了線索）。
+        if (!audio.src || this.activeSource === 'youtube' || this.activeSource === null) return;
         console.error(`[AudioController] <audio> 播放 ${this.activeSource} 試聽失敗，src=`, audio.src);
         this.loadState = 'error';
         this.playing = false;
