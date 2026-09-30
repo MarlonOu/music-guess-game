@@ -55,9 +55,8 @@ export default function SpeedrunPage() {
   // questionIndex／token 的「隨時最新」鏡像，供 resolveAudioWait 這種可能從舊的 closure
   // （例如很早之前排定的 setTimeout 回呼）被呼叫到的函式讀取，避免讀到過期的值。
   const questionIndexRef = useRef(0);
-  // 目前這一次 handleStart() 嘗試的世代編號，0 代表沒有嘗試在進行中，見 handleStart() 內
-  // 的完整說明（含跟一般防重複點擊的鎖有什麼不同）。
-  const startAttemptRef = useRef(0);
+  // 防止 handleStart() 被重複呼叫的鎖，見該函式內的完整說明。
+  const startingRef = useRef(false);
   const tokenRef = useRef<string | null>(null);
 
   const [phase, setPhase] = useState<Phase>('intro');
@@ -268,32 +267,21 @@ export default function SpeedrunPage() {
     return () => clearTimeout(timer);
   }, [phase, transitionSecondsLeft]); // eslint-disable-line react-hooks/exhaustive-deps -- startAudioWait 內部只讀寫 ref，不依賴任何 render 範圍內的變數，加進依賴陣列只會讓這個 effect 因為它每次 render 都重新建立而白白重跑，沒有實際好處
 
-  async function handleStart(forceRetry = false) {
-    // startAttemptRef 用一個「世代編號」取代單純的 true/false 鎖，這是修正一個實際發生過的
-    // 情況：手機（尤其 iOS Safari）對「沒有觸控互動的分頁」有節流行為，不只是網路請求，
-    // 連 setTimeout 之類的計時器都可能被悄悄延後執行——先前加的各種逾時保護理論上該生效，
-    // 但如果連逾時本身的計時器都被節流了，逾時保護也不會準時觸發，畫面就會卡在「題目準備中」
-    // 遲遲沒有反應，玩家唯一能做的是切去別的 App 再切回來（這個動作會讓 iOS 重新正常執行
-    // 分頁的 JS），這正是使用者實際回報有效的方法。與其要求玩家自己知道這個訣竅，這裡改成
-    // 監聽分頁重新變成可見的事件，自動幫玩家做「放棄卡住的嘗試、重新開始一次」這件事
-    // （見下面的 visibilitychange effect）。
-    //
-    // 世代編號的用途：因為「重新開始一次」不會、也沒辦法真的取消掉前一次還卡著的請求
-    // （fetch 的 AbortController 逾時最終還是會讓它自己結束，只是可能也一起被節流延後），
-    // 舊的嘗試將來某個時間點可能還是會執行完、想要套用它的結果——這時候必須要能分辨
-    // 「這個結果是不是還來自『目前』這一次嘗試」，不是的話就该直接捨棄、不要套用，
-    // 否則萬一新的嘗試已經成功、玩家已經在答題了，舊嘗試才姍姍來遲地完成，套用它的結果
-    // 會把畫面悄悄蓋掉，重演先前「快速連點造成兩場挑戰互相蓋台」的同一類問題。
-    if (!forceRetry && startAttemptRef.current !== 0) return;
+  async function handleStart() {
+    // startingRef 是防止重複呼叫的鎖，用 ref（不是 state）是關鍵：如果用 state 檢查
+    // 「目前 phase 是不是還在 intro」，使用者在 React 重新渲染、按鈕拿到反映最新 phase
+    // 的新版 onClick 之前連續點兩下，兩次點擊抓到的都還是同一個「舊」的事件處理函式
+    // （closure 裡的 phase 都還是舊值），state 檢查會兩次都通過，鎖不住。ref 是同步讀寫，
+    // 不受渲染時機影響，才能真正擋下「使用者覺得沒反應、不耐煩點第二下」這種情況。
+    if (startingRef.current) return;
     const trimmed = displayName.trim();
     if (trimmed.length === 0) {
       setError('請輸入暱稱');
       return;
     }
-    const myAttempt = Date.now() + Math.random();
-    startAttemptRef.current = myAttempt;
+    startingRef.current = true;
     // 立刻切到 loading 畫面，讓使用者一點下去就看得到反應，減少「以為沒反應而多點一次」
-    // 的機率——即使真的又點了，上面那個世代編號機制也會確保不會造成問題。
+    // 的機率——即使真的又點了，上面那個 ref 鎖也會確保不會造成問題。
     setPhase('loading');
     setLoadingTakingAWhile(false);
 
@@ -306,12 +294,9 @@ export default function SpeedrunPage() {
       // 誤把「已經換成真正歌曲」的播放器暫停/停止掉——結果就是解鎖用的影片沒被正確消音、
       // 玩家聽到了不該聽到的東西，第一題（如果來源恰好是 YouTube）反而放不出來。
       await audioControllerRef.current?.unlock();
-      if (startAttemptRef.current !== myAttempt) return; // 已經被更新的嘗試取代，放棄這次結果
 
       setError(null);
       const result = await speedrunRepository.start();
-      if (startAttemptRef.current !== myAttempt) return; // 同上
-
       if (!result.ok || !result.data) {
         setError(result.error ?? '開始挑戰失敗');
         setPhase('intro');
@@ -332,7 +317,6 @@ export default function SpeedrunPage() {
       setElapsedMs(0);
       setPhase('playing');
     } catch (err) {
-      if (startAttemptRef.current !== myAttempt) return;
       // 防禦性的保底：理論上 speedrunRepository 內部已經把 fetch() 的例外都接住轉換成
       // 正常的錯誤回傳值了，這裡是多一層保險，避免任何其他沒預期到的例外（不管來自
       // unlock() 還是別的地方）沒被接住，導致後面「失敗了切回開頭畫面」的程式碼被跳過、
@@ -341,37 +325,11 @@ export default function SpeedrunPage() {
       setError('開始挑戰失敗，請再試一次');
       setPhase('intro');
     } finally {
-      // 只有「自己仍然是目前這一輪嘗試」才把鎖解開——如果世代編號已經被更新的嘗試取代，
-      // 代表已經有另一次呼叫接手了，不能把它正在使用中的鎖解開，那樣反而會讓「舊嘗試的
-      // finally」錯誤地讓「新嘗試」看起來像沒有任何嘗試在進行中。
-      if (startAttemptRef.current === myAttempt) {
-        startAttemptRef.current = 0;
-      }
+      // 不管成功、失敗、還是中途因為沒填暱稱提早 return，都要把鎖解開，
+      // 讓使用者修正問題（例如補填暱稱）之後可以正常重新點擊開始。
+      startingRef.current = false;
     }
   }
-
-  // handleStart 每次 render 都是全新的函式（讀取當下最新的 displayName 等 state），
-  // 但下面那個監聽 visibilitychange 的 effect 只在掛載時註冊一次，直接在裡面呼叫
-  // handleStart 會抓到掛載當下那個「舊」版本（closure 裡的 displayName 可能還是空字串），
-  // 用這個 ref 讓每次 render 都保持指向最新版本，effect 裡改成呼叫 handleStartRef.current(...)。
-  const handleStartRef = useRef(handleStart);
-  handleStartRef.current = handleStart;
-
-  // 監聽分頁從背景切回前景：跟上面那個處理「等待音樂播放卡住」的 visibilitychange effect
-  // 同樣的根因（見上面的完整說明），這裡處理的是「開始挑戰」本身卡在 loading 畫面的情況——
-  // unlock() 或 /api/speedrun/start 這個請求本身卡住，不像等待音樂播放那樣有明確的
-  // waitingForAudioStartedAtRef 可以直接標記「結束等待」，唯一能做的是放棄這次卡住的嘗試、
-  // 重新完整跑一次 handleStart（見該函式內世代編號機制的說明，確保舊的卡住嘗試將來
-  // 萬一真的跑完了，也不會用過期的結果蓋掉這次重新嘗試的畫面）。
-  useEffect(() => {
-    function handleVisibilityChange() {
-      if (document.visibilityState !== 'visible') return;
-      if (phase !== 'loading') return;
-      handleStartRef.current(true);
-    }
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [phase]);
 
   async function handleChoiceClick(songId: string) {
     // answering 這個「有請求正在處理中」的鎖，是修正「非常快速連續點擊會跳回開頭畫面，
@@ -527,7 +485,7 @@ export default function SpeedrunPage() {
             style={inputStyle}
           />
           {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem', textAlign: 'center' }}>{error}</p>}
-          <motion.button whileTap={{ scale: 0.97 }} onClick={() => handleStart()} style={buttonStyle}>
+          <motion.button whileTap={{ scale: 0.97 }} onClick={handleStart} style={buttonStyle}>
             開始挑戰
           </motion.button>
           <motion.button whileTap={{ scale: 0.97 }} onClick={loadIntroLeaderboard} style={secondaryButtonStyle}>
