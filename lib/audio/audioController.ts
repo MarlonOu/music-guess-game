@@ -339,16 +339,31 @@ export class AudioController {
     if (this.unlocked) return;
     console.log('[AudioController] unlock() 開始');
     try {
+      // 先完全做完 Apple/原生 <audio> 這端的解鎖、確定結束了，才開始 YouTube 那端——
+      // 這是修正一個實際發生過、花了很多輪才抓到的問題：先前這裡讓兩端「同時」進行
+      // （Apple 端的 audio.play() 先觸發但不立刻等待，YouTube 那整套解鎖動作先做完才
+      // 回頭等 Apple 端），從實際麵包屑記錄清楚看到：YouTube 端先搶到自動播放授權、
+      // 順利完成，Apple 端的 audio.play() 卻整整卡住 20 秒沒有任何動靜，直到使用者
+      // 切換 App 才解開——這代表手機瀏覽器的自動播放授權很可能是「同一次使用者手勢
+      // 只能核發一次」，兩端同時搶用會讓其中一端卡在不上不下的狀態，既不成功也不失敗，
+      // 連 catch 都接不到（因為它根本沒有 reject，只是永遠不 settle）。改成完全依序：
+      // Apple 端先完整做完、確定結束（也補上逾時保護，避免它自己卡住拖累整個流程），
+      // 才開始 YouTube 那端，兩邊各自拿到「乾淨」的手勢機會，不會互相搶奪、互相卡住。
       const audio = this.ensureAudioElement();
       audio.muted = true;
       audio.src = SILENT_AUDIO_DATA_URI;
-      const appleUnlockPromise = audio
-        .play()
-        .then(() => audio.pause())
-        .catch(() => {
-          // Apple 這端解鎖失敗不影響 YouTube 那端繼續嘗試，兩邊各自獨立、互不阻擋
-        });
-      console.log('[AudioController] unlock() Apple 端已觸發，準備呼叫 ensurePlayer()');
+      console.log('[AudioController] unlock() 開始等待 Apple 端 audio.play()（最多 4 秒）');
+      await Promise.race([
+        audio
+          .play()
+          .then(() => audio.pause())
+          .catch(() => {
+            // 靜默失敗即可，之後實際播放時會重試
+          }),
+        new Promise<void>((resolve) => setTimeout(resolve, 4000)),
+      ]);
+      audio.muted = false;
+      console.log('[AudioController] unlock() Apple 端已結束，開始 YouTube 端');
 
       // 這裡不需要拿到 player 實例本身，全部透過 safeCallPlayer 呼叫（統一防呆，見該方法說明），
       // ensurePlayer() 純粹是確保播放器已經初始化完成。
@@ -390,9 +405,7 @@ export class AudioController {
       this.safeCallPlayer('stopVideo');
       this.safeCallPlayer('unMute');
       this.safeCallPlayer('setVolume', 100);
-      audio.muted = false;
 
-      await appleUnlockPromise;
       this.unlocked = true;
       console.log('[AudioController] unlock() 完成');
     } catch (err) {
