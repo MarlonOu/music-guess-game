@@ -57,6 +57,16 @@ model Song {
   appleMusicSkip Boolean @default(false) @map("apple_music_skip")
   /// 同上，但是給 Deezer 用（scripts/fetch-deezer-previews.mjs）
   deezerSkip     Boolean @default(false) @map("deezer_skip")
+  /// 管理者已經人工核對過「這首歌目前的 Apple Music 來源就是正確的版本」（例如自動比對
+  /// 原本抓錯成翻唱版/remix，管理者手動改成正確的 URL），批次腳本用 --force 重新整理
+  /// 過期試聽網址時要跳過這首歌，不能重新搜尋覆蓋——這跟 appleMusicSkip 是互補但不同的
+  /// 概念：skip 是「確認這裡沒有來源」，verified 是「確認這裡的來源是對的」。沒有這個
+  /// 獨立旗標的話，appleMusicPreviewUrl 有值這件事沒辦法分辨「自動比對出來、可能哪天
+  /// 網址過期了值得用 --force 重新搜尋看看」，跟「管理者已經人工核對修正過，重新搜尋
+  /// 反而有風險把它蓋回原本錯誤的自動比對結果」——兩者存起來長得一模一樣。
+  appleMusicVerified Boolean @default(false) @map("apple_music_verified")
+  /// 同上，但是給 Deezer 用
+  deezerVerified     Boolean @default(false) @map("deezer_verified")
   /// 這首歌其他也算答對的說法（別名清單），用來處理「歌名有多種常見叫法」的情況——
   /// 最典型的是中英合併標題（例如官方標題是「好好（想把你寫成一首歌）」，但玩家平常
   /// 都簡稱「好好」）、純英文譯名、常見暱稱、繁簡體差異等。跟 title 本身平行比對，

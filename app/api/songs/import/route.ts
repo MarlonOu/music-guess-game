@@ -104,9 +104,11 @@ export async function POST(request: NextRequest) {
       const appleMusicTrackId = (row.appleMusicTrackId ?? '').trim();
       const appleMusicPreviewUrl = (row.appleMusicPreviewUrl ?? '').trim();
       const appleMusicSkip = (row.appleMusicSkip ?? '').trim().toLowerCase() === 'true';
+      const appleMusicVerified = (row.appleMusicVerified ?? '').trim().toLowerCase() === 'true';
       const deezerTrackId = (row.deezerTrackId ?? '').trim();
       const deezerPreviewUrl = (row.deezerPreviewUrl ?? '').trim();
       const deezerSkip = (row.deezerSkip ?? '').trim().toLowerCase() === 'true';
+      const deezerVerified = (row.deezerVerified ?? '').trim().toLowerCase() === 'true';
       const durationSec = Number(row.durationSec) || 0;
       const lyrics = row.lyrics ?? '';
       const themesCell = row.themes ?? '';
@@ -165,6 +167,8 @@ export async function POST(request: NextRequest) {
               // 不然這個「已確認沒有來源」的標記本身也會被匯入悄悄蓋掉、失去作用。
               appleMusicSkip,
               deezerSkip,
+              appleMusicVerified,
+              deezerVerified,
               aliases,
               themes: { deleteMany: {}, create: themeIds.map((themeId) => ({ themeId })) },
             },
@@ -199,6 +203,8 @@ export async function POST(request: NextRequest) {
             deezerPreviewUrl: deezerPreviewUrl || null,
             appleMusicSkip,
             deezerSkip,
+            appleMusicVerified,
+            deezerVerified,
             aliases,
             durationSec,
             lyrics,

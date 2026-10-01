@@ -17,6 +17,14 @@
  *   未勾選。這兩欄存在的理由：appleMusicPreviewUrl／deezerPreviewUrl 留空這件事本身沒辦法
  *   分辨「還沒查過」跟「查過了、確認沒有、管理者刻意留空」，兩者存起來長得一模一樣，
  *   沒有這個獨立標記的話，重新跑一次批次腳本就會把管理者刻意清空的欄位又填回錯誤的比對結果。
+ * - appleMusicVerified／deezerVerified 是跟上面兩個「互補」但不同的標記：「管理者已經人工
+ *   核對過，目前這個來源就是正確版本」（例如自動比對原本抓到翻唱版/remix，管理者手動改成
+ *   正確的網址），值為 "true" 才算勾選。這兩欄存在的理由：批次腳本有個 --force 參數可以
+ *   重新搜尋、刷新「已經有值、但可能因為時間久了失效過期」的試聽網址（Apple/Deezer 的
+ *   試聽網址都是有時效性的簽章網址，不是永久有效）——但如果某首歌的來源是管理者手動
+ *   核對修正過的，--force 重新搜尋反而有風險把它蓋回原本錯誤的自動比對結果，因為搜尋演算法
+ *   沒有變，多半還是會找到同一個「最佳匹配」，也就是原本那個錯的。標記為已核對的歌曲，
+ *   --force 也一律跳過，不去動它。
  * - aliases 是「這首歌其他也算答對的說法」（別名清單），用來處理歌名有多種常見叫法的情況
  *   （中英合併標題的簡稱、純英文譯名、常見暱稱、繁簡體差異等），見
  *   lib/engine/answerUtils.ts 的比對邏輯說明。多筆別名用「;」分隔，跟 themes 欄位一樣。
@@ -30,9 +38,11 @@ export const SONG_CSV_COLUMNS = [
   'appleMusicTrackId',
   'appleMusicPreviewUrl',
   'appleMusicSkip',
+  'appleMusicVerified',
   'deezerTrackId',
   'deezerPreviewUrl',
   'deezerSkip',
+  'deezerVerified',
   'durationSec',
   'themes',
   'lyrics',
@@ -46,9 +56,11 @@ export type SongCsvRow = {
   appleMusicTrackId: string;
   appleMusicPreviewUrl: string;
   appleMusicSkip: string;
+  appleMusicVerified: string;
   deezerTrackId: string;
   deezerPreviewUrl: string;
   deezerSkip: string;
+  deezerVerified: string;
   durationSec: string;
   themes: string;
   lyrics: string;

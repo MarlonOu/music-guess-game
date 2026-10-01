@@ -1261,9 +1261,11 @@ interface SongFormState {
   appleMusicTrackId: string;
   appleMusicPreviewUrl: string;
   appleMusicSkip: boolean;
+  appleMusicVerified: boolean;
   deezerTrackId: string;
   deezerPreviewUrl: string;
   deezerSkip: boolean;
+  deezerVerified: boolean;
   aliases: string[];
   durationSec: string;
   lyrics: string;
@@ -1277,9 +1279,11 @@ const EMPTY_SONG_FORM: SongFormState = {
   appleMusicTrackId: '',
   appleMusicPreviewUrl: '',
   appleMusicSkip: false,
+  appleMusicVerified: false,
   deezerTrackId: '',
   deezerPreviewUrl: '',
   deezerSkip: false,
+  deezerVerified: false,
   aliases: [],
   durationSec: '',
   lyrics: '',
@@ -1350,11 +1354,13 @@ function ImportExportBar({
         <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleFileChange} style={{ display: 'none' }} />
         <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
           欄位：title, artist, aliases（其他也算答對的說法，用 ; 分隔多個，選填）, youtubeVideoId,
-          appleMusicTrackId, appleMusicPreviewUrl, appleMusicSkip, deezerTrackId, deezerPreviewUrl,
-          deezerSkip, durationSec, themes（用 ; 分隔多個）, lyrics。
+          appleMusicTrackId, appleMusicPreviewUrl, appleMusicSkip, appleMusicVerified, deezerTrackId,
+          deezerPreviewUrl, deezerSkip, deezerVerified, durationSec, themes（用 ; 分隔多個）, lyrics。
           youtubeVideoId／appleMusicPreviewUrl／deezerPreviewUrl 至少要有一欄有值。
-          appleMusicSkip／deezerSkip 填 true 代表「已確認這個平台找不到，批次腳本不要再自動搜尋」，
-          其餘值都當作未勾選。其中一個來源對到既有資料會被更新；都對不上、但歌名＋歌手都相符時視為重複，會略過不匯入。
+          appleMusicSkip／deezerSkip 填 true 代表「已確認這個平台找不到，批次腳本不要再自動搜尋」；
+          appleMusicVerified／deezerVerified 填 true 代表「已人工核對過這個來源是正確的，批次腳本
+          --force 重新整理過期網址時也要跳過，不要覆蓋」。其餘值都當作未勾選。
+          其中一個來源對到既有資料會被更新；都對不上、但歌名＋歌手都相符時視為重複，會略過不匯入。
         </span>
       </div>
 
@@ -1713,9 +1719,14 @@ function SongForm({
           // 剛從搜尋結果選了一筆新的來源，代表管理者已經找到真正的來源了，
           // 之前設定的「已確認沒有」標記就不該再成立，自動清掉；沒有選新結果的話維持原值。
           appleMusicSkip: applePrefill ? false : editing.appleMusicSkip,
+          // 同理，剛選的這筆是從搜尋結果挑的（不是管理者專程人工核對過的），之前的「已人工核對」
+          // 標記是對應到「原本那個網址」，不該自動沿用到這個新選的網址上，要管理者自己重新確認、
+          // 重新勾選才算數——避免「verified」這個標記被誤套用到一個其實還沒人工核對過的新網址。
+          appleMusicVerified: applePrefill ? false : editing.appleMusicVerified,
           deezerTrackId: deezerPrefill?.trackId ?? editing.deezerTrackId ?? '',
           deezerPreviewUrl: deezerPrefill?.previewUrl ?? editing.deezerPreviewUrl ?? '',
           deezerSkip: deezerPrefill ? false : editing.deezerSkip,
+          deezerVerified: deezerPrefill ? false : editing.deezerVerified,
           aliases: editing.aliases,
           durationSec: String(
             prefill?.durationSec ?? applePrefill?.durationSec ?? deezerPrefill?.durationSec ?? editing.durationSec
@@ -1859,9 +1870,11 @@ function SongForm({
       appleMusicTrackId,
       appleMusicPreviewUrl,
       appleMusicSkip: form.appleMusicSkip,
+      appleMusicVerified: form.appleMusicVerified,
       deezerTrackId,
       deezerPreviewUrl,
       deezerSkip: form.deezerSkip,
+      deezerVerified: form.deezerVerified,
       aliases: form.aliases,
       durationSec,
       lyrics: form.lyrics,
@@ -1985,6 +1998,14 @@ function SongForm({
           />
           已確認 Apple Music 上真的找不到這首歌（不要讓批次腳本再自動搜尋補上）
         </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+          <input
+            type="checkbox"
+            checked={form.appleMusicVerified}
+            onChange={(e) => setForm((f) => ({ ...f, appleMusicVerified: e.target.checked }))}
+          />
+          已人工核對過，這個 Apple Music 來源就是正確版本（批次腳本用 --force 重新整理過期網址時跳過這首歌）
+        </label>
 
         <input
           value={form.deezerPreviewUrl}
@@ -1999,6 +2020,14 @@ function SongForm({
             onChange={(e) => setForm((f) => ({ ...f, deezerSkip: e.target.checked }))}
           />
           已確認 Deezer 上真的找不到這首歌（不要讓批次腳本再自動搜尋補上）
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+          <input
+            type="checkbox"
+            checked={form.deezerVerified}
+            onChange={(e) => setForm((f) => ({ ...f, deezerVerified: e.target.checked }))}
+          />
+          已人工核對過，這個 Deezer 來源就是正確版本（批次腳本用 --force 重新整理過期網址時跳過這首歌）
         </label>
 
         <button

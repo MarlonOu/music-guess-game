@@ -19,6 +19,11 @@ export interface Song {
   appleMusicSkip: boolean;
   /** 同上，給 Deezer 用 */
   deezerSkip: boolean;
+  /** 管理者已人工核對過目前的 Apple Music 來源就是正確版本，批次腳本 --force 重新整理過期
+   *  網址時要跳過這首歌，不能重新搜尋覆蓋（見 lib/csv/songCsv.ts 的完整說明） */
+  appleMusicVerified: boolean;
+  /** 同上，給 Deezer 用 */
+  deezerVerified: boolean;
   /** 這首歌其他也算答對的說法（別名清單），見 lib/engine/answerUtils.ts 的比對邏輯說明 */
   aliases: string[];
   durationSec: number;

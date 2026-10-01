@@ -23,9 +23,11 @@ export async function GET() {
       appleMusicTrackId: string | null;
       appleMusicPreviewUrl: string | null;
       appleMusicSkip: boolean;
+      appleMusicVerified: boolean;
       deezerTrackId: string | null;
       deezerPreviewUrl: string | null;
       deezerSkip: boolean;
+      deezerVerified: boolean;
       durationSec: number;
       themes: { theme: { name: string } }[];
       lyrics: string;
@@ -37,9 +39,11 @@ export async function GET() {
       appleMusicTrackId: s.appleMusicTrackId ?? '',
       appleMusicPreviewUrl: s.appleMusicPreviewUrl ?? '',
       appleMusicSkip: s.appleMusicSkip ? 'true' : '',
+      appleMusicVerified: s.appleMusicVerified ? 'true' : '',
       deezerTrackId: s.deezerTrackId ?? '',
       deezerPreviewUrl: s.deezerPreviewUrl ?? '',
       deezerSkip: s.deezerSkip ? 'true' : '',
+      deezerVerified: s.deezerVerified ? 'true' : '',
       durationSec: String(s.durationSec),
       themes: s.themes.map((t) => t.theme.name).join(THEME_LIST_SEPARATOR),
       lyrics: s.lyrics,
