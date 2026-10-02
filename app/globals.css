@@ -256,6 +256,70 @@ input:focus-visible {
 }
 
 /*
+  模式選擇列（比賽設定頁）：單選、每個選項附一行說明文字，取代原本「三顆等寬按鈕、
+  只有標籤沒有說明」的版本——原本的版本對新玩家不友善，「前奏猜歌」「隨機片段猜歌」
+  「歌詞猜歌」這幾個名稱本身看不出玩法差異，不先玩過一次根本不知道自己在選什麼。
+  視覺上延續 .btn-toggle 選中狀態的既有語言（邊框金色、底色 bg-raised），
+  不是另外發明一套新的選中樣式，維持整站的選中狀態視覺一致。
+*/
+.mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--groove);
+  background: transparent;
+  text-align: left;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.mode-option:hover {
+  border-color: var(--ink-dim);
+}
+
+.mode-option.is-active {
+  background: var(--bg-raised);
+  border-color: var(--accent);
+}
+
+/* 單選指示圓點，純 CSS 畫出（一個外框圓 + 選中時內部的實心圓），不用原生 radio input——
+   原生 radio 在不同瀏覽器/作業系統上的預設外觀差異很大，很難跟整站深色介面的質感對齊，
+   這裡自己畫一個小圓點，選中狀態用 ::after 的 scale 做出來，而不是切換 display，
+   這樣選中/取消選中之間會有一個短暫的縮放動畫，而不是生硬地瞬間出現/消失。 */
+.mode-option-dot {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s ease;
+}
+
+.mode-option.is-active .mode-option-dot {
+  border-color: var(--accent);
+}
+
+.mode-option-dot::after {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: scale(0);
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.mode-option.is-active .mode-option-dot::after {
+  transform: scale(1);
+}
+
+/*
   選擇題搶答的選項按鈕（線上模式的房間畫面、速通模式共用同一套樣式）——這是「同一種東西」
   出現在兩個不同模式裡，理所當然要長一樣，先前兩邊是各自獨立寫的 inline style，
   連「答對」要用的顏色都不一致（一邊用系統既有的 --success token，另一邊憑空寫了一個

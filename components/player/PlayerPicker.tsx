@@ -140,7 +140,13 @@ export function PlayerPicker({ selected, onChange, onError }: PlayerPickerProps)
           title="從歷史紀錄匯入"
           className="btn btn-ghost"
         >
-          📜
+          {/* 時鐘圖示代表「歷史紀錄」，跟整站其餘圖示一樣用線條 SVG 畫，不用 emoji——
+              emoji 在不同作業系統、不同瀏覽器的字體裡長相差異很大（有些偏可愛、有些偏寫實），
+              沒辦法像自己畫的線條圖示一樣精準控制粗細、顏色跟整體介面語言一致。 */}
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+            <circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M10 6v4l3 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
         </button>
       </form>
 

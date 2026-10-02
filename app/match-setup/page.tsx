@@ -20,12 +20,10 @@ export default function MatchSetupPage() {
         initial={{ opacity: 0, y: -12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: 'easeOut' }}
-        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}
+        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}
       >
-        <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem', letterSpacing: '0.1em' }}>
-          MUSIC GUESS
-        </span>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '1.75rem' }}>建立比賽</h1>
+        <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.75rem' }}>建立比賽</h1>
+        <p style={{ color: 'var(--ink-dim)', fontSize: '0.88rem' }}>選一個模式，挑選題庫，馬上開始</p>
       </motion.header>
 
       <motion.div
