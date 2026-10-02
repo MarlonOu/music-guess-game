@@ -1,16 +1,31 @@
 :root {
-  --bg: #101317;
-  --bg-raised: #171b21;
-  --groove: #232830;
-  --ink: #eef0f2;
-  --ink-dim: #8b93a1;
+  /* 深黑微暖，刻意不是純中性灰黑——像黑膠封套上帶一點點棕調的黑色紙板，
+     跟下面的 --ink（暖白，不是純白）首尾呼應，整組色盤都往「類比、紙本、
+     舊物」那個方向偏，不是螢幕發光般的冷色調中性灰。 */
+  --bg: #0e0f12;
+  --bg-raised: #17181c;
+  /* 字面意義上的「溝紋」：黑膠表面紋路的顏色，用在分隔線、卡片邊框這類
+     結構性的細節上，呼應整體的黑膠隱喻，不是任意選的灰階數值。 */
+  --groove: #26272c;
+  --ink: #f2efe9;
+  --ink-dim: #8a8b93;
   --accent: #e8b93f;
   --accent-ink: #1a1408;
   --success: #3fa78f;
   --error: #d6635a;
-  --font-display: "Space Grotesk", "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
-  --font-body: "Inter", "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+  /* 首頁唱片「中心貼紙」色——三個遊戲模式借用黑膠唱片不同廠牌中心貼紙顏色不同的
+     真實慣例，各自對應一個色調，單機沿用 --accent 本身。數值刻意跟上面的
+     --success／--error 相同（沿用整站既有的色彩語言，不是憑空發明新顏色），
+     但刻意拆成獨立命名的 token，不直接在首頁程式碼裡寫 var(--success)／
+     var(--error)——這兩個字本身帶著「答對／答錯」的語意，直接拿來當「線上模式」
+     「速通模式」的標籤色，會讓之後讀到這段程式碼的人誤以為速通模式的標籤顏色
+     代表某種「錯誤」狀態，語意對不上。獨立命名之後，兩邊各自的語意都維持清楚、
+     不互相污染，視覺結果完全不變。 */
+  --mode-online: var(--success);
+  --mode-speedrun: var(--error);
+  --font-display: var(--font-space-grotesk), "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
+  --font-body: var(--font-inter), "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-ibm-plex-mono), ui-monospace, "SFMono-Regular", monospace;
 }
 
 html {
@@ -295,13 +310,73 @@ input:focus-visible {
   color: var(--ink);
 }
 
-/* 首頁的模式卡片：外框顏色用一般 CSS transition 處理（Framer Motion 對 CSS 變數作為顏色值的
-   動畫插值不可靠，數值型的位移/縮放才交給它），懸停時邊框亮成金色。 */
-.home-mode-card {
-  transition: border-color 0.2s ease;
+/*
+  首頁的曲目列（取代舊版的卡片式設計）。--row-accent 這個自訂屬性由 page.tsx 行內指定，
+  三個模式各自帶入自己的顏色（唱片中心貼紙的隱喻），這裡的規則本身完全共用，顏色差異
+  純粹是資料驅動，不必為三個模式各寫一份幾乎相同的 CSS。
+
+  懸停時用左側冒出一道細色條、搭配編號變色，模擬指針尋軌、停在這一行音軌上方的感覺——
+  是回應使用者游標動作的微互動，不是進場時就播放一次的裝飾性動效，符合「動效只在回應
+  使用者動作時才出現」的原則。色條本身用 ::before 的 transform: scaleY 做出，
+  而不是直接動畫 height，scaleY 走的是合成層、不會觸發重新排版，效能更好。
+
+  同時綁定 :active（不是只有 :hover）——這個遊戲實際上以手機為主要使用情境，觸控裝置
+  沒有「滑鼠停留」這個狀態，只靠 :hover 的話，大多數玩家根本不會看到這個微互動，
+  等於白做了。:active 在手指按下的當下就會觸發，雖然只有短短一瞬間（放開後微互動立刻
+  收回），但至少讓觸控操作也有對應的視覺回饋，不會讓這個細節獨厚滑鼠使用者。
+*/
+.track-row {
+  position: relative;
+  transition: padding-left 0.2s ease;
 }
 
-.home-mode-card:hover,
-.home-mode-card:focus-within {
-  border-color: var(--accent);
+.track-row::before {
+  content: '';
+  position: absolute;
+  left: -14px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--row-accent, var(--accent));
+  transform: scaleY(0);
+  transform-origin: center;
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.track-row:hover,
+.track-row:focus-visible,
+.track-row:active {
+  padding-left: 14px;
+}
+
+.track-row:hover::before,
+.track-row:focus-visible::before,
+.track-row:active::before {
+  transform: scaleY(1);
+}
+
+.track-row:hover .track-row-number,
+.track-row:focus-visible .track-row-number,
+.track-row:active .track-row-number {
+  color: var(--row-accent, var(--accent));
+}
+
+/*
+  全站共用的細微顆粒紋理，蓋在所有頁面最上層（pointer-events: none，不影響操作）。
+  純平面色塊在大面積深色背景下容易出現色帶（banding），尤其是螢幕亮度調整或壓縮
+  的情況下更明顯；這層極低透明度的雜訊可以打散色帶，同時呼應黑膠／類比器材「不是
+  數位般絕對乾淨平滑」的整體質感方向——不是隨意加上的裝飾濾鏡，雜訊紋理跟黑膠唱片
+  表面的實體紋理在概念上是同一件事。透明度刻意壓得很低（2%），肉眼幾乎感覺不到
+  「有一層東西蓋在上面」，只感覺畫面比純色塊更有質地。
+*/
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.025;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
