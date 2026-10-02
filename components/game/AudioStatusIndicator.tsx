@@ -67,10 +67,25 @@ export function AudioStatusIndicator({ status }: { status: AudioPlaybackStatus }
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '1.1rem',
             }}
           >
-            {status === 'error' ? '⚠️' : '✓'}
+            {/* 自畫的線條圖示取代 ⚠️／✓ emoji——理由跟名次徽章一樣，emoji 在不同裝置上
+                粗細、顏色不一致，跟整站線條圖示語言放在一起會顯得突兀。 */}
+            {status === 'error' ? (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M12 9v4.5M12 17h.01M10.6 3.9 2.4 18a1.5 1.5 0 0 0 1.3 2.25h16.6a1.5 1.5 0 0 0 1.3-2.25L13.4 3.9a1.5 1.5 0 0 0-2.8 0Z"
+                  stroke="var(--error)"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            ) : (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                <path d="M5 12.5 10 17.5 19 7" stroke="var(--ink-dim)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
           </span>
         )}
       </div>

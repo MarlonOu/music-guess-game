@@ -9,7 +9,6 @@ import { estimateServerNow } from '../../lib/client/serverClock';
 import type { SpeedrunQuestion, SpeedrunSubmitResponse, SpeedrunLeaderboardEntry } from '../../lib/types/speedrun';
 import { SPEEDRUN_TRANSITION_SEC, SPEEDRUN_AUDIO_WAIT_CAP_MS } from '../../lib/constants/speedrun';
 import { WRONG_ANSWER_LOCKOUT_MS } from '../../lib/constants/choiceMode';
-import { OnScreenConsole } from '../../components/debug/OnScreenConsole';
 
 const QUESTION_COUNT = 10;
 /** 碼表畫面更新頻率；不需要真的到毫秒等級的更新頻率，肉眼看起來夠平滑即可，
@@ -306,7 +305,6 @@ export default function SpeedrunPage() {
     // 的機率——即使真的又點了，上面那個 ref 鎖也會確保不會造成問題。
     setPhase('loading');
     setLoadingTakingAWhile(false);
-    console.log('[handleStart] 開始，audioControllerRef.current 是否存在：', Boolean(audioControllerRef.current));
 
     try {
       // 真正的使用者手勢（按鈕點擊），一定要先等 unlock() 真正跑完才能繼續往下——這是修正
@@ -317,11 +315,9 @@ export default function SpeedrunPage() {
       // 誤把「已經換成真正歌曲」的播放器暫停/停止掉——結果就是解鎖用的影片沒被正確消音、
       // 玩家聽到了不該聽到的東西，第一題（如果來源恰好是 YouTube）反而放不出來。
       await audioControllerRef.current?.unlock();
-      console.log('[handleStart] unlock() 已完成（或沒有播放器實例、直接跳過），準備呼叫 /api/speedrun/start');
 
       setError(null);
       const result = await speedrunRepository.start();
-      console.log('[handleStart] speedrunRepository.start() 已回傳，ok=', result.ok);
       if (!result.ok || !result.data) {
         setError(result.error ?? '開始挑戰失敗');
         setPhase('intro');
@@ -504,15 +500,13 @@ export default function SpeedrunPage() {
         gap: '24px',
       }}
     >
-      <OnScreenConsole />
       <motion.header
         initial={{ opacity: 0, y: -12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: 'easeOut' }}
         style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}
       >
-        <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem', letterSpacing: '0.1em' }}>SPEEDRUN</span>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '1.8rem' }}>速通挑戰</h1>
+        <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.8rem' }}>速通挑戰</h1>
       </motion.header>
 
       {phase === 'intro' && (

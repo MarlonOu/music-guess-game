@@ -111,10 +111,7 @@ function OnlinePageInner() {
         transition={{ duration: 0.4, ease: 'easeOut' }}
         style={{ textAlign: 'center' }}
       >
-        <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem', letterSpacing: '0.1em' }}>
-          MUSIC GUESS · ONLINE
-        </span>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '2rem', marginTop: '8px' }}>線上模式</h1>
+        <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '2rem' }}>線上模式</h1>
       </motion.div>
 
       <AnimatePresence mode="wait">

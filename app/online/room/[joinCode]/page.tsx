@@ -195,9 +195,7 @@ export default function OnlineRoomPage() {
       }}
     >
       <header style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-        <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem', letterSpacing: '0.1em' }}>
-          MUSIC GUESS · ONLINE
-        </span>
+        <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.4rem' }}>線上模式</h1>
         <div
           style={{
             display: 'flex',
@@ -206,6 +204,7 @@ export default function OnlineRoomPage() {
             fontFamily: 'var(--font-mono)',
             fontSize: '1.1rem',
             letterSpacing: '0.15em',
+            color: 'var(--ink-dim)',
           }}
         >
           房號 {room.joinCode}

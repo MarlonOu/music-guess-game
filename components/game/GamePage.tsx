@@ -205,10 +205,7 @@ export function GamePage({ mode, title }: GamePageProps) {
       }}
     >
       <header style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-        <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem', letterSpacing: '0.1em' }}>
-          MUSIC GUESS
-        </span>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '1.75rem' }}>{title}</h1>
+        <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.75rem' }}>{title}</h1>
       </header>
 
       {loadError && <p style={{ color: 'var(--error)' }}>{loadError}</p>}
@@ -377,16 +374,45 @@ function ScoreStrip({
   );
 }
 
-const MEDALS = ['🥇', '🥈', '🥉'];
+/**
+ * 名次徽章：用實心圓圈＋名次數字取代先前的 🥇🥈🥉 emoji——emoji 獎牌在不同作業系統、
+ * 不同瀏覽器字體裡粗細、顏色、甚至造型都不一樣（有些是扁平色塊、有些帶立體漸層），
+ * 跟整站自己畫的線條圖示放在一起會顯得突兀；自畫的徽章能確實控制視覺重量，
+ * 讓「第一名」在畫面上真的感覺得出來是這整場比賽最隆重的一刻，不是隨手套用的表情符號。
+ * 第一名用金色實心圈＋深色數字（視覺權重最高），其餘名次用描邊圈，名次間的視覺落差
+ * 刻意拉開，呼應頒獎台「金牌最顯眼、其餘陪襯」的直覺。
+ */
+function RankBadge({ rank }: { rank: number }) {
+  const isFirst = rank === 1;
+  return (
+    <span
+      style={{
+        flexShrink: 0,
+        width: '32px',
+        height: '32px',
+        borderRadius: '50%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontFamily: 'var(--font-mono)',
+        fontWeight: 700,
+        fontSize: '0.95rem',
+        background: isFirst ? 'var(--accent)' : 'transparent',
+        color: isFirst ? 'var(--accent-ink)' : 'var(--ink-dim)',
+        border: isFirst ? 'none' : '1.5px solid var(--groove)',
+      }}
+    >
+      {rank}
+    </span>
+  );
+}
 
 function ScoreBoard({ players, scores }: { players: PlayerProfile[]; scores: Record<string, number> }) {
   const ranked = [...players].sort((a, b) => (scores[b.id] ?? 0) - (scores[a.id] ?? 0));
   const topScore = ranked[0] ? scores[ranked[0].id] ?? 0 : 0;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', maxWidth: '360px' }}>
-      <p style={{ textAlign: 'center', color: 'var(--ink-dim)', fontSize: '0.85rem', letterSpacing: '0.1em' }}>
-        最終戰績
-      </p>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', maxWidth: '360px' }}>
+      <p style={{ textAlign: 'center', color: 'var(--ink-dim)', fontSize: '0.9rem' }}>最終戰績</p>
       <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {ranked.map((p, i) => {
           const score = scores[p.id] ?? 0;
@@ -402,13 +428,10 @@ function ScoreBoard({ players, scores }: { players: PlayerProfile[]; scores: Rec
                 borderRadius: '14px',
                 border: isTopScore ? '1px solid var(--accent)' : '1px solid var(--groove)',
                 background: isTopScore ? 'var(--bg-raised)' : 'transparent',
-                boxShadow: isTopScore ? '0 0 0 1px var(--accent) inset' : 'none',
               }}
             >
-              <span style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.05rem' }}>
-                <span style={{ width: '28px', textAlign: 'center', fontSize: '1.2rem' }}>
-                  {MEDALS[i] ?? `${i + 1}`}
-                </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '1.05rem' }}>
+                <RankBadge rank={i + 1} />
                 {p.displayName}
               </span>
               <span

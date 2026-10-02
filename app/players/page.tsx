@@ -94,10 +94,7 @@ export default function PlayersPage() {
         transition={{ duration: 0.4, ease: 'easeOut' }}
         style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}
       >
-        <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem', letterSpacing: '0.1em' }}>
-          MUSIC GUESS
-        </span>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '1.75rem' }}>對戰人別管理</h1>
+        <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.75rem' }}>對戰人別管理</h1>
       </motion.header>
 
       {error && <p style={{ color: 'var(--error)' }}>{error}</p>}
