@@ -325,7 +325,17 @@ input:focus-visible {
   連「答對」要用的顏色都不一致（一邊用系統既有的 --success token，另一邊憑空寫了一個
   沒在任何地方定義過的綠色），這裡統一收斂成一份。
 */
+/*
+  選擇題按鈕的答對／答錯回饋——這是整場遊戲裡發生頻率最高的互動（每一題都會點一次），
+  原本只靠邊框跟底色的顏色變化，沒有任何動作，也完全只靠顏色傳達「對/錯」這件事
+  （色盲或色弱的玩家會判斷不出來，這本身也是一個該修的無障礙缺口）。這裡補上：
+  1. 答對／答錯各自的動作回饋（答對一個小小的彈跳、答錯一個左右搖晃)——不是裝飾性的
+     進場動畫，是直接回應「使用者剛剛點了這個」這個動作的結果，時機精準對應。
+  2. 按鈕右上角補一個小圖示徽章（打勾／打叉），不是只靠顏色，色盲/色弱的玩家也能
+     透過圖形形狀分辨對錯，不會因為看不出紅綠色差異而不知道自己答得如何。
+*/
 .choice-btn {
+  position: relative;
   padding: 15px 12px;
   border-radius: 11px;
   border: 1px solid var(--groove);
@@ -350,12 +360,89 @@ input:focus-visible {
   border-color: var(--success);
   background: rgba(63, 167, 143, 0.16);
   opacity: 1;
+  animation: choice-correct-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .choice-btn.is-wrong {
   border-color: var(--error);
   background: rgba(214, 99, 90, 0.12);
   opacity: 1;
+  animation: choice-wrong-shake 0.4s ease;
+}
+
+.choice-btn-badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 徽章進場用跟按鈕本身不同步的小縮放動畫，比按鈕彈跳晚一拍出現，產生「按鈕先反應、
+     判定結果才跟著蓋章」的兩段式節奏，而不是所有東西同時一次性地冒出來。 */
+  animation: choice-badge-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s backwards;
+}
+
+.choice-btn-badge.is-correct {
+  background: var(--success);
+}
+
+.choice-btn-badge.is-wrong {
+  background: var(--error);
+}
+
+@keyframes choice-correct-pop {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.055);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes choice-wrong-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-6px);
+  }
+  40% {
+    transform: translateX(5px);
+  }
+  60% {
+    transform: translateX(-3px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+@keyframes choice-badge-pop {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* 使用者偏好減少動態效果時，答對/答錯的回饋只留顏色跟徽章本身，不要播放彈跳/搖晃
+   這類位移動畫——這跟整站其他地方對 prefers-reduced-motion 的處理原則一致。 */
+@media (prefers-reduced-motion: reduce) {
+  .choice-btn.is-correct,
+  .choice-btn.is-wrong,
+  .choice-btn-badge {
+    animation: none;
+  }
 }
 
 /* 純文字型的按鈕（看起來像 <Link> 的次要文字連結，例如「離開房間」），沒有邊框／底色，

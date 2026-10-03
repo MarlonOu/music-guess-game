@@ -768,10 +768,27 @@ function ChoiceButtons({
               disabled={answering || locked}
               className={`choice-btn ${feedbackClass}`}
               whileTap={{ scale: 0.95 }}
-              animate={feedback?.correct ? { scale: [1, 1.06, 1] } : undefined}
-              transition={{ duration: 0.3 }}
             >
               {choice.title}
+              {/* 答對／答錯的彈跳、搖晃動畫交給 CSS（.choice-btn.is-correct／.is-wrong，
+                  見 app/globals.css），這裡不再額外用 Framer Motion 的 animate 疊加一次
+                  幾乎一樣的縮放效果——同一個按鈕同時被兩套動畫系統控制同一個屬性，
+                  容易出現時序對不齊、互相打架的狀況，統一交給其中一套處理就好。
+                  圖示徽章不只是裝飾：色盲/色弱的玩家不能只靠顏色判斷這題對不對，
+                  打勾／打叉的形狀才是真正可靠的判斷依據。 */}
+              {feedback && (
+                <span className={`choice-btn-badge ${feedback.correct ? 'is-correct' : 'is-wrong'}`} aria-hidden="true">
+                  {feedback.correct ? (
+                    <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+                      <path d="M2.5 6.5 5 9l4.5-5.5" stroke="var(--ink)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  ) : (
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                      <path d="M3 3l6 6M9 3l-6 6" stroke="var(--ink)" strokeWidth="1.8" strokeLinecap="round" />
+                    </svg>
+                  )}
+                </span>
+              )}
             </motion.button>
           );
         })}

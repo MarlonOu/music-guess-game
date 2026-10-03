@@ -624,6 +624,17 @@ export default function SpeedrunPage() {
                   whileTap={{ scale: 0.95 }}
                 >
                   {choice.title}
+                  {/* 答對這一題會立刻整個切換到換題畫面，按鈕本身沒有可見的停留時間可以
+                      顯示「對」的回饋，所以這裡只在答錯時補圖示徽章——答錯會鎖定 2 秒
+                      （見上面 WRONG_ANSWER_LOCKOUT_MS），這段時間足夠讓搖晃動畫跟圖示
+                      徽章被玩家看清楚，不是靠顏色單獨傳達「這題選錯了」。 */}
+                  {isWrongPick && (
+                    <span className="choice-btn-badge is-wrong" aria-hidden="true">
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M3 3l6 6M9 3l-6 6" stroke="var(--ink)" strokeWidth="1.8" strokeLinecap="round" />
+                      </svg>
+                    </span>
+                  )}
                 </motion.button>
               );
             })}
