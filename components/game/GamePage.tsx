@@ -305,28 +305,47 @@ export function GamePage({ mode, title }: GamePageProps) {
  * 混淆——這跟最終戰績畫面的名次徽章是同一個解法：用「形狀」而不是單靠「數值」
  * 承載意義。
  */
-function PlayerIdentity({ name }: { name: string }) {
-  const initial = name.trim().charAt(0) || '?';
+/**
+ * 給玩家身分色點用的固定色盤——刻意跟 --accent／--success／--error 這幾個已經有
+ * 特定語意的顏色（分數本身、線上/速通模式識別）區隔開，避免玩家色點跟別處的顏色
+ * 語意互相干擾。六個顏色彼此飽和度/明度相近，排在一起不會有誰特別搶眼的問題。
+ */
+const PLAYER_DOT_PALETTE = ['#6B9BD1', '#B98DD6', '#6FBF8E', '#E89659', '#D685A8', '#7FC5C9'];
+
+function playerDotColor(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  return PLAYER_DOT_PALETTE[hash % PLAYER_DOT_PALETTE.length];
+}
+
+/**
+ * 玩家識別標籤：姓名前面加一個純色點，不放任何文字。
+ *
+ * 這是這次重構實際要解決的問題：先前計分畫面只靠「文字」跟「字級大小」區分姓名跟分數，
+ * 玩家為了測試方便常常直接把姓名輸入成「1」「2」「3」這種單一數字，一旦姓名本身也是數字，
+ * 一整排「姓名、分數、加減按鈕」看起來就是好幾個意義不明的數字混在一起，沒辦法一眼
+ * 分辨哪個是誰、哪個是分數。
+ *
+ * 色點裡原本放姓名的第一個字，但這樣一來，如果姓名本身剛好只有一個字（例如就是
+ * 「1」這種單一數字姓名，測試時很常見），色點裡的字會跟旁邊完整姓名的文字一模一樣，
+ * 畫面上變成「1 1」這種看起來像打字重複的結果，反而製造新的困惑。色點本身的用途
+ * 只是給身分一個獨立的視覺容器，不需要、也不該重複姓名的內容——改成純色、不放文字，
+ * 顏色依玩家 id 算出來（同一位玩家在整場遊戲、不管在即時計分還是最終戰績，色點顏色
+ * 都會維持一致，方便玩家用顏色追蹤「這個是我」），不管姓名長什麼樣都不會有重複問題。
+ */
+function PlayerIdentity({ id, name }: { id: string; name: string }) {
   return (
-    <span style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0 }}>
+    <span style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
       <span
         aria-hidden="true"
         style={{
           flexShrink: 0,
-          width: '20px',
-          height: '20px',
+          width: '10px',
+          height: '10px',
           borderRadius: '50%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: 'var(--groove)',
-          color: 'var(--ink-dim)',
-          fontSize: '0.68rem',
-          fontWeight: 600,
+          background: playerDotColor(id),
         }}
-      >
-        {initial}
-      </span>
+      />
       <span style={{ fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {name}
       </span>
@@ -369,7 +388,7 @@ function ScoreStrip({
             background: 'var(--bg-raised)',
           }}
         >
-          <PlayerIdentity name={p.displayName} />
+          <PlayerIdentity id={p.id} name={p.displayName} />
           <span
             style={{
               fontFamily: 'var(--font-mono)',
@@ -482,7 +501,7 @@ function ScoreBoard({ players, scores }: { players: PlayerProfile[]; scores: Rec
             >
               <span style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
                 <RankBadge rank={i + 1} />
-                <PlayerIdentity name={p.displayName} />
+                <PlayerIdentity id={p.id} name={p.displayName} />
               </span>
               <span
                 style={{
