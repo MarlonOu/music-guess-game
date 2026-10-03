@@ -4,22 +4,20 @@ import { useEffect, useState } from 'react';
 import type { PlayerProfile } from '../../lib/types/player';
 import type { Artist, Theme } from '../../lib/types/theme';
 import type { GameMode } from '../../lib/types/match';
+import { SELECTABLE_GAME_MODES } from '../../lib/constants/gameMode';
 import { songRepository } from '../../lib/repository/songRepository';
 import { ArtistFilter } from '../filter/ArtistFilter';
 import { ThemeFilter } from '../filter/ThemeFilter';
 import { PlayerPicker } from '../player/PlayerPicker';
 
-/*
-  每個模式附一行具體的玩法說明——這是這次重構實質補上的東西，不只是外觀調整：
-  原本三個模式只有名稱（前奏猜歌／隨機片段猜歌／歌詞猜歌），沒玩過一次根本看不出
-  彼此的差異，新玩家只能用猜的。說明文字刻意具體到「會播放什麼」「會不會出聲」
-  這種玩家實際會在意的差異，不是空泛的宣傳詞。
-*/
-const MODES: { code: GameMode; label: string; path: string; desc: string }[] = [
-  { code: 'INTRO', label: '前奏猜歌', path: '/intro', desc: '從頭播放指定秒數，考驗對前奏的記憶' },
-  { code: 'RANDOM_CLIP', label: '隨機片段猜歌', path: '/random-clip', desc: '隨機截取一段，副歌、主歌都可能出現' },
-  { code: 'LYRIC_LINE', label: '歌詞猜歌', path: '/lyric-line', desc: '只顯示一句歌詞文字，不會播放聲音' },
-];
+// 單機模式每個玩法各自對應一個獨立的路由（/intro、/random-clip……），這是線上模式
+// 不需要的東西（線上模式不換頁，只是把 mode 這個值存進房間設定）——玩法名稱／說明文字
+// 本身共用 lib/constants/gameMode.ts，這裡只額外補上單機模式才需要的路徑對應。
+const MODE_PATHS: Record<GameMode, string> = {
+  INTRO: '/intro',
+  RANDOM_CLIP: '/random-clip',
+  LYRIC_LINE: '/lyric-line',
+};
 
 type FilterType = 'artist' | 'theme';
 
@@ -81,7 +79,7 @@ export function MatchSetupForm() {
     else setSelectedArtistIds([]);
   }
 
-  const selectedPath = MODES.find((m) => m.code === mode)!.path;
+  const selectedPath = MODE_PATHS[mode];
   const query = new URLSearchParams();
   if (selectedPlayers.length > 0) query.set('players', selectedPlayers.map((p) => p.id).join(','));
   if (filterType === 'artist' && selectedArtistIds.length > 0) query.set('artists', selectedArtistIds.join(','));
@@ -103,7 +101,7 @@ export function MatchSetupForm() {
       <section style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         <SectionLabel>模式</SectionLabel>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {MODES.map((m) => (
+          {SELECTABLE_GAME_MODES.map((m) => (
             <button
               key={m.code}
               type="button"

@@ -19,12 +19,7 @@ import { RankBadge, PlayerIdentity } from '../../../../components/game/PlayerBad
 import { ArtistFilter } from '../../../../components/filter/ArtistFilter';
 import { ThemeFilter } from '../../../../components/filter/ThemeFilter';
 import { AudioStatusIndicator } from '../../../../components/game/AudioStatusIndicator';
-
-const MODES: { code: GameMode; label: string }[] = [
-  { code: 'INTRO', label: '前奏猜歌' },
-  { code: 'RANDOM_CLIP', label: '隨機片段猜歌' },
-  { code: 'LYRIC_LINE', label: '歌詞猜歌' },
-];
+import { SELECTABLE_GAME_MODES } from '../../../../lib/constants/gameMode';
 
 // 房間狀態輪詢間隔。這是「發現伺服器狀態變了」唯一還剩下的延遲來源——換題本身已經改成
 // 伺服器端答對/流局當下就立刻算好、排定好開始時間（見 lib/server/advanceRound.ts），
@@ -359,7 +354,15 @@ function QrJoinSection({ joinCode }: { joinCode: string }) {
   useEffect(() => {
     if (!open || typeof window === 'undefined') return;
     const joinUrl = `${window.location.origin}/online?join=${joinCode}`;
-    QRCode.toDataURL(joinUrl, { width: 220, margin: 1 })
+    // QR Code 的深淺兩色故意不用函式庫預設的純黑／純白——預設配色是一塊硬生生的白色
+    // 方塊，插在整站深色介面裡會很突兀，像是從別的網站貼過來的圖片。改用跟整站同一組
+    // 色票（金色深色模組、--bg-raised 當底色），對比度依然很高（換算下來超過 10:1，
+    // 遠超過 QR Code 可靠掃描所需的對比），但視覺上屬於這個介面自己的東西，不是外來物。
+    QRCode.toDataURL(joinUrl, {
+      width: 220,
+      margin: 1,
+      color: { dark: '#e8b93f', light: '#17181c' },
+    })
       .then(setDataUrl)
       .catch((err) => setError(err instanceof Error ? err.message : '產生 QR Code 失敗'));
   }, [open, joinCode]);
@@ -370,19 +373,72 @@ function QrJoinSection({ joinCode }: { joinCode: string }) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={`btn btn-toggle btn-sm ${open ? 'is-active' : ''}`}
-        style={{ alignSelf: 'flex-start', borderRadius: '999px' }}
+        style={{ alignSelf: 'flex-start', borderRadius: '999px', display: 'flex', alignItems: 'center', gap: '8px' }}
       >
-        {open ? '收合 QR Code ▲' : '📷 顯示 QR Code 讓朋友掃描加入 ▼'}
+        {/* 自畫的 QR 圖示取代 📷 emoji，理由跟整站其餘圖示一致 */}
+        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <rect x="2" y="2" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
+          <rect x="12" y="2" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
+          <rect x="2" y="12" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
+          <rect x="12.5" y="12.5" width="2" height="2" fill="currentColor" />
+          <rect x="16" y="12.5" width="2" height="2" fill="currentColor" />
+          <rect x="12.5" y="16" width="2" height="2" fill="currentColor" />
+          <rect x="16" y="16" width="2" height="2" fill="currentColor" />
+        </svg>
+        {open ? '收合 QR Code' : '顯示 QR Code 讓朋友掃描加入'}
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 12 12"
+          fill="none"
+          style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }}
+        >
+          <path d="M2.5 4.5 6 8l3.5-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
       </button>
       {open && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', padding: '12px' }}>
-          {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
-          {dataUrl && (
-            // eslint-disable-next-line @next/next/no-img-element -- data URL 是本機即時產生的圖片，不是需要 Next Image 最佳化的外部/靜態資源
-            <img src={dataUrl} alt={`掃描加入房間 ${joinCode}`} width={220} height={220} style={{ borderRadius: '8px' }} />
-          )}
-          <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>掃描後會自動帶入房號，只需要再輸入暱稱</span>
-        </div>
+        // 邀請卡片：QR Code＋房號放在同一張白色系卡片裡，用虛線分隔，模擬「票根」的
+        // 視覺語言——這是一個音樂派對遊戲，邀請朋友加入這個動作本身帶著社交、慶祝的
+        // 性質，值得比「純功能性的 QR Code 圖片」更講究一點的呈現方式。
+        <motion.div
+          initial={{ opacity: 0, scale: 0.96 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            width: 'fit-content',
+            borderRadius: '16px',
+            border: '1px solid var(--groove)',
+            background: 'var(--bg-raised)',
+            overflow: 'hidden',
+          }}
+        >
+          <div style={{ padding: '18px 18px 14px' }}>
+            {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
+            {dataUrl && (
+              // eslint-disable-next-line @next/next/no-img-element -- data URL 是本機即時產生的圖片，不是需要 Next Image 最佳化的外部/靜態資源
+              <img src={dataUrl} alt={`掃描加入房間 ${joinCode}`} width={220} height={220} style={{ display: 'block', borderRadius: '8px' }} />
+            )}
+          </div>
+          <div
+            style={{
+              width: '100%',
+              borderTop: '1px dashed var(--groove)',
+              padding: '12px 18px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '2px',
+            }}
+          >
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', letterSpacing: '0.15em', color: 'var(--accent)' }}>
+              {joinCode}
+            </span>
+            <span style={{ color: 'var(--ink-dim)', fontSize: '0.78rem' }}>掃描後自動帶入房號，只需要再輸入暱稱</span>
+          </div>
+        </motion.div>
       )}
     </section>
   );
@@ -430,7 +486,7 @@ function LobbyView({ room, playerId, isHost, onError, onRoomUpdate }: RoomViewPr
     if (result.data) onRoomUpdate(result.data);
   }
 
-  const modeLabel = MODES.find((m) => m.code === room.mode)?.label ?? room.mode;
+  const modeLabel = SELECTABLE_GAME_MODES.find((m) => m.code === room.mode)?.label ?? room.mode;
   const filterSummary =
     room.artistFilterIds.length > 0
       ? `歌手篩選：${room.artistFilterIds.map((id) => artists.find((a) => a.id === id)?.name ?? id).join('、')}`
@@ -439,40 +495,52 @@ function LobbyView({ room, playerId, isHost, onError, onRoomUpdate }: RoomViewPr
         : '使用全部題庫';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%', maxWidth: '480px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '26px', width: '100%', maxWidth: '480px' }}>
       <section style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>房間內玩家（{room.players.length}）</span>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-          {room.players.map((p) => (
-            <span
-              key={p.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '6px 12px',
-                borderRadius: '999px',
-                border: '1px solid var(--groove)',
-                background: 'var(--bg-raised)',
-                fontSize: '0.9rem',
-              }}
-            >
-              {p.displayName}
-              {/* 自畫的皇冠線條圖示取代 👑 emoji，理由跟整站其餘圖示一致——emoji 在
-                  不同裝置上粗細、顏色、甚至配色都不一樣，跟自己畫的線條圖示語言放在
-                  一起會顯得突兀。 */}
-              {p.id === room.hostPlayerId && (
-                <svg width="13" height="13" viewBox="0 0 20 20" fill="none" aria-label="房主" role="img">
-                  <path
-                    d="M3 15h14l1-8-4.5 3L10 5 6.5 10 2 7l1 8Z"
-                    stroke="var(--accent)"
-                    strokeWidth="1.6"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              )}
-            </span>
-          ))}
+          {/* 用 AnimatePresence 讓新玩家加入時有一個小小的彈入動畫，不是瞬間憑空冒出來——
+              準備室等人進房間本來就是這個畫面最有「現場感」的時刻，有人剛加入時螢幕上
+              冒出一個新名牌，值得一個小回饋，而不是無聲無息地多一個項目。姓名前面的
+              色點（PlayerIdentity，跟計分畫面同一套元件）讓玩家在準備室就先認好「這個
+              顏色是誰」，帶進正式計分畫面時能直接沿用這個印象。 */}
+          <AnimatePresence initial={false}>
+            {room.players.map((p) => (
+              <motion.span
+                key={p.id}
+                layout
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '6px 12px',
+                  borderRadius: '999px',
+                  border: '1px solid var(--groove)',
+                  background: 'var(--bg-raised)',
+                  fontSize: '0.9rem',
+                }}
+              >
+                <PlayerIdentity id={p.id} name={p.displayName} />
+                {/* 自畫的皇冠線條圖示取代 👑 emoji，理由跟整站其餘圖示一致——emoji 在
+                    不同裝置上粗細、顏色、甚至配色都不一樣，跟自己畫的線條圖示語言放在
+                    一起會顯得突兀。 */}
+                {p.id === room.hostPlayerId && (
+                  <svg width="13" height="13" viewBox="0 0 20 20" fill="none" aria-label="房主" role="img">
+                    <path
+                      d="M3 15h14l1-8-4.5 3L10 5 6.5 10 2 7l1 8Z"
+                      stroke="var(--accent)"
+                      strokeWidth="1.6"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
+              </motion.span>
+            ))}
+          </AnimatePresence>
         </div>
       </section>
 
@@ -480,48 +548,67 @@ function LobbyView({ room, playerId, isHost, onError, onRoomUpdate }: RoomViewPr
 
       {isHost ? (
         <>
-          <section style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {/* 跟單機模式的比賽設定表單（components/match/MatchSetupForm.tsx）用同一套
+              「選項附一行說明」的呈現方式（.mode-option，見 app/globals.css），玩家不管
+              從哪個模式進來設定玩法，看到的都是同一套介面語言，不會因為是線上模式
+              就突然變成另一種風格的選單。 */}
+          <section style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>模式</span>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              {MODES.map((m) => (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {SELECTABLE_GAME_MODES.map((m) => (
                 <button
                   key={m.code}
+                  type="button"
                   onClick={() => updateSettings({ mode: m.code })}
-                  className={`btn btn-toggle ${room.mode === m.code ? 'is-active' : ''}`}
-                  style={{ flex: 1 }}
+                  className={`mode-option ${room.mode === m.code ? 'is-active' : ''}`}
+                  aria-pressed={room.mode === m.code}
                 >
-                  {m.label}
+                  <span className="mode-option-dot" aria-hidden="true" />
+                  <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <span style={{ fontWeight: 600 }}>{m.label}</span>
+                    <span style={{ color: 'var(--ink-dim)', fontSize: '0.82rem' }}>{m.desc}</span>
+                  </span>
                 </button>
               ))}
             </div>
           </section>
 
-          <section style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {/* 跟上面模式選單同一套 .mode-option 樣式——說明文字直接放進各自的選項裡，
+              不再是「選完之後才在下面另外冒出一行說明」，玩家選之前就能看到兩種搶答
+              方式的差異，不用先選了才知道自己選的是什麼。 */}
+          <section style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>搶答方式</span>
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <button
+                type="button"
                 onClick={() => updateSettings({ answerMode: 'text' })}
-                className={`btn btn-toggle ${room.answerMode === 'text' ? 'is-active' : ''}`}
-                style={{ flex: 1 }}
+                className={`mode-option ${room.answerMode === 'text' ? 'is-active' : ''}`}
+                aria-pressed={room.answerMode === 'text'}
               >
-                打字搶答
+                <span className="mode-option-dot" aria-hidden="true" />
+                <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <span style={{ fontWeight: 600 }}>打字搶答</span>
+                  <span style={{ color: 'var(--ink-dim)', fontSize: '0.82rem' }}>在聊天室打歌名搶答，第一個答對的人得分</span>
+                </span>
               </button>
               <button
+                type="button"
                 onClick={() => updateSettings({ answerMode: 'choice' })}
-                className={`btn btn-toggle ${room.answerMode === 'choice' ? 'is-active' : ''}`}
-                style={{ flex: 1 }}
+                className={`mode-option ${room.answerMode === 'choice' ? 'is-active' : ''}`}
+                aria-pressed={room.answerMode === 'choice'}
               >
-                選擇題搶答
+                <span className="mode-option-dot" aria-hidden="true" />
+                <span style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <span style={{ fontWeight: 600 }}>選擇題搶答</span>
+                  <span style={{ color: 'var(--ink-dim)', fontSize: '0.82rem' }}>
+                    顯示幾個選項（含干擾選項），第一個點對的人得分，比打字更公平、更防偷查答案
+                  </span>
+                </span>
               </button>
             </div>
-            <p style={{ color: 'var(--ink-dim)', fontSize: '0.78rem' }}>
-              {room.answerMode === 'choice'
-                ? '每題顯示幾個選項（含干擾選項），第一個點對的人得分，比打字搶答更公平、更防偷查答案。'
-                : '在下方聊天室打歌名搶答，第一個答對的人得分。'}
-            </p>
           </section>
 
-          <section style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <section style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>
               題庫篩選方式（歌手／主題擇一，不能同時套用）
             </span>
