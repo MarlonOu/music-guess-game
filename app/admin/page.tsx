@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { Song } from '../../lib/types/song';
 import type { Artist, ArtistGender, Theme } from '../../lib/types/theme';
 import { songRepository, type ImportSummary } from '../../lib/repository/songRepository';
-import { SONG_CSV_COLUMNS } from '../../lib/csv/songCsv';
+import { SONG_CSV_COLUMNS, ALIAS_LIST_SEPARATOR } from '../../lib/csv/songCsv';
 
 const GENDER_OPTIONS: { value: ArtistGender; label: string }[] = [
   { value: 'MALE', label: '男歌手' },
@@ -211,6 +211,45 @@ const editButtonStyle: React.CSSProperties = {
   fontWeight: 500,
 };
 
+/**
+ * 刪除動作的確認按鈕——原本三個刪除動作（歌手／歌曲／主題）都是點了就立刻送出刪除請求，
+ * 沒有任何確認，手滑點到就直接刪掉、沒有回頭路。改成點第一下先在原地展開成「確定要
+ * 刪除「X」嗎？」的確認文字＋兩顆按鈕，要再點一次「確定刪除」才會真的送出，點「取消」
+ * 或點其他地方都能收回——這裡故意不用跳出來的 modal 對話框，而是直接在原本按鈕的位置
+ * 展開，操作起來比較輕量，也不需要處理 modal 常見的焦點鎖定、背景捲動鎖定這些額外複雜度，
+ * 對一個行數不多、单纯要確認「是不是真的要刪」的場景來說已經足夠。
+ */
+function ConfirmDeleteButton({ confirmText, onConfirm }: { confirmText: string; onConfirm: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+
+  if (confirming) {
+    return (
+      <span style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        <span style={{ color: 'var(--error)', fontSize: '0.8rem' }}>{confirmText}</span>
+        <button
+          type="button"
+          onClick={() => {
+            setConfirming(false);
+            onConfirm();
+          }}
+          style={dangerButtonStyle}
+        >
+          確定刪除
+        </button>
+        <button type="button" onClick={() => setConfirming(false)} style={editButtonStyle}>
+          取消
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <button type="button" onClick={() => setConfirming(true)} style={dangerButtonStyle}>
+      刪除
+    </button>
+  );
+}
+
 interface SectionCallbacks {
   onChanged: () => void;
   onError: (msg: string) => void;
@@ -273,8 +312,9 @@ function ArtistSection({
               <button onClick={() => setEditing(a)} style={editButtonStyle}>
                 編輯
               </button>
-              <button
-                onClick={async () => {
+              <ConfirmDeleteButton
+                confirmText={`確定要刪除歌手「${a.name}」嗎？`}
+                onConfirm={async () => {
                   const result = await songRepository.deleteArtist(a.id);
                   if (!result.ok) {
                     onError(result.error ?? '刪除歌手失敗');
@@ -284,10 +324,7 @@ function ArtistSection({
                   if (editing?.id === a.id) setEditing(null);
                   onChanged();
                 }}
-                style={dangerButtonStyle}
-              >
-                刪除
-              </button>
+              />
             </span>
           </li>
         ))}
@@ -452,8 +489,9 @@ function ThemeSection({
                 </span>
               )}
             </span>
-            <button
-              onClick={async () => {
+            <ConfirmDeleteButton
+              confirmText={`確定要刪除主題「${t.name}」嗎？`}
+              onConfirm={async () => {
                 const result = await songRepository.deleteTheme(t.id);
                 if (!result.ok) {
                   onError(result.error ?? '刪除主題失敗');
@@ -462,10 +500,7 @@ function ThemeSection({
                 onNotice('已刪除主題');
                 onChanged();
               }}
-              style={dangerButtonStyle}
-            >
-              刪除
-            </button>
+            />
           </li>
         ))}
       </ul>
@@ -1042,6 +1077,16 @@ interface PlaylistSongResult {
 interface PlaylistRowState extends PlaylistSongResult {
   selected: boolean;
   artistName: string;
+  // 每一列各自的主題——播放清單常常是混雜內容（精選輯、各種歌手/年代混在一起），
+  // 不能假設整份清單都該套用同一個主題，所以主題是跟著每一列單獨存放，不是整個
+  // accordion 共用一個值。下面「套用主題給已勾選匯入的列」這個功能，本質上只是
+  // 「幫目前每一列的 themeIds 設定同一個起始值」，設定完管理者仍然可以對任何一列
+  // 個別勾掉/加上其他主題，兩種操作方式不衝突、是同一份狀態的兩種編輯入口。
+  themeIds: string[];
+  // 這個影片對應的 youtubeVideoId 如果已經存在資料庫裡，代表這首歌先前已經匯入過；
+  // 在匯入前就先標出來，不用等按下「批次匯入」才在結果裡發現「略過重複」，
+  // 也能讓管理者提前決定要不要連這幾首一起取消勾選、不送出重複的匯入請求。
+  alreadyExists: boolean;
 }
 
 /**
@@ -1051,7 +1096,17 @@ interface PlaylistRowState extends PlaylistSongResult {
  * 讓管理者有機會篩選比較安全。實際寫入資料庫的邏輯直接複用既有的 CSV 匯入 API，
  * 不重新實作一套寫入邏輯，避免兩邊行為兜不起來。
  */
-function YouTubePlaylistImportAccordion({ onImported, onNotice }: { onImported: () => void; onNotice: (msg: string) => void }) {
+function YouTubePlaylistImportAccordion({
+  themes,
+  existingSongs,
+  onImported,
+  onNotice,
+}: {
+  themes: Theme[];
+  existingSongs: Song[];
+  onImported: () => void;
+  onNotice: (msg: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState('');
   const [rows, setRows] = useState<PlaylistRowState[]>([]);
@@ -1059,6 +1114,15 @@ function YouTubePlaylistImportAccordion({ onImported, onNotice }: { onImported: 
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
+  // 「快速套用」的暫存選取——這一組主題不是最終答案，只是拿來一次設定目前已勾選匯入
+  // 的每一列各自的 themeIds 起始值（見下面 applyThemesToSelected）。播放清單常常混雜
+  // 內容（精選輯裡有各種歌手、各種年代混在一起），不能假設整份清單都該套用同一個主題，
+  // 所以真正的狀態是存在每一列自己的 themeIds 裡，這裡的 quickApplyThemeIds 只是加速
+  // 設定起始值用的暫存——適合「大部分都一樣，少數幾首不同」的情況：先全部套用一次，
+  // 再對那幾首例外個別調整，不用 50 首都從頭勾一遍。
+  const [quickApplyThemeIds, setQuickApplyThemeIds] = useState<string[]>([]);
+  const themeNameById = new Map(themes.map((t) => [t.id, t.name]));
+  const existingVideoIds = new Set(existingSongs.map((s) => s.youtubeVideoId).filter(Boolean));
 
   async function handleFetch() {
     if (url.trim().length === 0) return;
@@ -1074,12 +1138,20 @@ function YouTubePlaylistImportAccordion({ onImported, onNotice }: { onImported: 
       }
       const results: PlaylistSongResult[] = data.results ?? [];
       setRows(
-        results.map((r) => ({
-          ...r,
-          // 不可用（私人/已刪除）或關閉外部嵌入的項目預設不勾選，避免匯入完全沒辦法在遊戲內播放的歌曲
-          selected: !r.unavailable && r.embeddable,
-          artistName: r.channelTitle,
-        }))
+        results.map((r) => {
+          const alreadyExists = existingVideoIds.has(r.videoId);
+          return {
+            ...r,
+            // 不可用（私人/已刪除）、關閉外部嵌入、或資料庫裡已經有的項目預設不勾選——
+            // 已存在的這首歌再匯入一次只會在批次匯入 API 裡被判定成重複而略過，
+            // 預先幫管理者把這些排除掉，省去「匯入完才在結果列表裡發現某幾首是重複」
+            // 這一輪來回，也不會因為這些已存在的列佔住版面而混淆「真正還沒匯入」的有幾首。
+            selected: !r.unavailable && r.embeddable && !alreadyExists,
+            artistName: r.channelTitle,
+            themeIds: [],
+            alreadyExists,
+          };
+        })
       );
       setTruncated(Boolean(data.truncated));
     } catch (err) {
@@ -1093,6 +1165,26 @@ function YouTubePlaylistImportAccordion({ onImported, onNotice }: { onImported: 
     setRows((prev) => prev.map((r) => ({ ...r, selected: r.unavailable ? false : selected })));
   }
 
+  function toggleRowTheme(idx: number, themeId: string) {
+    setRows((prev) =>
+      prev.map((row, i) => {
+        if (i !== idx) return row;
+        const has = row.themeIds.includes(themeId);
+        return { ...row, themeIds: has ? row.themeIds.filter((id) => id !== themeId) : [...row.themeIds, themeId] };
+      })
+    );
+  }
+
+  // 把目前勾選的 quickApplyThemeIds 設成「所有已勾選匯入的列」的 themeIds 起始值——
+  // 這裡是直接「取代」，不是像已存在歌曲的批次套用那樣用「疊加」：這些列都還只是
+  // 匯入前的暫存狀態、還沒真的寫進資料庫，取代不會弄丟任何已經存在的資料，而且
+  // 「重新點一次快速套用、換個主題組合覆蓋掉剛剛的選擇」本身就該是立即生效、
+  // 所見即所得的操作，不需要像修改既有資料那樣保守。
+  function applyThemesToSelected() {
+    if (quickApplyThemeIds.length === 0) return;
+    setRows((prev) => prev.map((r) => (r.selected ? { ...r, themeIds: [...quickApplyThemeIds] } : r)));
+  }
+
   async function handleImportSelected() {
     const selectedRows = rows.filter((r) => r.selected);
     if (selectedRows.length === 0) return;
@@ -1101,23 +1193,36 @@ function YouTubePlaylistImportAccordion({ onImported, onNotice }: { onImported: 
     try {
       // 直接複用既有的 CSV 匯入 API，不另外實作一套寫入邏輯；用 Papa.unparse 而非手動字串拼接，
       // 正確處理標題／頻道名稱裡可能包含逗號、引號等字元，避免手動拼接 CSV 產生格式錯誤。
+      // 這裡改成用「欄位名稱→值」的物件逐一對應，不再是一個手動對齊 SONG_CSV_COLUMNS
+      // 15 個欄位順序的純陣列——先前那個版本陣列長度（13 個元素）跟欄位數對不上，
+      // r.durationSec 實際落在了 deezerSkip 這個布林欄位的位置，真正的 durationSec
+      // 欄位反而是空的。這個 bug 造成的實際影響：durationSec 空白會讓 RANDOM_CLIP
+      // 模式退回固定 8 秒起播（見 lib/engine/modes/randomClipMode.ts 的防呆邏輯），
+      // 等於「隨機片段猜歌」對所有用播放清單匯入的歌曲，永遠只會從 0 秒開始播，
+      // 完全失去「隨機」這件事——用物件寫法即使之後 SONG_CSV_COLUMNS 的順序調整，
+      // 這裡也不會因為數錯位置又重演同一種 bug。
       const csv = Papa.unparse({
         fields: [...SONG_CSV_COLUMNS],
-        data: selectedRows.map((r) => [
-          r.title,
-          r.artistName.trim() || '(未知歌手)',
-          '',
-          r.videoId,
-          '',
-          '',
-          '',
-          '',
-          '',
-          '',
-          String(r.durationSec),
-          '',
-          '',
-        ]),
+        data: selectedRows.map((r) => {
+          const row: Record<(typeof SONG_CSV_COLUMNS)[number], string> = {
+            title: r.title,
+            artist: r.artistName.trim() || '(未知歌手)',
+            aliases: '',
+            youtubeVideoId: r.videoId,
+            appleMusicTrackId: '',
+            appleMusicPreviewUrl: '',
+            appleMusicSkip: '',
+            appleMusicVerified: '',
+            deezerTrackId: '',
+            deezerPreviewUrl: '',
+            deezerSkip: '',
+            deezerVerified: '',
+            durationSec: String(r.durationSec),
+            themes: r.themeIds.map((id) => themeNameById.get(id)).filter(Boolean).join(ALIAS_LIST_SEPARATOR),
+            lyrics: '',
+          };
+          return SONG_CSV_COLUMNS.map((col) => row[col]);
+        }),
       });
       const result = await songRepository.importSongsCsv(csv);
       if (!result.ok || !result.data) {
@@ -1131,6 +1236,7 @@ function YouTubePlaylistImportAccordion({ onImported, onNotice }: { onImported: 
       onImported();
       setRows([]);
       setUrl('');
+      setQuickApplyThemeIds([]);
     } finally {
       setImporting(false);
     }
@@ -1195,6 +1301,7 @@ function YouTubePlaylistImportAccordion({ onImported, onNotice }: { onImported: 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                 <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>
                   共 {rows.length} 首，已選 {selectedCount} 首
+                  {rows.some((r) => r.alreadyExists) && `（${rows.filter((r) => r.alreadyExists).length} 首資料庫裡已經有了，預設不勾選）`}
                 </span>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button type="button" onClick={() => toggleAll(true)} style={editButtonStyle}>
@@ -1206,13 +1313,61 @@ function YouTubePlaylistImportAccordion({ onImported, onNotice }: { onImported: 
                 </div>
               </div>
 
+              {/* 快速套用：播放清單常常混雜內容，不能假設整份都該套用同一個主題，所以這裡
+                  套用的對象是「目前已勾選匯入的列」，套用後還能在下面清單個別調整每一列——
+                  適合「大部分都一樣、少數例外」的情況：先全部套用一次起始值，再挑出例外
+                  個別修正，不用 50 首從頭勾一遍。真正混雜到每首都不同的情況，直接跳過這裡，
+                  在下面清單逐列設定即可。 */}
+              {themes.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>快速套用主題到已勾選的列：</span>
+                  {themes.map((t) => {
+                    const checked = quickApplyThemeIds.includes(t.id);
+                    return (
+                      <label
+                        key={t.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '5px 10px',
+                          borderRadius: '999px',
+                          border: '1px solid var(--groove)',
+                          background: checked ? 'var(--bg-raised)' : 'transparent',
+                          fontSize: '0.8rem',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setQuickApplyThemeIds((prev) =>
+                              checked ? prev.filter((id) => id !== t.id) : [...prev, t.id]
+                            )
+                          }
+                        />
+                        {t.name}
+                      </label>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={applyThemesToSelected}
+                    disabled={quickApplyThemeIds.length === 0}
+                    style={editButtonStyle}
+                  >
+                    套用到已勾選的 {selectedCount} 首
+                  </button>
+                </div>
+              )}
+
               <ul
                 style={{
                   listStyle: 'none',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '6px',
-                  maxHeight: '420px',
+                  maxHeight: '480px',
                   overflowY: 'auto',
                   overscrollBehavior: 'contain',
                 }}
@@ -1222,47 +1377,80 @@ function YouTubePlaylistImportAccordion({ onImported, onNotice }: { onImported: 
                     key={r.videoId}
                     style={{
                       display: 'flex',
-                      gap: '10px',
-                      alignItems: 'center',
+                      flexDirection: 'column',
+                      gap: '6px',
                       padding: '8px 10px',
                       borderRadius: '8px',
                       border: '1px solid var(--groove)',
                       opacity: r.unavailable ? 0.5 : 1,
                     }}
                   >
-                    <input
-                      type="checkbox"
-                      checked={r.selected}
-                      disabled={r.unavailable}
-                      onChange={(e) =>
-                        setRows((prev) => prev.map((row, i) => (i === idx ? { ...row, selected: e.target.checked } : row)))
-                      }
-                    />
-                    {r.thumbnailUrl && (
-                      // eslint-disable-next-line @next/next/no-img-element -- 縮圖來自 YouTube 外部網域，非本地靜態資源，不適合用 next/image
-                      <img src={r.thumbnailUrl} alt="" width={48} height={36} style={{ borderRadius: '4px', flexShrink: 0 }} />
-                    )}
-                    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                      <span style={{ fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {r.title}
-                      </span>
-                      {r.unavailable ? (
-                        <span style={{ color: 'var(--error)', fontSize: '0.75rem' }}>影片已私人化或刪除，無法匯入</span>
-                      ) : !r.embeddable ? (
-                        <span style={{ color: 'var(--error)', fontSize: '0.75rem' }}>擁有者關閉外部嵌入播放，遊戲內會無聲</span>
-                      ) : (
-                        <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem' }}>{formatDuration(r.durationSec)}</span>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={r.selected}
+                        disabled={r.unavailable}
+                        onChange={(e) =>
+                          setRows((prev) => prev.map((row, i) => (i === idx ? { ...row, selected: e.target.checked } : row)))
+                        }
+                      />
+                      {r.thumbnailUrl && (
+                        // eslint-disable-next-line @next/next/no-img-element -- 縮圖來自 YouTube 外部網域，非本地靜態資源，不適合用 next/image
+                        <img src={r.thumbnailUrl} alt="" width={48} height={36} style={{ borderRadius: '4px', flexShrink: 0 }} />
                       )}
+                      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <span style={{ fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {r.title}
+                        </span>
+                        {r.unavailable ? (
+                          <span style={{ color: 'var(--error)', fontSize: '0.75rem' }}>影片已私人化或刪除，無法匯入</span>
+                        ) : !r.embeddable ? (
+                          <span style={{ color: 'var(--error)', fontSize: '0.75rem' }}>擁有者關閉外部嵌入播放，遊戲內會無聲</span>
+                        ) : r.alreadyExists ? (
+                          <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem' }}>資料庫裡已經有這首了</span>
+                        ) : (
+                          <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem' }}>{formatDuration(r.durationSec)}</span>
+                        )}
+                      </div>
+                      <input
+                        value={r.artistName}
+                        onChange={(e) =>
+                          setRows((prev) => prev.map((row, i) => (i === idx ? { ...row, artistName: e.target.value } : row)))
+                        }
+                        placeholder="歌手名稱"
+                        disabled={r.unavailable}
+                        style={{ ...inputStyle, width: '140px', flexShrink: 0 }}
+                      />
                     </div>
-                    <input
-                      value={r.artistName}
-                      onChange={(e) =>
-                        setRows((prev) => prev.map((row, i) => (i === idx ? { ...row, artistName: e.target.value } : row)))
-                      }
-                      placeholder="歌手名稱"
-                      disabled={r.unavailable}
-                      style={{ ...inputStyle, width: '140px', flexShrink: 0 }}
-                    />
+                    {/* 每一列各自的主題勾選——跟上面「快速套用」是同一份狀態（r.themeIds）的
+                        兩個編輯入口，快速套用負責設起始值，這裡負責個別微調或是從零逐首設定。 */}
+                    {themes.length > 0 && !r.unavailable && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', paddingLeft: '26px' }}>
+                        {themes.map((t) => {
+                          const checked = r.themeIds.includes(t.id);
+                          return (
+                            <label
+                              key={t.id}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '2px 8px',
+                                borderRadius: '999px',
+                                border: '1px solid var(--groove)',
+                                background: checked ? 'var(--bg)' : 'transparent',
+                                color: checked ? 'var(--accent)' : 'var(--ink-dim)',
+                                borderColor: checked ? 'var(--accent)' : 'var(--groove)',
+                                fontSize: '0.72rem',
+                              }}
+                            >
+                              <input type="checkbox" checked={checked} onChange={() => toggleRowTheme(idx, t.id)} style={{ width: '11px', height: '11px' }} />
+                              {t.name}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -1448,12 +1636,101 @@ function SongSection({
     return artists.find((a) => a.id === id)?.name ?? '（未知歌手）';
   }
 
+  function themeName(id: string) {
+    return themes.find((t) => t.id === id)?.name ?? '（已刪除的主題）';
+  }
+
+  function hasNoPlayableSource(s: Song) {
+    return !s.appleMusicPreviewUrl && !s.deezerPreviewUrl && !s.youtubeVideoId;
+  }
+
+  // 「健康檢查」快速篩選——跟上面依歌手／主題查詢是不同性質的篩選：那兩個是「我知道
+  // 我要找什麼」，這個是「我想知道題庫裡有哪些地方還沒處理好」。這是這次重構實際要解決
+  // 的操作情境：批次匯入一份播放清單之後，這些歌通常還沒有指定主題，先前的做法完全沒有
+  // 入口能一次看到「所有缺主題的歌曲」，只能一首一首點開編輯表單才看得出來這首有沒有主題，
+  // 50 首歌要這樣檢查一遍非常低效。「沒有可播放來源」這個情況原本雖然在每一列上有畫出
+  // 一個小小的 ⚠ 警示文字，但一樣沒有辦法「只看這些有問題的」，長長的清單裡要找出
+  // 這幾首淹沒在其他正常的歌曲中間，一樣得整份捲動著找。
+  const [healthFilter, setHealthFilter] = useState<'none' | 'no-theme' | 'no-source'>('none');
+  const songsWithoutTheme = songs.filter((s) => s.themeIds.length === 0);
+  const songsWithoutSource = songs.filter(hasNoPlayableSource);
+
+  // 批次選取＋批次套用主題——跟上面播放清單批次匯入時「匯入當下就選好主題」是同一個
+  // 情境的另一半：那邊解決的是「剛匯入、還沒進資料庫」的情況，這裡解決的是「已經在
+  // 資料庫裡、事後才發現沒有主題」的情況（例如用 CSV 匯入的舊資料、或透過上面健康檢查
+  // 篩選找出來的）。選取跟套用動作分開管理：selectedSongIds 記錄目前勾選了哪些歌曲，
+  // 不受篩選條件切換影響（切換篩選不會清空已選的，讓管理者可以切換篩選、累積跨好幾種
+  // 條件選出來的歌曲，一次套用，不用因為篩選一變就重選）。
+  const [selectedSongIds, setSelectedSongIds] = useState<Set<string>>(new Set());
+  const [bulkThemeIds, setBulkThemeIds] = useState<string[]>([]);
+  const [bulkApplying, setBulkApplying] = useState(false);
+
+  function toggleSongSelected(id: string) {
+    setSelectedSongIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function applyBulkThemes() {
+    if (selectedSongIds.size === 0 || bulkThemeIds.length === 0) return;
+    setBulkApplying(true);
+    try {
+      // 這裡是「新增」不是「取代」——選取的主題會疊加到每首歌原本已經有的主題上面
+      // （用 Set 去重複，避免同一首歌剛好已經有其中一個主題時被重複加一次），
+      // 不會把歌曲原本已經有、但這次沒勾選的主題清掉。這是比較安全的預設行為：
+      // 「批次補上缺的主題」遠比「批次覆蓋掉所有歌曲的主題設定」常見得多，誤觸的
+      // 代價也小很多——不小心多加了一個主題，之後要移除也只要個別點開拿掉即可；
+      // 如果預設是取代，不小心選錯歌曲範圍，會直接把原本的主題資料覆蓋不見。
+      const targets = songs.filter((s) => selectedSongIds.has(s.id));
+      let failCount = 0;
+      for (const song of targets) {
+        const mergedThemeIds = Array.from(new Set([...song.themeIds, ...bulkThemeIds]));
+        const result = await songRepository.updateSong(song.id, {
+          title: song.title,
+          artistId: song.artistId,
+          youtubeVideoId: song.youtubeVideoId ?? '',
+          appleMusicTrackId: song.appleMusicTrackId ?? '',
+          appleMusicPreviewUrl: song.appleMusicPreviewUrl ?? '',
+          appleMusicSkip: song.appleMusicSkip,
+          appleMusicVerified: song.appleMusicVerified,
+          deezerTrackId: song.deezerTrackId ?? '',
+          deezerPreviewUrl: song.deezerPreviewUrl ?? '',
+          deezerSkip: song.deezerSkip,
+          deezerVerified: song.deezerVerified,
+          aliases: song.aliases,
+          durationSec: song.durationSec,
+          lyrics: song.lyrics,
+          themeIds: mergedThemeIds,
+        });
+        if (!result.ok) failCount++;
+      }
+      if (failCount > 0) {
+        onError(`批次套用主題時有 ${failCount} 首失敗，其餘已成功`);
+      } else {
+        onNotice(`已為 ${targets.length} 首歌套用主題`);
+      }
+      setSelectedSongIds(new Set());
+      setBulkThemeIds([]);
+      onChanged();
+    } finally {
+      setBulkApplying(false);
+    }
+  }
+
   // 歌手／主題查詢可以同時使用（交集），跟比賽建立流程的「擇一」不同——
   // 這裡單純是管理頁面找歌曲用的篩選，不是決定比賽題庫，同時縮小範圍反而更好用。
+  // 健康檢查篩選（healthFilter）也是交集疊加上去，不是取代前面兩個篩選——例如可以同時
+  // 「依歌手篩選＋只看沒有主題的」，縮小到剛好要處理的那一小批。
   const visibleSongs = songs.filter(
     (s) =>
       (!filterArtistId || s.artistId === filterArtistId) &&
-      (!filterThemeId || s.themeIds.includes(filterThemeId))
+      (!filterThemeId || s.themeIds.includes(filterThemeId)) &&
+      (healthFilter === 'none' ||
+        (healthFilter === 'no-theme' && s.themeIds.length === 0) ||
+        (healthFilter === 'no-source' && hasNoPlayableSource(s)))
   );
 
   // 歌手清單（artists）內容一變（新增/刪除歌手）就重新掛載表單，
@@ -1474,7 +1751,7 @@ function SongSection({
 
       <DeezerSearchAccordion onPick={setDeezerPrefill} />
 
-      <YouTubePlaylistImportAccordion onImported={onChanged} onNotice={onNotice} />
+      <YouTubePlaylistImportAccordion themes={themes} existingSongs={songs} onImported={onChanged} onNotice={onNotice} />
 
       <SongForm
         key={`${editing?.id ?? 'new'}-${artistsKey}-${themesKey}-${prefill?.videoId ?? ''}-${applePrefill?.trackId ?? ''}-${deezerPrefill?.trackId ?? ''}`}
@@ -1535,6 +1812,107 @@ function SongSection({
         )}
       </div>
 
+      {/* 健康檢查快速篩選：按鈕上直接標數量，不用點下去才知道有多少筆要處理——
+          數量是 0 的話代表這個項目「全部都處理好了」，直接讓按鈕呈現停用狀態，
+          不會讓管理者點了一個篩選、結果清單空空如也還要猜是不是沒有問題。 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>健康檢查：</span>
+        <button
+          type="button"
+          disabled={songsWithoutTheme.length === 0}
+          onClick={() => setHealthFilter((f) => (f === 'no-theme' ? 'none' : 'no-theme'))}
+          style={{
+            ...editButtonStyle,
+            opacity: songsWithoutTheme.length === 0 ? 0.4 : 1,
+            borderColor: healthFilter === 'no-theme' ? 'var(--accent)' : 'var(--groove)',
+            color: healthFilter === 'no-theme' ? 'var(--accent)' : 'var(--ink)',
+          }}
+        >
+          沒有主題的歌（{songsWithoutTheme.length}）
+        </button>
+        <button
+          type="button"
+          disabled={songsWithoutSource.length === 0}
+          onClick={() => setHealthFilter((f) => (f === 'no-source' ? 'none' : 'no-source'))}
+          style={{
+            ...editButtonStyle,
+            opacity: songsWithoutSource.length === 0 ? 0.4 : 1,
+            borderColor: healthFilter === 'no-source' ? 'var(--accent)' : 'var(--groove)',
+            color: healthFilter === 'no-source' ? 'var(--accent)' : 'var(--ink)',
+          }}
+        >
+          沒有可播放來源（{songsWithoutSource.length}）
+        </button>
+      </div>
+
+      {/* 批次操作列：有選取歌曲時才顯示，不佔用平常瀏覽清單時的版面。「全選目前這份清單」
+          特意只選「目前篩選後看得到的」，不是選資料庫裡全部的歌——這樣先篩出「沒有主題
+          的歌」、按全選，選到的剛好就是真正需要處理的那批，不用擔心不小心選到篩選範圍
+          以外、其實已經有主題的歌曲。 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        <button type="button" onClick={() => setSelectedSongIds(new Set(visibleSongs.map((s) => s.id)))} style={editButtonStyle}>
+          全選目前這份清單（{visibleSongs.length}）
+        </button>
+        {selectedSongIds.size > 0 && (
+          <button type="button" onClick={() => setSelectedSongIds(new Set())} style={editButtonStyle}>
+            清除選取
+          </button>
+        )}
+      </div>
+
+      {selectedSongIds.size > 0 && themes.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+            padding: '12px 14px',
+            borderRadius: '10px',
+            border: '1px solid var(--accent)',
+            background: 'var(--bg-raised)',
+          }}
+        >
+          <span style={{ fontSize: '0.85rem' }}>已選 {selectedSongIds.size} 首，批次套用主題（疊加在原本的主題上，不會取代）</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {themes.map((t) => {
+              const checked = bulkThemeIds.includes(t.id);
+              return (
+                <label
+                  key={t.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 10px',
+                    borderRadius: '999px',
+                    border: '1px solid var(--groove)',
+                    background: checked ? 'var(--bg)' : 'transparent',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() =>
+                      setBulkThemeIds((prev) => (checked ? prev.filter((id) => id !== t.id) : [...prev, t.id]))
+                    }
+                  />
+                  {t.name}
+                </label>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={applyBulkThemes}
+            disabled={bulkApplying || bulkThemeIds.length === 0}
+            style={{ ...buttonStyle, alignSelf: 'flex-start' }}
+          >
+            {bulkApplying ? '套用中…' : `套用到所選的 ${selectedSongIds.size} 首`}
+          </button>
+        </div>
+      )}
+
       <ul
         style={{
           listStyle: 'none',
@@ -1558,15 +1936,28 @@ function SongSection({
               gap: '8px',
               padding: '10px 14px',
               borderRadius: '8px',
-              border: '1px solid var(--groove)',
+              border: selectedSongIds.has(s.id) ? '1px solid var(--accent)' : '1px solid var(--groove)',
+              background: selectedSongIds.has(s.id) ? 'var(--bg-raised)' : 'transparent',
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-              <span
-                style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                title={s.title}
-              >
-                {s.title}
+              <span style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                {/* 勾選框放在最前面，用來做批次選取（見上方「批次套用主題」的完整說明）——
+                    勾選狀態不受篩選切換影響，連選取本身也會讓這一列的邊框整個亮起來，
+                    不是只有小小的勾選框打勾，長長的清單裡才能一眼看出「這幾列是我選的」。 */}
+                <input
+                  type="checkbox"
+                  checked={selectedSongIds.has(s.id)}
+                  onChange={() => toggleSongSelected(s.id)}
+                  aria-label={`選取「${s.title}」`}
+                  style={{ flexShrink: 0 }}
+                />
+                <span
+                  style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  title={s.title}
+                >
+                  {s.title}
+                </span>
               </span>
               <span style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
                 {/* 來源圖示：由左至右固定是 Apple／Deezer／YouTube，每個都是固定寬度的格子，
@@ -1602,8 +1993,9 @@ function SongSection({
                 <button onClick={() => setEditing(s)} style={editButtonStyle}>
                   編輯
                 </button>
-                <button
-                  onClick={async () => {
+                <ConfirmDeleteButton
+                  confirmText={`確定要刪除「${s.title}」嗎？`}
+                  onConfirm={async () => {
                     const result = await songRepository.deleteSong(s.id);
                     if (!result.ok) {
                       onError(result.error ?? '刪除歌曲失敗');
@@ -1613,19 +2005,39 @@ function SongSection({
                     if (editing?.id === s.id) setEditing(null);
                     onChanged();
                   }}
-                  style={dangerButtonStyle}
-                >
-                  刪除
-                </button>
+                />
               </span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {artistName(s.artistId)}
-                {!s.appleMusicPreviewUrl && !s.deezerPreviewUrl && !s.youtubeVideoId && (
-                  <span style={{ color: 'var(--error)' }}> · ⚠ 沒有可播放來源</span>
-                )}
+                {hasNoPlayableSource(s) && <span style={{ color: 'var(--error)' }}> · ⚠ 沒有可播放來源</span>}
               </span>
+              {/* 主題標籤：原本清單裡完全看不出每首歌有沒有指定主題、指定了哪些，
+                  要點開編輯表單才看得到。這裡直接把主題用小標籤列出來，掃過清單
+                  就能看出「這一批都還沒給主題」或「這幾首主題給錯了」，不用逐首點開。
+                  沒有主題的歌曲額外用警示色顯示文字，呼應上面「沒有可播放來源」
+                  同一種視覺語言——兩者都是「這筆資料還缺東西」。 */}
+              {s.themeIds.length > 0 ? (
+                <span style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                  {s.themeIds.map((id) => (
+                    <span
+                      key={id}
+                      style={{
+                        fontSize: '0.72rem',
+                        padding: '2px 8px',
+                        borderRadius: '999px',
+                        border: '1px solid var(--groove)',
+                        color: 'var(--ink-dim)',
+                      }}
+                    >
+                      {themeName(id)}
+                    </span>
+                  ))}
+                </span>
+              ) : (
+                <span style={{ fontSize: '0.78rem', color: 'var(--error)' }}>⚠ 沒有主題</span>
+              )}
             </div>
             {previewSongId === s.id &&
               [s.appleMusicPreviewUrl, s.deezerPreviewUrl, s.youtubeVideoId].filter(Boolean).length > 1 && (
