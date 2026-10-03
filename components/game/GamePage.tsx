@@ -15,6 +15,7 @@ import { generateId } from '../../lib/utils/id';
 import { AudioController } from '../../lib/audio/audioController';
 import { useGameEngine } from './useGameEngine';
 import { QuestionRenderer } from './QuestionRenderer';
+import { RankBadge, PlayerIdentity } from './PlayerBadges';
 
 interface GamePageProps {
   mode: GameMode;
@@ -293,65 +294,11 @@ export function GamePage({ mode, title }: GamePageProps) {
  * 顯示每位玩家的即時分數，同時是加減分按鈕。
  * 加減分只在公布答案（reveal）後才能操作，避免答案還沒公布就先動分數；
  * 題目階段（question）仍會顯示目前分數，只是先不能點。
- */
-/**
- * 玩家識別標籤：姓名前面加一個用姓名首字畫出來的小圓點。
  *
- * 這是這次重構實際要解決的問題：先前計分畫面只靠「文字」跟「字級大小」區分姓名跟分數，
- * 玩家為了測試方便常常直接把姓名輸入成「1」「2」「3」這種單一數字，一旦姓名本身也是數字，
- * 一整排「姓名、分數、加減按鈕」看起來就是好幾個意義不明的數字混在一起，沒辦法一眼
- * 分辨哪個是誰、哪個是分數。姓名加一個圓形容器之後，不管姓名本身是什麼文字，
- * 「這是一個身分標籤」這件事本身就有獨立的視覺容器可以辨認，不會再跟旁邊的分數數字
- * 混淆——這跟最終戰績畫面的名次徽章是同一個解法：用「形狀」而不是單靠「數值」
- * 承載意義。
+ * PlayerIdentity／RankBadge 這兩個計分用的小元件是跟線上模式房間頁面
+ * （app/online/room/[joinCode]/page.tsx）共用的，定義在 PlayerBadges.tsx，
+ * 兩邊永遠用同一份邏輯，不會有「其中一邊修好了、另一邊忘記一起改」的情況。
  */
-/**
- * 給玩家身分色點用的固定色盤——刻意跟 --accent／--success／--error 這幾個已經有
- * 特定語意的顏色（分數本身、線上/速通模式識別）區隔開，避免玩家色點跟別處的顏色
- * 語意互相干擾。六個顏色彼此飽和度/明度相近，排在一起不會有誰特別搶眼的問題。
- */
-const PLAYER_DOT_PALETTE = ['#6B9BD1', '#B98DD6', '#6FBF8E', '#E89659', '#D685A8', '#7FC5C9'];
-
-function playerDotColor(id: string): string {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
-  return PLAYER_DOT_PALETTE[hash % PLAYER_DOT_PALETTE.length];
-}
-
-/**
- * 玩家識別標籤：姓名前面加一個純色點，不放任何文字。
- *
- * 這是這次重構實際要解決的問題：先前計分畫面只靠「文字」跟「字級大小」區分姓名跟分數，
- * 玩家為了測試方便常常直接把姓名輸入成「1」「2」「3」這種單一數字，一旦姓名本身也是數字，
- * 一整排「姓名、分數、加減按鈕」看起來就是好幾個意義不明的數字混在一起，沒辦法一眼
- * 分辨哪個是誰、哪個是分數。
- *
- * 色點裡原本放姓名的第一個字，但這樣一來，如果姓名本身剛好只有一個字（例如就是
- * 「1」這種單一數字姓名，測試時很常見），色點裡的字會跟旁邊完整姓名的文字一模一樣，
- * 畫面上變成「1 1」這種看起來像打字重複的結果，反而製造新的困惑。色點本身的用途
- * 只是給身分一個獨立的視覺容器，不需要、也不該重複姓名的內容——改成純色、不放文字，
- * 顏色依玩家 id 算出來（同一位玩家在整場遊戲、不管在即時計分還是最終戰績，色點顏色
- * 都會維持一致，方便玩家用顏色追蹤「這個是我」），不管姓名長什麼樣都不會有重複問題。
- */
-function PlayerIdentity({ id, name }: { id: string; name: string }) {
-  return (
-    <span style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-      <span
-        aria-hidden="true"
-        style={{
-          flexShrink: 0,
-          width: '10px',
-          height: '10px',
-          borderRadius: '50%',
-          background: playerDotColor(id),
-        }}
-      />
-      <span style={{ fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {name}
-      </span>
-    </span>
-  );
-}
 
 /**
  * 比賽進行中的即時計分——改成一張一張直向排列的小卡片，不再是一整排橫向膠囊。
@@ -440,39 +387,6 @@ function ScoreStrip({
         </div>
       ))}
     </div>
-  );
-}
-
-/**
- * 名次徽章：用實心圓圈＋名次數字取代先前的 🥇🥈🥉 emoji——emoji 獎牌在不同作業系統、
- * 不同瀏覽器字體裡粗細、顏色、甚至造型都不一樣（有些是扁平色塊、有些帶立體漸層），
- * 跟整站自己畫的線條圖示放在一起會顯得突兀；自畫的徽章能確實控制視覺重量，
- * 讓「第一名」在畫面上真的感覺得出來是這整場比賽最隆重的一刻，不是隨手套用的表情符號。
- * 第一名用金色實心圈＋深色數字（視覺權重最高），其餘名次用描邊圈，名次間的視覺落差
- * 刻意拉開，呼應頒獎台「金牌最顯眼、其餘陪襯」的直覺。
- */
-function RankBadge({ rank }: { rank: number }) {
-  const isFirst = rank === 1;
-  return (
-    <span
-      style={{
-        flexShrink: 0,
-        width: '32px',
-        height: '32px',
-        borderRadius: '50%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontFamily: 'var(--font-mono)',
-        fontWeight: 700,
-        fontSize: '0.95rem',
-        background: isFirst ? 'var(--accent)' : 'transparent',
-        color: isFirst ? 'var(--accent-ink)' : 'var(--ink-dim)',
-        border: isFirst ? 'none' : '1.5px solid var(--groove)',
-      }}
-    >
-      {rank}
-    </span>
   );
 }
 

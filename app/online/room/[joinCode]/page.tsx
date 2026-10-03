@@ -15,6 +15,7 @@ import { getGlobalAudioController } from '../../../../lib/audio/globalAudioContr
 import { estimateServerNow } from '../../../../lib/client/serverClock';
 import { COUNTDOWN_SEC, REVEAL_DISPLAY_MS } from '../../../../lib/constants/roomTiming';
 import { WRONG_ANSWER_LOCKOUT_MS } from '../../../../lib/constants/choiceMode';
+import { RankBadge, PlayerIdentity } from '../../../../components/game/PlayerBadges';
 import { ArtistFilter } from '../../../../components/filter/ArtistFilter';
 import { ThemeFilter } from '../../../../components/filter/ThemeFilter';
 import { AudioStatusIndicator } from '../../../../components/game/AudioStatusIndicator';
@@ -446,6 +447,9 @@ function LobbyView({ room, playerId, isHost, onError, onRoomUpdate }: RoomViewPr
             <span
               key={p.id}
               style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
                 padding: '6px 12px',
                 borderRadius: '999px',
                 border: '1px solid var(--groove)',
@@ -454,7 +458,19 @@ function LobbyView({ room, playerId, isHost, onError, onRoomUpdate }: RoomViewPr
               }}
             >
               {p.displayName}
-              {p.id === room.hostPlayerId && ' 👑'}
+              {/* 自畫的皇冠線條圖示取代 👑 emoji，理由跟整站其餘圖示一致——emoji 在
+                  不同裝置上粗細、顏色、甚至配色都不一樣，跟自己畫的線條圖示語言放在
+                  一起會顯得突兀。 */}
+              {p.id === room.hostPlayerId && (
+                <svg width="13" height="13" viewBox="0 0 20 20" fill="none" aria-label="房主" role="img">
+                  <path
+                    d="M3 15h14l1-8-4.5 3L10 5 6.5 10 2 7l1 8Z"
+                    stroke="var(--accent)"
+                    strokeWidth="1.6"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              )}
             </span>
           ))}
         </div>
@@ -1010,8 +1026,12 @@ function FinishedView({ room, isHost, onError, onRoomUpdate }: RoomViewProps) {
   );
 }
 
-const ONLINE_MEDALS = ['🥇', '🥈', '🥉'];
-
+/**
+ * showRanking：區分「比賽進行中、順帶看一下目前分數」跟「比賽結束、正式公布名次」
+ * 這兩種不同場合，用間距跟字級的密度差異表現，不是改變底層邏輯——名次徽章跟玩家
+ * 識別標籤（RankBadge／PlayerIdentity，跟單機模式共用同一份，見 PlayerBadges.tsx）
+ * 在兩種場合都會顯示，維持「同一套視覺語言貫穿整場遊戲」。
+ */
 function ScoreList({ players, showRanking }: { players: RoomState['players']; showRanking?: boolean }) {
   const ranked = [...players].sort((a, b) => b.score - a.score);
   const topScore = ranked[0]?.score ?? 0;
@@ -1026,18 +1046,21 @@ function ScoreList({ players, showRanking }: { players: RoomState['players']; sh
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              padding: showRanking ? '14px 18px' : '10px 16px',
+              padding: showRanking ? '14px 18px' : '10px 14px',
               borderRadius: showRanking ? '14px' : '10px',
               border: showRanking && isTop ? '1px solid var(--accent)' : '1px solid var(--groove)',
               background: showRanking && isTop ? 'var(--bg-raised)' : 'transparent',
             }}
           >
-            <span style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: showRanking ? '1.05rem' : '0.9rem' }}>
-              <span style={{ width: '24px', textAlign: 'center' }}>{ONLINE_MEDALS[i] ?? `${i + 1}`}</span>
-              {p.displayName}
+            <span style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+              <RankBadge rank={i + 1} />
+              <PlayerIdentity id={p.id} name={p.displayName} />
             </span>
             <span
               style={{
+                flexShrink: 0,
+                minWidth: '32px',
+                textAlign: 'right',
                 fontFamily: 'var(--font-mono)',
                 fontWeight: 700,
                 fontSize: showRanking ? '1.3rem' : '1.05rem',
