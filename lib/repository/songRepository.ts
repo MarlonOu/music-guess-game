@@ -21,6 +21,7 @@ export interface SongRepository {
   updateArtist(id: string, input: Partial<Omit<Artist, 'id'>>): Promise<RepositoryResult<void>>;
   deleteArtist(id: string): Promise<RepositoryResult<void>>;
   createTheme(input: Omit<Theme, 'id'>): Promise<RepositoryResult<Theme>>;
+  updateTheme(id: string, input: Partial<Omit<Theme, 'id'>>): Promise<RepositoryResult<void>>;
   deleteTheme(id: string): Promise<RepositoryResult<void>>;
   importSongsCsv(csvText: string): Promise<RepositoryResult<ImportSummary>>;
 }
@@ -33,7 +34,16 @@ export interface ImportRowResult {
 }
 
 export interface ImportSummary {
-  summary: { created: number; updated: number; duplicates: number; errors: number };
+  summary: {
+    created: number;
+    updated: number;
+    duplicates: number;
+    errors: number;
+    // 這次匯入過程中「名稱對不上任何既有資料、因此自動建立」的歌手／主題名稱——
+    // 完整理由見 app/api/songs/import/route.ts 裡 newlyCreatedArtistNames 的說明。
+    newArtistNames: string[];
+    newThemeNames: string[];
+  };
   results: ImportRowResult[];
 }
 
@@ -150,6 +160,16 @@ export const songRepository: SongRepository = {
     if (!res.ok) return { ok: false, error: await parseErrorMessage(res, '新增主題失敗') };
     const data = await res.json();
     return { ok: true, data: data.theme as Theme };
+  },
+
+  async updateTheme(id, input) {
+    const res = await fetch(`/api/themes/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) return { ok: false, error: await parseErrorMessage(res, '更新主題失敗') };
+    return { ok: true };
   },
 
   async deleteTheme(id) {

@@ -49,6 +49,15 @@ export async function POST(request: NextRequest) {
     // 歌手／主題名稱 → id 的快取，避免同一批匯入裡重複的名稱一直查詢/建立
     const artistCache = new Map<string, string>();
     const themeCache = new Map<string, string>();
+    // 這次匯入過程中「因為名稱對不上任何既有資料、所以自動建立」的歌手／主題名稱——
+    // 這是為了抓出一種容易被忽略的資料品質問題：CSV 裡歌手或主題名稱打錯字（多一個空格、
+    // 簡繁體不一致、打成相近但不同的字），不會讓這一列匯入失敗（找不到就自動建立新的），
+    // 但也因為「沒有失敗」，管理者完全不會注意到其實意外多建立了一個重複、打錯字的
+    // 歌手或主題，久了同一個歌手/主題就會有好幾個幾乎一樣但名稱略有差異的版本散落著。
+    // 把這份清單一併回傳在 summary 裡，讓管理者在匯入結果裡一眼看到「這次新增了這些
+    // 以前沒見過的名稱」，如果看到眼熟卻不完全一樣的名字，就知道該去檢查是不是打錯字。
+    const newlyCreatedArtistNames: string[] = [];
+    const newlyCreatedThemeNames: string[] = [];
 
     async function resolveArtistId(name: string): Promise<string> {
       const key = name.trim().toLowerCase();
@@ -64,6 +73,7 @@ export async function POST(request: NextRequest) {
         data: { id: crypto.randomUUID(), name: name.trim(), gender: 'UNKNOWN' },
       });
       artistCache.set(key, created.id);
+      newlyCreatedArtistNames.push(created.name);
       return created.id;
     }
 
@@ -88,6 +98,7 @@ export async function POST(request: NextRequest) {
         }
         const created = await prisma.theme.create({ data: { id: crypto.randomUUID(), name, description: '' } });
         themeCache.set(key, created.id);
+        newlyCreatedThemeNames.push(created.name);
         ids.push(created.id);
       }
       return ids;
@@ -223,6 +234,10 @@ export async function POST(request: NextRequest) {
       updated: results.filter((r) => r.status === 'updated').length,
       duplicates: results.filter((r) => r.status === 'duplicate').length,
       errors: results.filter((r) => r.status === 'error').length,
+      // 用 Set 去重——同一個打錯字的名稱如果在這批 CSV 裡出現在好幾列，只需要在摘要裡
+      // 提醒一次，不必每一列都重複列出同一個名字。
+      newArtistNames: Array.from(new Set(newlyCreatedArtistNames)),
+      newThemeNames: Array.from(new Set(newlyCreatedThemeNames)),
     };
 
     return NextResponse.json({ summary, results });

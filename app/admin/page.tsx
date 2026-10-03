@@ -138,8 +138,8 @@ export default function AdminPage() {
         onError={setError}
         onNotice={flashNotice}
       />
-      <ArtistSection artists={artists} onChanged={reload} onError={setError} onNotice={flashNotice} />
-      <ThemeSection themes={themes} onChanged={reload} onError={setError} onNotice={flashNotice} />
+      <ArtistSection artists={artists} songs={songs} onChanged={reload} onError={setError} onNotice={flashNotice} />
+      <ThemeSection themes={themes} songs={songs} onChanged={reload} onError={setError} onNotice={flashNotice} />
 
       <Link href="/" style={{ color: 'var(--ink-dim)', fontSize: '0.9rem' }}>
         返回首頁
@@ -258,11 +258,21 @@ interface SectionCallbacks {
 
 function ArtistSection({
   artists,
+  songs,
   onChanged,
   onError,
   onNotice,
-}: { artists: Artist[] } & SectionCallbacks) {
+}: { artists: Artist[]; songs: Song[] } & SectionCallbacks) {
   const [editing, setEditing] = useState<Artist | null>(null);
+  // 文字搜尋——跟歌曲清單用同一個理由：歌手一多（破百很常見），長長的清單只能捲動找，
+  // 沒有辦法直接打名字跳過去。
+  const [search, setSearch] = useState('');
+
+  function songCountFor(artistId: string) {
+    return songs.filter((s) => s.artistId === artistId).length;
+  }
+
+  const visibleArtists = artists.filter((a) => a.name.toLowerCase().includes(search.trim().toLowerCase()));
 
   return (
     <section style={sectionStyle}>
@@ -279,6 +289,15 @@ function ArtistSection({
         }}
       />
 
+      {artists.length > 8 && (
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="搜尋歌手名稱"
+          style={inputStyle}
+        />
+      )}
+
       <ul
         style={{
           listStyle: 'none',
@@ -290,44 +309,57 @@ function ArtistSection({
           overscrollBehavior: 'contain',
         }}
       >
-        {artists.map((a) => (
-          <li
-            key={a.id}
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '10px 14px',
-              borderRadius: '8px',
-              border: '1px solid var(--groove)',
-            }}
-          >
-            <span>
-              {a.name}
-              <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', marginLeft: '8px' }}>
-                {GENDER_OPTIONS.find((g) => g.value === a.gender)?.label ?? a.gender}
+        {visibleArtists.length === 0 && <p style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>沒有符合的歌手</p>}
+        {visibleArtists.map((a) => {
+          const count = songCountFor(a.id);
+          return (
+            <li
+              key={a.id}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '10px 14px',
+                borderRadius: '8px',
+                border: '1px solid var(--groove)',
+              }}
+            >
+              <span>
+                {a.name}
+                <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', marginLeft: '8px' }}>
+                  {GENDER_OPTIONS.find((g) => g.value === a.gender)?.label ?? a.gender}
+                  {/* 歌曲數量標在這裡——刪除歌手前，先讓管理者知道這個動作「影響範圍」有多大。
+                      後端雖然已經用外鍵擋住「底下還有歌曲就不能刪」，但那是刪了才知道會失敗，
+                      這裡讓管理者點刪除之前就先看得到數字，不用真的點下去試一次才知道。 */}
+                  {' · '}
+                  {count} 首歌
+                </span>
               </span>
-            </span>
-            <span style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={() => setEditing(a)} style={editButtonStyle}>
-                編輯
-              </button>
-              <ConfirmDeleteButton
-                confirmText={`確定要刪除歌手「${a.name}」嗎？`}
-                onConfirm={async () => {
-                  const result = await songRepository.deleteArtist(a.id);
-                  if (!result.ok) {
-                    onError(result.error ?? '刪除歌手失敗');
-                    return;
+              <span style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={() => setEditing(a)} style={editButtonStyle}>
+                  編輯
+                </button>
+                <ConfirmDeleteButton
+                  confirmText={
+                    count > 0
+                      ? `「${a.name}」底下還有 ${count} 首歌，必須先清空或轉移才能刪除，確定要嘗試嗎？`
+                      : `確定要刪除歌手「${a.name}」嗎？`
                   }
-                  onNotice('已刪除歌手');
-                  if (editing?.id === a.id) setEditing(null);
-                  onChanged();
-                }}
-              />
-            </span>
-          </li>
-        ))}
+                  onConfirm={async () => {
+                    const result = await songRepository.deleteArtist(a.id);
+                    if (!result.ok) {
+                      onError(result.error ?? '刪除歌手失敗');
+                      return;
+                    }
+                    onNotice('已刪除歌手');
+                    if (editing?.id === a.id) setEditing(null);
+                    onChanged();
+                  }}
+                />
+              </span>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
@@ -405,13 +437,24 @@ interface YouTubeSearchResult {
 
 function ThemeSection({
   themes,
+  songs,
   onChanged,
   onError,
   onNotice,
-}: { themes: Theme[] } & SectionCallbacks) {
+}: { themes: Theme[]; songs: Song[] } & SectionCallbacks) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
+  // 原本主題只能新增／刪除，沒有編輯——改名字或補充說明只能刪掉重建，刪掉重建又會讓
+  // 所有已經指派這個主題的歌曲全部跟著失去這個主題（主題跟歌曲的關聯是透過主題 id
+  // 關聯的，刪除主題會連帶清掉這些關聯，見 app/api/themes/[id]/route.ts 的說明），
+  // 等於「只是想把『90年代金曲』改名成『90s金曲』」這種單純的改名動作，會意外波及
+  // 所有底下的歌曲。補上編輯功能後才真正跟歌手、歌曲管理的編輯能力一致。
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  function songCountFor(themeId: string) {
+    return songs.filter((s) => s.themeIds.includes(themeId)).length;
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -421,15 +464,30 @@ function ThemeSection({
       setFormError('請輸入主題名稱');
       return;
     }
-    const result = await songRepository.createTheme({ name: trimmed, description: description.trim() });
+    const result = editingId
+      ? await songRepository.updateTheme(editingId, { name: trimmed, description: description.trim() })
+      : await songRepository.createTheme({ name: trimmed, description: description.trim() });
     if (!result.ok) {
-      setFormError(result.error ?? '新增主題失敗');
+      setFormError(result.error ?? (editingId ? '更新主題失敗' : '新增主題失敗'));
       return;
     }
-    onNotice('已新增主題');
+    onNotice(editingId ? '已更新主題' : '已新增主題');
     setName('');
     setDescription('');
+    setEditingId(null);
     onChanged();
+  }
+
+  function startEdit(t: Theme) {
+    setEditingId(t.id);
+    setName(t.name);
+    setDescription(t.description ?? '');
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setName('');
+    setDescription('');
   }
 
   return (
@@ -453,8 +511,13 @@ function ThemeSection({
           style={{ ...inputStyle, flex: 1, minWidth: '140px' }}
         />
         <button type="submit" style={buttonStyle}>
-          新增
+          {editingId ? '儲存' : '新增'}
         </button>
+        {editingId && (
+          <button type="button" onClick={cancelEdit} style={editButtonStyle}>
+            取消
+          </button>
+        )}
         {formError && <span style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{formError}</span>}
       </form>
 
@@ -469,40 +532,52 @@ function ThemeSection({
           overscrollBehavior: 'contain',
         }}
       >
-        {themes.map((t) => (
-          <li
-            key={t.id}
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '10px 14px',
-              borderRadius: '8px',
-              border: '1px solid var(--groove)',
-            }}
-          >
-            <span>
-              {t.name}
-              {t.description && (
-                <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', marginLeft: '8px' }}>
-                  {t.description}
-                </span>
-              )}
-            </span>
-            <ConfirmDeleteButton
-              confirmText={`確定要刪除主題「${t.name}」嗎？`}
-              onConfirm={async () => {
-                const result = await songRepository.deleteTheme(t.id);
-                if (!result.ok) {
-                  onError(result.error ?? '刪除主題失敗');
-                  return;
-                }
-                onNotice('已刪除主題');
-                onChanged();
+        {themes.map((t) => {
+          const count = songCountFor(t.id);
+          return (
+            <li
+              key={t.id}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '10px 14px',
+                borderRadius: '8px',
+                border: editingId === t.id ? '1px solid var(--accent)' : '1px solid var(--groove)',
               }}
-            />
-          </li>
-        ))}
+            >
+              <span>
+                {t.name}
+                <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', marginLeft: '8px' }}>
+                  {t.description && `${t.description} · `}
+                  {count} 首歌
+                </span>
+              </span>
+              <span style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={() => startEdit(t)} style={editButtonStyle}>
+                  編輯
+                </button>
+                <ConfirmDeleteButton
+                  confirmText={
+                    count > 0
+                      ? `「${t.name}」目前有 ${count} 首歌使用這個主題，刪除後這些歌都會失去這個主題，確定要刪除嗎？`
+                      : `確定要刪除主題「${t.name}」嗎？`
+                  }
+                  onConfirm={async () => {
+                    const result = await songRepository.deleteTheme(t.id);
+                    if (!result.ok) {
+                      onError(result.error ?? '刪除主題失敗');
+                      return;
+                    }
+                    onNotice('已刪除主題');
+                    if (editingId === t.id) cancelEdit();
+                    onChanged();
+                  }}
+                />
+              </span>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
@@ -1229,9 +1304,13 @@ function YouTubePlaylistImportAccordion({
         setError(result.error ?? '匯入失敗');
         return;
       }
-      const { created, updated, duplicates, errors } = result.data.summary;
+      const { created, updated, duplicates, errors, newArtistNames } = result.data.summary;
+      // 這裡的歌手名稱是管理者在上面逐列手動輸入/修正的，打錯字、或跟既有歌手名稱有
+      // 細微差異（多個空格、簡繁體不同）都會被匯入 API 當成一個全新的歌手建立——
+      // 理由、完整說明見 ImportExportBar 裡同一則提示旁的註解。這裡沒有空間放完整的
+      // 警示區塊，至少在成功通知裡提醒一句，看到不熟悉的名字就知道該去歌手管理檢查。
       onNotice(
-        `播放清單匯入完成：新增 ${created} 首、更新 ${updated} 首${duplicates > 0 ? `、略過重複 ${duplicates} 首` : ''}${errors > 0 ? `、失敗 ${errors} 列` : ''}`
+        `播放清單匯入完成：新增 ${created} 首、更新 ${updated} 首${duplicates > 0 ? `、略過重複 ${duplicates} 首` : ''}${errors > 0 ? `、失敗 ${errors} 列` : ''}${newArtistNames.length > 0 ? `（新建立歌手：${newArtistNames.join('、')}，如果是打錯字請到歌手管理修正）` : ''}`
       );
       onImported();
       setRows([]);
@@ -1585,6 +1664,39 @@ function ImportExportBar({
         </span>
       </div>
 
+      {/* 這次匯入過程中自動建立的新歌手／新主題——CSV 裡歌手或主題名稱如果打錯字、
+          跟既有資料對不上，匯入 API 不會讓那一列失敗，而是直接建立一個新的歌手/主題，
+          這樣的「意外新增」不會出現在上面的成功/失敗統計裡，容易被忽略，久了同一個
+          歌手或主題會累積好幾個名稱相近但不完全一樣的版本。這裡明確列出來，看到眼熟
+          卻不完全一樣的名字，就知道該去上面的歌手／主題管理檢查、合併或修正。 */}
+      {lastResult && (lastResult.summary.newArtistNames.length > 0 || lastResult.summary.newThemeNames.length > 0) && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px',
+            padding: '10px 12px',
+            borderRadius: '8px',
+            border: '1px solid var(--accent)',
+            background: 'rgba(232, 185, 63, 0.08)',
+          }}
+        >
+          <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>
+            這次匯入自動建立了以前沒見過的名稱——如果看到眼熟卻不完全一樣的名字，可能是打字錯誤造成的重複
+          </span>
+          {lastResult.summary.newArtistNames.length > 0 && (
+            <span style={{ fontSize: '0.8rem', color: 'var(--ink-dim)' }}>
+              新歌手：{lastResult.summary.newArtistNames.join('、')}
+            </span>
+          )}
+          {lastResult.summary.newThemeNames.length > 0 && (
+            <span style={{ fontSize: '0.8rem', color: 'var(--ink-dim)' }}>
+              新主題：{lastResult.summary.newThemeNames.join('、')}
+            </span>
+          )}
+        </div>
+      )}
+
       {lastResult && lastResult.results.some((r) => r.status === 'duplicate') && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '160px', overflowY: 'auto' }}>
           {lastResult.results
@@ -1621,6 +1733,10 @@ function SongSection({
   onNotice,
 }: { songs: Song[]; artists: Artist[]; themes: Theme[] } & SectionCallbacks) {
   const [editing, setEditing] = useState<Song | null>(null);
+  // 歌名文字搜尋——題庫一多（破百首很常見），只靠歌手／主題下拉選單篩選，想找特定一首歌
+  // 得先知道它的歌手是誰才能縮小範圍；直接打歌名關鍵字找更直接，兩種篩選方式可以同時用
+  // （交集），例如已經篩到某位歌手底下、再用文字搜尋在這位歌手的歌曲裡找特定一首。
+  const [titleSearch, setTitleSearch] = useState('');
   const [filterArtistId, setFilterArtistId] = useState<string>('');
   const [filterThemeId, setFilterThemeId] = useState<string>('');
   const [prefill, setPrefill] = useState<YouTubePrefill | null>(null);
@@ -1726,6 +1842,7 @@ function SongSection({
   // 「依歌手篩選＋只看沒有主題的」，縮小到剛好要處理的那一小批。
   const visibleSongs = songs.filter(
     (s) =>
+      (!titleSearch.trim() || s.title.toLowerCase().includes(titleSearch.trim().toLowerCase())) &&
       (!filterArtistId || s.artistId === filterArtistId) &&
       (!filterThemeId || s.themeIds.includes(filterThemeId)) &&
       (healthFilter === 'none' ||
@@ -1778,6 +1895,15 @@ function SongSection({
         }}
       />
 
+      {songs.length > 8 && (
+        <input
+          value={titleSearch}
+          onChange={(e) => setTitleSearch(e.target.value)}
+          placeholder="搜尋歌名"
+          style={inputStyle}
+        />
+      )}
+
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
         <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>依歌手查詢：</span>
         <select
@@ -1805,7 +1931,7 @@ function SongSection({
             </option>
           ))}
         </select>
-        {(filterArtistId || filterThemeId) && (
+        {(titleSearch.trim() || filterArtistId || filterThemeId) && (
           <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
             {visibleSongs.length} 首
           </span>
