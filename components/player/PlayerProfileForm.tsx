@@ -2,6 +2,7 @@
 
 import { useState, FormEvent } from 'react';
 import type { PlayerProfile } from '../../lib/types/player';
+import { PlayerIdentity } from '../game/PlayerBadges';
 
 interface PlayerProfileFormProps {
   editingProfile: PlayerProfile | null;
@@ -25,24 +26,47 @@ export function PlayerProfileForm({ editingProfile, onSubmit, onCancelEdit }: Pl
   return (
     <form
       onSubmit={handleSubmit}
-      style={{ display: 'flex', gap: '8px', width: '100%', maxWidth: '480px' }}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '12px',
+        width: '100%',
+        maxWidth: '480px',
+        padding: '18px',
+        borderRadius: '14px',
+        border: '1px solid var(--groove)',
+        background: 'var(--bg-raised)',
+      }}
     >
-      <input
-        value={displayName}
-        onChange={(e) => setDisplayName(e.target.value)}
-        placeholder="輸入顯示名稱"
-        maxLength={20}
-        className="field"
-        style={{ flex: 1 }}
-      />
-      <button type="submit" className="btn btn-primary">
-        {editingProfile ? '儲存' : '新增'}
-      </button>
+      {/* 編輯既有玩家時，順手把他在遊戲裡會長什麼樣子（色點＋姓名，PlayerIdentity）
+          顯示在表單最上面——這是給管理者的一個小提示：「你現在在改的是這個人」，
+          色點顏色是依這位玩家的 id 算出來的固定值，不會因為改名字就跟著變，
+          編輯前後這個身分的視覺識別維持不變，避免混淆成改出了一個新的人。 */}
       {editingProfile && (
-        <button type="button" onClick={onCancelEdit} className="btn btn-ghost">
-          取消
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--ink-dim)', fontSize: '0.82rem' }}>
+          <span>正在編輯</span>
+          <PlayerIdentity id={editingProfile.id} name={displayName.trim() || editingProfile.displayName} />
+        </div>
       )}
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <input
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          placeholder="輸入顯示名稱"
+          maxLength={20}
+          autoFocus={Boolean(editingProfile)}
+          className="field"
+          style={{ flex: 1 }}
+        />
+        <button type="submit" className="btn btn-primary">
+          {editingProfile ? '儲存' : '新增'}
+        </button>
+        {editingProfile && (
+          <button type="button" onClick={onCancelEdit} className="btn btn-ghost">
+            取消
+          </button>
+        )}
+      </div>
     </form>
   );
 }

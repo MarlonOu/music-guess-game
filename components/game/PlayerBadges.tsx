@@ -44,7 +44,7 @@ export function RankBadge({ rank }: { rank: number }) {
  *  語意互相干擾。六個顏色彼此飽和度/明度相近，排在一起不會有誰特別搶眼的問題。 */
 const PLAYER_DOT_PALETTE = ['#6B9BD1', '#B98DD6', '#6FBF8E', '#E89659', '#D685A8', '#7FC5C9'];
 
-function playerDotColor(id: string): string {
+export function playerDotColor(id: string): string {
   let hash = 0;
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
   return PLAYER_DOT_PALETTE[hash % PLAYER_DOT_PALETTE.length];

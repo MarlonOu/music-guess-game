@@ -15,7 +15,7 @@ import { getGlobalAudioController } from '../../../../lib/audio/globalAudioContr
 import { estimateServerNow } from '../../../../lib/client/serverClock';
 import { COUNTDOWN_SEC, REVEAL_DISPLAY_MS } from '../../../../lib/constants/roomTiming';
 import { WRONG_ANSWER_LOCKOUT_MS } from '../../../../lib/constants/choiceMode';
-import { RankBadge, PlayerIdentity } from '../../../../components/game/PlayerBadges';
+import { RankBadge, PlayerIdentity, playerDotColor } from '../../../../components/game/PlayerBadges';
 import { ArtistFilter } from '../../../../components/filter/ArtistFilter';
 import { ThemeFilter } from '../../../../components/filter/ThemeFilter';
 import { AudioStatusIndicator } from '../../../../components/game/AudioStatusIndicator';
@@ -1257,14 +1257,32 @@ function ChatBox({
           <p
             key={m.id}
             style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: '6px',
               fontSize: '0.9rem',
               color: m.isCorrectAnswer ? 'var(--success)' : 'var(--ink)',
               fontWeight: m.isCorrectAnswer ? 600 : 400,
             }}
           >
-            <span style={{ color: 'var(--ink-dim)' }}>{m.displayName}：</span>
-            {m.text}
-            {m.isCorrectAnswer && ' ✓ 答對'}
+            {/* 發言者前面補一個色點，跟計分畫面、準備室玩家名單用同一套顏色（playerDotColor，
+                依玩家 id 算出來）——聊天室訊息一多，用顏色比純文字更快掃出「這幾句是同一個
+                人說的」，不用每行都重新讀一次名字。 */}
+            <span
+              aria-hidden="true"
+              style={{
+                flexShrink: 0,
+                width: '7px',
+                height: '7px',
+                borderRadius: '50%',
+                background: playerDotColor(m.playerId),
+              }}
+            />
+            <span>
+              <span style={{ color: 'var(--ink-dim)' }}>{m.displayName}：</span>
+              {m.text}
+              {m.isCorrectAnswer && ' ✓ 答對'}
+            </span>
           </p>
         ))}
       </div>

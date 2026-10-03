@@ -16,6 +16,30 @@ const GENDER_OPTIONS: { value: ArtistGender; label: string }[] = [
   { value: 'UNKNOWN', label: '未分類' },
 ];
 
+/**
+ * 摺疊/展開指示用的小 chevron，取代這個頁面裡原本複製貼上五次的「▲」「▼」文字字元——
+ * 文字字元沒有過場動畫，狀態切換時是硬生生的瞬間替換；這裡用 SVG 配合 transform 旋轉，
+ * 展開/收合之間有一個小小的轉動過場，跟其他頁面（速通模式排行榜、線上模式 QR Code）
+ * 的摺疊按鈕是同一套做法，整站的「這是一個可以展開的東西」視覺語言統一。
+ */
+function CollapseChevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 12 12"
+      fill="none"
+      style={{
+        flexShrink: 0,
+        transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+        transition: 'transform 0.2s ease',
+      }}
+    >
+      <path d="M2.5 4.5 6 8l3.5-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export default function AdminPage() {
   const [artists, setArtists] = useState<Artist[]>([]);
   const [themes, setThemes] = useState<Theme[]>([]);
@@ -80,10 +104,7 @@ export default function AdminPage() {
         transition={{ duration: 0.4, ease: 'easeOut' }}
         style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}
       >
-        <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem', letterSpacing: '0.1em' }}>
-          ADMIN
-        </span>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '1.75rem' }}>資料庫管理</h1>
+        <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.75rem' }}>資料庫管理</h1>
       </motion.header>
 
       <AnimatePresence>
@@ -540,7 +561,10 @@ function YouTubeSearchAccordion({ onPick }: { onPick: (result: YouTubePrefill) =
         }}
       >
         <span>從 YouTube 搜尋歌曲</span>
-        <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>{open ? '收合 ▲' : '展開 ▼'}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+          {open ? '收合' : '展開'}
+          <CollapseChevron open={open} />
+        </span>
       </button>
 
       {open && (
@@ -738,7 +762,10 @@ function AppleMusicSearchAccordion({ onPick }: { onPick: (result: AppleMusicPref
         }}
       >
         <span>從 Apple Music 搜尋試聽來源（建議優先使用）</span>
-        <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>{open ? '收合 ▲' : '展開 ▼'}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+          {open ? '收合' : '展開'}
+          <CollapseChevron open={open} />
+        </span>
       </button>
 
       {open && (
@@ -906,7 +933,10 @@ function DeezerSearchAccordion({ onPick }: { onPick: (result: DeezerPrefill) => 
         }}
       >
         <span>從 Deezer 搜尋試聽來源（Apple Music 找不到時的備援）</span>
-        <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>{open ? '收合 ▲' : '展開 ▼'}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+          {open ? '收合' : '展開'}
+          <CollapseChevron open={open} />
+        </span>
       </button>
 
       {open && (
@@ -1128,7 +1158,10 @@ function YouTubePlaylistImportAccordion({ onImported, onNotice }: { onImported: 
         }}
       >
         <span>從 YouTube 播放清單批次匯入</span>
-        <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>{open ? '收合 ▲' : '展開 ▼'}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+          {open ? '收合' : '展開'}
+          <CollapseChevron open={open} />
+        </span>
       </button>
 
       {open && (
@@ -2033,9 +2066,10 @@ function SongForm({
         <button
           type="button"
           onClick={() => setShowAdvancedSourceFields((v) => !v)}
-          style={{ ...editButtonStyle, alignSelf: 'flex-start' }}
+          style={{ ...editButtonStyle, alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '6px' }}
         >
-          {showAdvancedSourceFields ? '收起 track id 欄位 ▲' : '顯示 track id 欄位（選填，供重新查詢核對用）▼'}
+          {showAdvancedSourceFields ? '收起 track id 欄位' : '顯示 track id 欄位（選填，供重新查詢核對用）'}
+          <CollapseChevron open={showAdvancedSourceFields} />
         </button>
         {showAdvancedSourceFields && (
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
