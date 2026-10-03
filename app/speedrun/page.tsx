@@ -531,8 +531,28 @@ export default function SpeedrunPage() {
           <motion.button whileTap={{ scale: 0.97 }} onClick={handleStart} style={buttonStyle}>
             開始挑戰
           </motion.button>
-          <motion.button whileTap={{ scale: 0.97 }} onClick={loadIntroLeaderboard} style={secondaryButtonStyle}>
-            {introLeaderboard !== null ? '收合排行榜 ▲' : '查看目前排行榜 ▼'}
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={loadIntroLeaderboard}
+            style={{ ...secondaryButtonStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+          >
+            {introLeaderboard !== null ? '收合排行榜' : '查看目前排行榜'}
+            {/* 用會跟著展開/收合狀態旋轉的 SVG chevron，取代原本寫死的「▲」「▼」文字字元——
+                文字字元沒有過場動畫，狀態切換時是硬生生的瞬間替換；SVG 用 transform 旋轉
+                180 度，展開/收合之間會有一個小小的轉動動作，跟按鈕本身的點擊回饋（whileTap
+                縮放）搭配起來，互動的觸感更完整。 */}
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 12 12"
+              fill="none"
+              style={{
+                transform: introLeaderboard !== null ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 0.2s ease',
+              }}
+            >
+              <path d="M2.5 4.5 6 8l3.5-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
           </motion.button>
           {introLeaderboard !== null && <LeaderboardList entries={introLeaderboard} />}
           <Link href="/" style={{ color: 'var(--ink-dim)', fontSize: '0.85rem', textAlign: 'center' }}>
@@ -724,25 +744,48 @@ function LeaderboardList({ entries, highlightId }: { entries: SpeedrunLeaderboar
         width: '100%',
       }}
     >
-      {entries.map((entry, i) => (
-        <li
-          key={entry.id}
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            padding: '8px 12px',
-            borderRadius: '8px',
-            background: entry.id === highlightId ? 'var(--bg-raised)' : 'transparent',
-            border: entry.id === highlightId ? '1px solid var(--accent)' : '1px solid transparent',
-            fontSize: '0.9rem',
-          }}
-        >
-          <span>
-            {i + 1}. {entry.displayName}
-          </span>
-          <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-dim)' }}>{formatStopwatch(entry.totalTimeMs)}</span>
-        </li>
-      ))}
+      {entries.map((entry, i) => {
+        const rank = i + 1;
+        const isTopThree = rank <= 3;
+        return (
+          <li
+            key={entry.id}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '8px 12px',
+              borderRadius: '8px',
+              background: entry.id === highlightId ? 'var(--bg-raised)' : 'transparent',
+              border: entry.id === highlightId ? '1px solid var(--accent)' : '1px solid transparent',
+              fontSize: '0.9rem',
+            }}
+          >
+            {/* 排名跟姓名分開兩個獨立元素，不用「N. 」這種句點接法——這是密集的百人排行榜，
+                每一列資訊量要壓到最小，但排名本身還是該有自己獨立的欄位寬度跟字體（等寬
+                數字字體），不要讓它看起來只是姓名前面黏著的一個字元。前三名排名刻意用
+                金色，給這個長長的清單一點點節奏感，不是每一列都长得一模一樣。 */}
+            <span style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+              <span
+                style={{
+                  width: '22px',
+                  flexShrink: 0,
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.8rem',
+                  fontWeight: isTopThree ? 700 : 400,
+                  color: isTopThree ? 'var(--accent)' : 'var(--ink-dim)',
+                }}
+              >
+                {rank}
+              </span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.displayName}</span>
+            </span>
+            <span style={{ flexShrink: 0, fontFamily: 'var(--font-mono)', color: 'var(--ink-dim)', fontSize: '0.85rem' }}>
+              {formatStopwatch(entry.totalTimeMs)}
+            </span>
+          </li>
+        );
+      })}
     </ol>
   );
 }
