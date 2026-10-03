@@ -234,14 +234,17 @@ export function GamePage({ mode, title }: GamePageProps) {
 
           {state.status === 'reveal' && (
             <>
-              <p style={{ color: 'var(--accent)', fontWeight: 600, fontSize: '1.5rem', textAlign: 'center' }}>
-                {state.currentQuestion.correctTitle}
+              {/* 歌名／歌手分成獨立兩行，不用破折號接在同一行——歌名是這一刻真正的答案，
+                  理應是視覺上最重的東西；歌手是補充資訊，用獨立的一行、更小更淡的處理
+                  自然就能分出主從，不需要靠一個標點符號把兩種不同性質的文字硬接在一起。 */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                <p style={{ color: 'var(--accent)', fontWeight: 700, fontSize: '1.6rem', textAlign: 'center' }}>
+                  {state.currentQuestion.correctTitle}
+                </p>
                 {currentArtistName && (
-                  <span style={{ color: 'var(--ink-dim)', fontWeight: 400, fontSize: '1.05rem' }}>
-                    {' '}– {currentArtistName}
-                  </span>
+                  <p style={{ color: 'var(--ink-dim)', fontSize: '1rem' }}>{currentArtistName}</p>
                 )}
-              </p>
+              </div>
               {currentThemeLabels.length > 0 && (
                 <p style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>
                   主題：{currentThemeLabels.join('、')}
@@ -291,6 +294,52 @@ export function GamePage({ mode, title }: GamePageProps) {
  * 加減分只在公布答案（reveal）後才能操作，避免答案還沒公布就先動分數；
  * 題目階段（question）仍會顯示目前分數，只是先不能點。
  */
+/**
+ * 玩家識別標籤：姓名前面加一個用姓名首字畫出來的小圓點。
+ *
+ * 這是這次重構實際要解決的問題：先前計分畫面只靠「文字」跟「字級大小」區分姓名跟分數，
+ * 玩家為了測試方便常常直接把姓名輸入成「1」「2」「3」這種單一數字，一旦姓名本身也是數字，
+ * 一整排「姓名、分數、加減按鈕」看起來就是好幾個意義不明的數字混在一起，沒辦法一眼
+ * 分辨哪個是誰、哪個是分數。姓名加一個圓形容器之後，不管姓名本身是什麼文字，
+ * 「這是一個身分標籤」這件事本身就有獨立的視覺容器可以辨認，不會再跟旁邊的分數數字
+ * 混淆——這跟最終戰績畫面的名次徽章是同一個解法：用「形狀」而不是單靠「數值」
+ * 承載意義。
+ */
+function PlayerIdentity({ name }: { name: string }) {
+  const initial = name.trim().charAt(0) || '?';
+  return (
+    <span style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0 }}>
+      <span
+        aria-hidden="true"
+        style={{
+          flexShrink: 0,
+          width: '20px',
+          height: '20px',
+          borderRadius: '50%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'var(--groove)',
+          color: 'var(--ink-dim)',
+          fontSize: '0.68rem',
+          fontWeight: 600,
+        }}
+      >
+        {initial}
+      </span>
+      <span style={{ fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {name}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * 比賽進行中的即時計分——改成一張一張直向排列的小卡片，不再是一整排橫向膠囊。
+ * 姓名（小、淡）在上，分數（大、金色、等寬數字字體）在中間獨自一行，加減分按鈕
+ * 在最下面自成一排——三種不同性質的資訊（身分／數值／操作）各自佔一行，
+ * 視覺上天生就分得開，不需要再靠顏色或字級去硬撐出區別。
+ */
 function ScoreStrip({
   players,
   scores,
@@ -310,29 +359,30 @@ function ScoreStrip({
           key={p.id}
           style={{
             display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
-            gap: '10px',
-            padding: '8px 8px 8px 16px',
-            borderRadius: '999px',
+            gap: '8px',
+            width: '108px',
+            padding: '14px 10px',
+            borderRadius: '14px',
             border: '1px solid var(--groove)',
             background: 'var(--bg-raised)',
           }}
         >
-          <span style={{ fontSize: '0.9rem' }}>{p.displayName}</span>
+          <PlayerIdentity name={p.displayName} />
           <span
             style={{
-              minWidth: '28px',
-              textAlign: 'center',
               fontFamily: 'var(--font-mono)',
               fontWeight: 700,
-              fontSize: '1.1rem',
+              fontSize: '1.6rem',
+              lineHeight: 1,
               color: 'var(--accent)',
             }}
           >
             {scores[p.id] ?? 0}
           </span>
           {canAdjust && (
-            <span style={{ display: 'flex', gap: '4px' }}>
+            <span style={{ display: 'flex', gap: '6px' }}>
               <button
                 onClick={() => onAdjust(p.id, -1)}
                 aria-label={`${p.displayName} 減一分`}
@@ -430,12 +480,15 @@ function ScoreBoard({ players, scores }: { players: PlayerProfile[]; scores: Rec
                 background: isTopScore ? 'var(--bg-raised)' : 'transparent',
               }}
             >
-              <span style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '1.05rem' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
                 <RankBadge rank={i + 1} />
-                {p.displayName}
+                <PlayerIdentity name={p.displayName} />
               </span>
               <span
                 style={{
+                  flexShrink: 0,
+                  minWidth: '36px',
+                  textAlign: 'right',
                   fontFamily: 'var(--font-mono)',
                   fontWeight: 700,
                   fontSize: '1.3rem',
