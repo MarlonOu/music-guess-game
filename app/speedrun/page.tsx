@@ -9,6 +9,7 @@ import { estimateServerNow } from '../../lib/client/serverClock';
 import type { SpeedrunQuestion, SpeedrunSubmitResponse, SpeedrunLeaderboardEntry } from '../../lib/types/speedrun';
 import { SPEEDRUN_TRANSITION_SEC, SPEEDRUN_AUDIO_WAIT_CAP_MS } from '../../lib/constants/speedrun';
 import { WRONG_ANSWER_LOCKOUT_MS } from '../../lib/constants/choiceMode';
+import { TransitionDisc } from '../../components/speedrun/TransitionDisc';
 
 const QUESTION_COUNT = 10;
 /** 碼表畫面更新頻率；不需要真的到毫秒等級的更新頻率，肉眼看起來夠平滑即可，
@@ -647,16 +648,7 @@ export default function SpeedrunPage() {
             {formatStopwatch(elapsedMs)}
           </p>
           <p style={{ color: 'var(--ink-dim)', fontSize: '0.9rem' }}>答對了！準備下一題…</p>
-          <p
-            style={{
-              fontFamily: 'var(--font-display)',
-              fontSize: '3rem',
-              color: 'var(--accent)',
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          >
-            {transitionSecondsLeft}
-          </p>
+          <TransitionDisc secondsLeft={transitionSecondsLeft} />
         </div>
       )}
 
