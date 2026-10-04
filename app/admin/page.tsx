@@ -250,6 +250,421 @@ function ConfirmDeleteButton({ confirmText, onConfirm }: { confirmText: string; 
   );
 }
 
+/**
+ * 把一首既有歌曲轉成「更新歌曲」API 需要的完整欄位，再套用這次想改的欄位。
+ * 更新歌曲 API 是整筆覆蓋式的，只想改一個欄位（例如只標記「已核對」）也得把其他欄位
+ * 原樣帶上，不然沒帶的欄位會被清空。這份欄位清單原本在批次套用主題、歌手合併各自抄了
+ * 一份，現在核對功能又要用，統一收斂在這裡，之後新增歌曲欄位只需要改一個地方。
+ */
+function songToUpdateInput(
+  song: Song,
+  overrides: Partial<Omit<Song, 'id' | 'createdAt'>> = {}
+): Partial<Omit<Song, 'id' | 'createdAt'>> {
+  return {
+    title: song.title,
+    artistId: song.artistId,
+    youtubeVideoId: song.youtubeVideoId ?? '',
+    appleMusicTrackId: song.appleMusicTrackId ?? '',
+    appleMusicPreviewUrl: song.appleMusicPreviewUrl ?? '',
+    appleMusicSkip: song.appleMusicSkip,
+    appleMusicVerified: song.appleMusicVerified,
+    deezerTrackId: song.deezerTrackId ?? '',
+    deezerPreviewUrl: song.deezerPreviewUrl ?? '',
+    deezerSkip: song.deezerSkip,
+    deezerVerified: song.deezerVerified,
+    aliases: song.aliases,
+    durationSec: song.durationSec,
+    lyrics: song.lyrics,
+    themeIds: song.themeIds,
+    ...overrides,
+  };
+}
+
+/**
+ * 一首歌的「來源核對狀態」：
+ * - none：沒有任何 Apple Music／Deezer 試聽來源（只靠 YouTube 或根本沒來源），沒有東西需要核對
+ * - unverified：至少有一個 Apple Music／Deezer 來源還沒被人工核對過，是「待核對佇列」的對象
+ * - verified：所有現有的 Apple Music／Deezer 來源都已經人工核對過
+ * YouTube 來源沒有核對標記（它是管理者自己貼的影片，不是批次腳本自動比對出來的），不列入判斷。
+ */
+type SourceReviewStatus = 'none' | 'unverified' | 'verified';
+
+type HealthFilter = 'none' | 'no-theme' | 'no-source' | 'unverified' | 'verified';
+
+function sourceReviewStatus(s: Song): SourceReviewStatus {
+  const hasApple = Boolean(s.appleMusicPreviewUrl);
+  const hasDeezer = Boolean(s.deezerPreviewUrl);
+  if (!hasApple && !hasDeezer) return 'none';
+  const appleOk = !hasApple || s.appleMusicVerified;
+  const deezerOk = !hasDeezer || s.deezerVerified;
+  return appleOk && deezerOk ? 'verified' : 'unverified';
+}
+
+type PreviewSource = 'apple' | 'deezer' | 'youtube';
+
+/** 想聽的來源這首歌剛好沒有時，依實際播放優先序（Apple → Deezer → YouTube）退回下一個可用的。 */
+function resolvePreviewSource(s: Song, preferred: PreviewSource): PreviewSource | null {
+  if (preferred === 'apple' && s.appleMusicPreviewUrl) return 'apple';
+  if (preferred === 'deezer' && s.deezerPreviewUrl) return 'deezer';
+  if (preferred === 'youtube' && s.youtubeVideoId) return 'youtube';
+  if (s.appleMusicPreviewUrl) return 'apple';
+  if (s.deezerPreviewUrl) return 'deezer';
+  if (s.youtubeVideoId) return 'youtube';
+  return null;
+}
+
+/** 歌曲清單的「試聽」展開區跟核對佇列共用同一個播放器，確保兩邊聽到的是同一套來源邏輯。 */
+function SongPreviewPlayer({ song, source }: { song: Song; source: PreviewSource | null }) {
+  if (source === 'apple' && song.appleMusicPreviewUrl) {
+    return <audio key={`${song.id}-apple`} controls autoPlay src={song.appleMusicPreviewUrl} style={{ width: '100%' }} />;
+  }
+  if (source === 'deezer' && song.deezerPreviewUrl) {
+    return <audio key={`${song.id}-deezer`} controls autoPlay src={song.deezerPreviewUrl} style={{ width: '100%' }} />;
+  }
+  if (source === 'youtube' && song.youtubeVideoId) {
+    return (
+      <iframe
+        key={`${song.id}-youtube`}
+        width="100%"
+        height="220"
+        src={`https://www.youtube.com/embed/${song.youtubeVideoId}?autoplay=1`}
+        title={song.title}
+        style={{ border: 'none', borderRadius: '8px' }}
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        referrerPolicy="strict-origin-when-cross-origin"
+        allowFullScreen
+      />
+    );
+  }
+  return null;
+}
+
+/** 清單來源圖示右下角的小勾勾，只在「已人工核對」時出現，掃過清單一眼就能分出核對過的。 */
+function VerifiedTick() {
+  return (
+    <span
+      aria-label="已人工核對"
+      style={{
+        position: 'absolute',
+        right: '-5px',
+        bottom: '-4px',
+        fontSize: '0.62rem',
+        fontWeight: 700,
+        lineHeight: 1,
+        color: 'var(--success)',
+      }}
+    >
+      ✓
+    </span>
+  );
+}
+
+/** 跟 ConfirmDeleteButton 同樣的「原地展開確認」互動，給不是刪除、但影響範圍較大的操作用。 */
+function ConfirmActionButton({
+  label,
+  confirmText,
+  confirmLabel = '確定',
+  disabled,
+  onConfirm,
+}: {
+  label: string;
+  confirmText: string;
+  confirmLabel?: string;
+  disabled?: boolean;
+  onConfirm: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  if (confirming) {
+    return (
+      <span style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>{confirmText}</span>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => {
+            setConfirming(false);
+            onConfirm();
+          }}
+          style={buttonStyle}
+        >
+          {confirmLabel}
+        </button>
+        <button type="button" onClick={() => setConfirming(false)} style={editButtonStyle}>
+          取消
+        </button>
+      </span>
+    );
+  }
+  return (
+    <button type="button" disabled={disabled} onClick={() => setConfirming(true)} style={editButtonStyle}>
+      {label}
+    </button>
+  );
+}
+
+/**
+ * 來源核對佇列：把「待核對」從「去編輯表單裡找一個勾選框」變成一條可以連續處理的流程。
+ *
+ * 批次腳本自動比對出來的 Apple Music／Deezer 來源（尤其標記「低信心」的）需要人工聽過
+ * 確認是不是原唱正式版，這是整個題庫維護裡最耗時的重複性工作，原本每一首都得：找到那首歌
+ * → 點試聽 → 聽完 → 點編輯 → 捲到表單最下面 → 勾「已人工核對」→ 儲存 → 再回清單找下一首。
+ * 這裡改成一次只顯示一首待核對的歌，播放器直接在畫面上，聽完按一下就核對並自動帶出下一首。
+ * 版本不對的情況也在同一個畫面處理：清空錯的來源並標記「確認找不到」，或直接跳去編輯重新搜尋。
+ */
+function SourceReviewQueue({
+  songs,
+  artistNameOf,
+  onEdit,
+  onChanged,
+  onError,
+  onNotice,
+}: {
+  songs: Song[];
+  artistNameOf: (artistId: string) => string;
+  onEdit: (song: Song) => void;
+} & SectionCallbacks) {
+  const [open, setOpen] = useState(false);
+  // 本次工作階段先略過的歌曲（例如要等一下查資料才能判斷的），只存在這個畫面的狀態裡，
+  // 不寫進資料庫——重新整理頁面就會回到佇列裡，不會因為「略過」就永遠消失、被遺忘。
+  const [skippedIds, setSkippedIds] = useState<Set<string>>(new Set());
+  const [pref, setPref] = useState<{ songId: string; source: PreviewSource } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const queue = songs.filter((s) => sourceReviewStatus(s) === 'unverified');
+  const pending = queue.filter((s) => !skippedIds.has(s.id));
+  const current = pending[0] ?? null;
+  const skippedCount = queue.length - pending.length;
+
+  // 預設先播「還沒核對」的那個來源：如果這首歌 Apple Music 已經核對過、只剩 Deezer 沒核對，
+  // 核對完 Apple 之後畫面會自動切到 Deezer，不用再手動切換。
+  const defaultSource: PreviewSource = current
+    ? current.appleMusicPreviewUrl && !current.appleMusicVerified
+      ? 'apple'
+      : current.deezerPreviewUrl && !current.deezerVerified
+        ? 'deezer'
+        : 'apple'
+    : 'apple';
+  const preferred: PreviewSource = current && pref?.songId === current.id ? pref.source : defaultSource;
+  const activeSource = current ? resolvePreviewSource(current, preferred) : null;
+
+  async function patchSong(song: Song, overrides: Partial<Omit<Song, 'id' | 'createdAt'>>, message: string) {
+    setBusy(true);
+    try {
+      const result = await songRepository.updateSong(song.id, songToUpdateInput(song, overrides));
+      if (!result.ok) {
+        onError(result.error ?? '更新失敗');
+        return;
+      }
+      onNotice(message);
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const appleNeeds = Boolean(current?.appleMusicPreviewUrl && !current.appleMusicVerified);
+  const deezerNeeds = Boolean(current?.deezerPreviewUrl && !current.deezerVerified);
+  const availableSources: PreviewSource[] = current
+    ? [
+        ...(current.appleMusicPreviewUrl ? (['apple'] as const) : []),
+        ...(current.deezerPreviewUrl ? (['deezer'] as const) : []),
+        ...(current.youtubeVideoId ? (['youtube'] as const) : []),
+      ]
+    : [];
+  const sourceLabel: Record<PreviewSource, string> = { apple: 'Apple Music', deezer: 'Deezer', youtube: 'YouTube' };
+
+  return (
+    <div style={{ border: `1px solid ${queue.length > 0 ? 'var(--accent)' : 'var(--groove)'}`, borderRadius: '10px', overflow: 'hidden' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: '100%',
+          textAlign: 'left',
+          padding: '12px 16px',
+          background: 'var(--bg)',
+          border: 'none',
+          color: 'var(--ink)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          cursor: 'pointer',
+          fontSize: '0.95rem',
+        }}
+      >
+        <span>
+          來源核對佇列
+          <span style={{ marginLeft: '8px', fontSize: '0.8rem', color: queue.length > 0 ? 'var(--accent)' : 'var(--ink-dim)' }}>
+            {queue.length > 0 ? `待核對 ${queue.length} 首` : '全部核對完了'}
+          </span>
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+          {open ? '收合' : '展開'}
+          <CollapseChevron open={open} />
+        </span>
+      </button>
+
+      {open && (
+        <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '12px', borderTop: '1px solid var(--groove)' }}>
+          <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', margin: 0 }}>
+            逐首聽批次腳本自動比對出來的 Apple Music／Deezer 來源，聽起來是同一首原唱版本就按「正確」，版本不對（翻唱、Live、Remix）就清空或重新找。
+            核對過的歌曲，之後批次腳本如果需要重新搜尋比對，會跳過、不會被蓋掉。
+          </p>
+
+          {skippedCount > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', fontSize: '0.8rem', color: 'var(--ink-dim)' }}>
+              本次已略過 {skippedCount} 首（重新整理頁面也會回到佇列）
+              <button type="button" onClick={() => setSkippedIds(new Set())} style={editButtonStyle}>
+                把略過的放回佇列
+              </button>
+            </div>
+          )}
+
+          {!current && (
+            <p style={{ margin: 0, fontSize: '0.9rem' }}>
+              {queue.length === 0 ? '目前沒有待核對的來源。' : '剩下的歌曲都被你略過了，可以按上方「把略過的放回佇列」重新處理。'}
+            </p>
+          )}
+
+          {current && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ color: 'var(--ink-dim)', fontSize: '0.78rem' }}>
+                  第 1 首／待核對 {pending.length} 首
+                </span>
+                <span style={{ fontSize: '1.1rem', fontWeight: 700 }}>{current.title}</span>
+                <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>
+                  {artistNameOf(current.artistId)}
+                  {current.durationSec > 0 && ` · ${formatDuration(current.durationSec)}`}
+                </span>
+                <span style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', fontSize: '0.78rem' }}>
+                  {current.appleMusicPreviewUrl && (
+                    <span style={{ color: current.appleMusicVerified ? 'var(--success)' : 'var(--accent)' }}>
+                      Apple Music：{current.appleMusicVerified ? '已核對' : '待核對'}
+                    </span>
+                  )}
+                  {current.deezerPreviewUrl && (
+                    <span style={{ color: current.deezerVerified ? 'var(--success)' : 'var(--accent)' }}>
+                      Deezer：{current.deezerVerified ? '已核對' : '待核對'}
+                    </span>
+                  )}
+                </span>
+              </div>
+
+              {availableSources.length > 1 && (
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {availableSources.map((src) => (
+                    <button
+                      key={src}
+                      type="button"
+                      onClick={() => setPref({ songId: current.id, source: src })}
+                      style={{
+                        ...editButtonStyle,
+                        borderColor: activeSource === src ? 'var(--accent)' : 'var(--groove)',
+                        color: activeSource === src ? 'var(--accent)' : 'var(--ink)',
+                      }}
+                    >
+                      {sourceLabel[src]}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <SongPreviewPlayer song={current} source={activeSource} />
+              {availableSources.length > 1 && (
+                <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem' }}>
+                  可以切到 YouTube 拿原曲對照，確認 Apple Music／Deezer 這個版本是不是同一首。
+                </span>
+              )}
+
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                {appleNeeds && deezerNeeds && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      patchSong(current, { appleMusicVerified: true, deezerVerified: true }, `已核對「${current.title}」`)
+                    }
+                    style={buttonStyle}
+                  >
+                    ✓ 兩個來源都正確
+                  </button>
+                )}
+                {appleNeeds && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => patchSong(current, { appleMusicVerified: true }, `已核對「${current.title}」的 Apple Music 來源`)}
+                    style={deezerNeeds ? editButtonStyle : buttonStyle}
+                  >
+                    ✓ Apple Music 來源正確
+                  </button>
+                )}
+                {deezerNeeds && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => patchSong(current, { deezerVerified: true }, `已核對「${current.title}」的 Deezer 來源`)}
+                    style={appleNeeds ? editButtonStyle : buttonStyle}
+                  >
+                    ✓ Deezer 來源正確
+                  </button>
+                )}
+                <button type="button" disabled={busy} onClick={() => onEdit(current)} style={editButtonStyle}>
+                  重新找來源
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setSkippedIds((prev) => new Set(prev).add(current.id))}
+                  style={editButtonStyle}
+                >
+                  略過這首
+                </button>
+              </div>
+
+              {(appleNeeds || deezerNeeds) && (
+                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  {appleNeeds && (
+                    <ConfirmActionButton
+                      label="Apple Music 來源是錯的"
+                      confirmText="清空 Apple Music 來源並標記「確認找不到」？批次腳本之後不會再替這首歌搜尋 Apple Music。"
+                      confirmLabel="清空並標記"
+                      disabled={busy}
+                      onConfirm={() =>
+                        patchSong(
+                          current,
+                          { appleMusicTrackId: '', appleMusicPreviewUrl: '', appleMusicSkip: true, appleMusicVerified: false },
+                          `已清空「${current.title}」的 Apple Music 來源`
+                        )
+                      }
+                    />
+                  )}
+                  {deezerNeeds && (
+                    <ConfirmActionButton
+                      label="Deezer 來源是錯的"
+                      confirmText="清空 Deezer 來源並標記「確認找不到」？批次腳本之後不會再替這首歌搜尋 Deezer。"
+                      confirmLabel="清空並標記"
+                      disabled={busy}
+                      onConfirm={() =>
+                        patchSong(
+                          current,
+                          { deezerTrackId: '', deezerPreviewUrl: '', deezerSkip: true, deezerVerified: false },
+                          `已清空「${current.title}」的 Deezer 來源`
+                        )
+                      }
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface SectionCallbacks {
   onChanged: () => void;
   onError: (msg: string) => void;
@@ -468,23 +883,7 @@ function ArtistMergeAccordion({
       const songsToMove = songs.filter((s) => s.artistId === sourceId);
       let failCount = 0;
       for (const song of songsToMove) {
-        const result = await songRepository.updateSong(song.id, {
-          title: song.title,
-          artistId: targetId,
-          youtubeVideoId: song.youtubeVideoId ?? '',
-          appleMusicTrackId: song.appleMusicTrackId ?? '',
-          appleMusicPreviewUrl: song.appleMusicPreviewUrl ?? '',
-          appleMusicSkip: song.appleMusicSkip,
-          appleMusicVerified: song.appleMusicVerified,
-          deezerTrackId: song.deezerTrackId ?? '',
-          deezerPreviewUrl: song.deezerPreviewUrl ?? '',
-          deezerSkip: song.deezerSkip,
-          deezerVerified: song.deezerVerified,
-          aliases: song.aliases,
-          durationSec: song.durationSec,
-          lyrics: song.lyrics,
-          themeIds: song.themeIds,
-        });
+        const result = await songRepository.updateSong(song.id, songToUpdateInput(song, { artistId: targetId }));
         if (!result.ok) failCount++;
       }
       if (failCount > 0) {
@@ -1914,6 +2313,35 @@ function SongSection({
   // 試聽時要播哪個來源；有多種來源的歌曲可以切換比較，判斷 Apple Music／Deezer 抓到的版本
   // 跟 YouTube 上的版本是不是同一個（例如原唱版 vs 重生版/Live版這類差異）
   const [previewSource, setPreviewSource] = useState<'apple' | 'deezer' | 'youtube'>('apple');
+  // 編輯表單在頁面上方、歌曲清單在下面，題庫一長，點了某一列的「編輯」之後表單其實已經
+  // 載入好了，但畫面還停在清單那一列，使用者看不到任何變化，會以為按鈕沒反應。
+  // 這個錨點放在表單區塊前面，開始編輯時自動捲過去。
+  const formAnchorRef = useRef<HTMLDivElement | null>(null);
+  const [verifyBusyId, setVerifyBusyId] = useState<string | null>(null);
+
+  function startEditing(song: Song) {
+    setEditing(song);
+    setTimeout(() => formAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  }
+
+  // 單首歌標記／取消單一來源的「已人工核對」，給清單裡邊試聽邊核對用。
+  async function setSourceVerified(song: Song, platform: 'apple' | 'deezer', value: boolean) {
+    setVerifyBusyId(song.id);
+    try {
+      const result = await songRepository.updateSong(
+        song.id,
+        songToUpdateInput(song, platform === 'apple' ? { appleMusicVerified: value } : { deezerVerified: value })
+      );
+      if (!result.ok) {
+        onError(result.error ?? '更新核對標記失敗');
+        return;
+      }
+      onNotice(value ? '已標記為人工核對過' : '已取消核對標記');
+      onChanged();
+    } finally {
+      setVerifyBusyId(null);
+    }
+  }
 
   function artistName(id: string) {
     return artists.find((a) => a.id === id)?.name ?? '（未知歌手）';
@@ -1934,7 +2362,7 @@ function SongSection({
   // 50 首歌要這樣檢查一遍非常低效。「沒有可播放來源」這個情況原本雖然在每一列上有畫出
   // 一個小小的 ⚠ 警示文字，但一樣沒有辦法「只看這些有問題的」，長長的清單裡要找出
   // 這幾首淹沒在其他正常的歌曲中間，一樣得整份捲動著找。
-  const [healthFilter, setHealthFilter] = useState<'none' | 'no-theme' | 'no-source'>('none');
+  const [healthFilter, setHealthFilter] = useState<HealthFilter>('none');
   const songsWithoutTheme = songs.filter((s) => s.themeIds.length === 0);
   const songsWithoutSource = songs.filter(hasNoPlayableSource);
 
@@ -1971,23 +2399,7 @@ function SongSection({
       let failCount = 0;
       for (const song of targets) {
         const mergedThemeIds = Array.from(new Set([...song.themeIds, ...bulkThemeIds]));
-        const result = await songRepository.updateSong(song.id, {
-          title: song.title,
-          artistId: song.artistId,
-          youtubeVideoId: song.youtubeVideoId ?? '',
-          appleMusicTrackId: song.appleMusicTrackId ?? '',
-          appleMusicPreviewUrl: song.appleMusicPreviewUrl ?? '',
-          appleMusicSkip: song.appleMusicSkip,
-          appleMusicVerified: song.appleMusicVerified,
-          deezerTrackId: song.deezerTrackId ?? '',
-          deezerPreviewUrl: song.deezerPreviewUrl ?? '',
-          deezerSkip: song.deezerSkip,
-          deezerVerified: song.deezerVerified,
-          aliases: song.aliases,
-          durationSec: song.durationSec,
-          lyrics: song.lyrics,
-          themeIds: mergedThemeIds,
-        });
+        const result = await songRepository.updateSong(song.id, songToUpdateInput(song, { themeIds: mergedThemeIds }));
         if (!result.ok) failCount++;
       }
       if (failCount > 0) {
@@ -2030,18 +2442,74 @@ function SongSection({
     }
   }
 
+  const songsUnverified = songs.filter((s) => sourceReviewStatus(s) === 'unverified');
+  const songsVerified = songs.filter((s) => sourceReviewStatus(s) === 'verified');
+
+  // 批次標記／取消「來源已人工核對」。標記時只動這首歌「實際有的」來源——沒有 Deezer 來源的歌
+  // 不會被硬標上 Deezer 已核對；已經是目標狀態的歌曲直接略過、不白白送一次更新請求。
+  async function bulkSetVerified(value: boolean) {
+    const targets = songs.filter((s) => selectedSongIds.has(s.id));
+    if (targets.length === 0) return;
+    setBulkApplying(true);
+    try {
+      let changed = 0;
+      let failCount = 0;
+      for (const song of targets) {
+        const overrides = value
+          ? {
+              appleMusicVerified: song.appleMusicPreviewUrl ? true : song.appleMusicVerified,
+              deezerVerified: song.deezerPreviewUrl ? true : song.deezerVerified,
+            }
+          : { appleMusicVerified: false, deezerVerified: false };
+        if (
+          overrides.appleMusicVerified === song.appleMusicVerified &&
+          overrides.deezerVerified === song.deezerVerified
+        ) {
+          continue;
+        }
+        const result = await songRepository.updateSong(song.id, songToUpdateInput(song, overrides));
+        if (result.ok) changed++;
+        else failCount++;
+      }
+      if (failCount > 0) {
+        onError(`批次${value ? '標記' : '取消'}核對時有 ${failCount} 首失敗，其餘 ${changed} 首已成功`);
+      } else {
+        onNotice(
+          changed === 0
+            ? '所選的歌曲已經都是這個狀態，沒有需要更新的'
+            : `已${value ? '標記' : '取消'} ${changed} 首歌的來源核對狀態`
+        );
+      }
+      setSelectedSongIds(new Set());
+      onChanged();
+    } finally {
+      setBulkApplying(false);
+    }
+  }
+
+  const healthFilterOptions: { key: Exclude<HealthFilter, 'none'>; label: string; count: number }[] = [
+    { key: 'no-theme', label: '沒有主題的歌', count: songsWithoutTheme.length },
+    { key: 'no-source', label: '沒有可播放來源', count: songsWithoutSource.length },
+    { key: 'unverified', label: '來源待核對', count: songsUnverified.length },
+    { key: 'verified', label: '來源已核對', count: songsVerified.length },
+  ];
+
   // 歌手／主題查詢可以同時使用（交集），跟比賽建立流程的「擇一」不同——
   // 這裡單純是管理頁面找歌曲用的篩選，不是決定比賽題庫，同時縮小範圍反而更好用。
   // 健康檢查篩選（healthFilter）也是交集疊加上去，不是取代前面兩個篩選——例如可以同時
   // 「依歌手篩選＋只看沒有主題的」，縮小到剛好要處理的那一小批。
   const visibleSongs = songs.filter(
     (s) =>
-      (!titleSearch.trim() || s.title.toLowerCase().includes(titleSearch.trim().toLowerCase())) &&
+      (!titleSearch.trim() ||
+        s.title.toLowerCase().includes(titleSearch.trim().toLowerCase()) ||
+        artistName(s.artistId).toLowerCase().includes(titleSearch.trim().toLowerCase())) &&
       (!filterArtistId || s.artistId === filterArtistId) &&
       (!filterThemeId || s.themeIds.includes(filterThemeId)) &&
       (healthFilter === 'none' ||
         (healthFilter === 'no-theme' && s.themeIds.length === 0) ||
-        (healthFilter === 'no-source' && hasNoPlayableSource(s)))
+        (healthFilter === 'no-source' && hasNoPlayableSource(s)) ||
+        (healthFilter === 'unverified' && sourceReviewStatus(s) === 'unverified') ||
+        (healthFilter === 'verified' && sourceReviewStatus(s) === 'verified'))
   );
 
   // 歌手清單（artists）內容一變（新增/刪除歌手）就重新掛載表單，
@@ -2055,6 +2523,8 @@ function SongSection({
       <h2 style={{ fontSize: '1.1rem' }}>歌曲管理（{songs.length}）</h2>
 
       <ImportExportBar onImported={onChanged} onError={onError} onNotice={onNotice} />
+
+      <div ref={formAnchorRef} style={{ scrollMarginTop: '16px' }} />
 
       <YouTubeSearchAccordion onPick={setPrefill} />
 
@@ -2089,11 +2559,20 @@ function SongSection({
         }}
       />
 
+      <SourceReviewQueue
+        songs={songs}
+        artistNameOf={artistName}
+        onEdit={startEditing}
+        onChanged={onChanged}
+        onError={onError}
+        onNotice={onNotice}
+      />
+
       {songs.length > 8 && (
         <input
           value={titleSearch}
           onChange={(e) => setTitleSearch(e.target.value)}
-          placeholder="搜尋歌名"
+          placeholder="搜尋歌名或歌手"
           style={inputStyle}
         />
       )}
@@ -2132,37 +2611,31 @@ function SongSection({
         )}
       </div>
 
-      {/* 健康檢查快速篩選：按鈕上直接標數量，不用點下去才知道有多少筆要處理——
-          數量是 0 的話代表這個項目「全部都處理好了」，直接讓按鈕呈現停用狀態，
-          不會讓管理者點了一個篩選、結果清單空空如也還要猜是不是沒有問題。 */}
+      {/* 快速篩選：按鈕上直接標數量，不用點下去才知道有多少筆要處理。數量是 0 的時候
+          按鈕停用，不會讓管理者點了一個篩選、結果清單空空如也還要猜是不是沒有問題；
+          但「目前正在使用中的篩選」即使數量剛好變成 0 也不能停用——例如在「來源待核對」
+          篩選下把最後一首核對完，數量歸零，如果按鈕這時候被鎖住，就沒辦法把篩選關掉了。 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-        <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>健康檢查：</span>
-        <button
-          type="button"
-          disabled={songsWithoutTheme.length === 0}
-          onClick={() => setHealthFilter((f) => (f === 'no-theme' ? 'none' : 'no-theme'))}
-          style={{
-            ...editButtonStyle,
-            opacity: songsWithoutTheme.length === 0 ? 0.4 : 1,
-            borderColor: healthFilter === 'no-theme' ? 'var(--accent)' : 'var(--groove)',
-            color: healthFilter === 'no-theme' ? 'var(--accent)' : 'var(--ink)',
-          }}
-        >
-          沒有主題的歌（{songsWithoutTheme.length}）
-        </button>
-        <button
-          type="button"
-          disabled={songsWithoutSource.length === 0}
-          onClick={() => setHealthFilter((f) => (f === 'no-source' ? 'none' : 'no-source'))}
-          style={{
-            ...editButtonStyle,
-            opacity: songsWithoutSource.length === 0 ? 0.4 : 1,
-            borderColor: healthFilter === 'no-source' ? 'var(--accent)' : 'var(--groove)',
-            color: healthFilter === 'no-source' ? 'var(--accent)' : 'var(--ink)',
-          }}
-        >
-          沒有可播放來源（{songsWithoutSource.length}）
-        </button>
+        <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>快速篩選：</span>
+        {healthFilterOptions.map((opt) => {
+          const active = healthFilter === opt.key;
+          return (
+            <button
+              key={opt.key}
+              type="button"
+              disabled={opt.count === 0 && !active}
+              onClick={() => setHealthFilter((f) => (f === opt.key ? 'none' : opt.key))}
+              style={{
+                ...editButtonStyle,
+                opacity: opt.count === 0 && !active ? 0.4 : 1,
+                borderColor: active ? 'var(--accent)' : 'var(--groove)',
+                color: active ? 'var(--accent)' : 'var(--ink)',
+              }}
+            >
+              {opt.label}（{opt.count}）
+            </button>
+          );
+        })}
       </div>
 
       {/* 批次操作列：有選取歌曲時才顯示，不佔用平常瀏覽清單時的版面。「全選目前這份清單」
@@ -2197,6 +2670,19 @@ function SongSection({
           }}
         >
           <span style={{ fontSize: '0.85rem', color: 'var(--ink-dim)' }}>已選 {selectedSongIds.size} 首</span>
+          {/* 「先篩出來源待核對→全選→聽過一輪抽查沒問題→一次標記」這條路徑用的：標記核對是
+              一個有份量的宣告（代表人工確認過是正確版本），所以跟刪除一樣先確認一次。 */}
+          <ConfirmActionButton
+            label="標記來源為已核對"
+            confirmText={`確定這 ${selectedSongIds.size} 首歌的 Apple Music／Deezer 來源都人工核對過、是正確版本嗎？`}
+            confirmLabel="確定標記"
+            disabled={bulkApplying}
+            onConfirm={() => bulkSetVerified(true)}
+          />
+          <button type="button" disabled={bulkApplying} onClick={() => bulkSetVerified(false)} style={editButtonStyle}>
+            取消核對標記
+          </button>
+          <span style={{ width: '1px', height: '20px', background: 'var(--groove)' }} />
           <ConfirmDeleteButton
             confirmText={`確定要刪除所選的 ${selectedSongIds.size} 首歌嗎？這個動作無法復原。`}
             onConfirm={deleteBulkSelected}
@@ -2311,12 +2797,20 @@ function SongSection({
                     放在試聽按鈕左邊、跟按鈕們一起垂直置中，是同一組「這首歌的播放相關資訊」，
                     擺在一起比分成兩行更容易一眼看懂。 */}
                 <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.85rem' }}>
-                  <span style={{ width: '16px', textAlign: 'center' }} title="Apple Music">
+                  <span
+                    style={{ position: 'relative', width: '16px', textAlign: 'center' }}
+                    title={s.appleMusicPreviewUrl ? `Apple Music（${s.appleMusicVerified ? '已人工核對' : '尚未核對'}）` : 'Apple Music'}
+                  >
                     {s.appleMusicPreviewUrl ? '🍎' : ''}
+                    {s.appleMusicPreviewUrl && s.appleMusicVerified && <VerifiedTick />}
                   </span>
                   <span style={{ color: 'var(--groove)' }}>|</span>
-                  <span style={{ width: '16px', textAlign: 'center' }} title="Deezer">
+                  <span
+                    style={{ position: 'relative', width: '16px', textAlign: 'center' }}
+                    title={s.deezerPreviewUrl ? `Deezer（${s.deezerVerified ? '已人工核對' : '尚未核對'}）` : 'Deezer'}
+                  >
                     {s.deezerPreviewUrl ? '🎵' : ''}
+                    {s.deezerPreviewUrl && s.deezerVerified && <VerifiedTick />}
                   </span>
                   <span style={{ color: 'var(--groove)' }}>|</span>
                   <span style={{ width: '16px', textAlign: 'center' }} title="YouTube">
@@ -2334,7 +2828,7 @@ function SongSection({
                 >
                   {previewSongId === s.id ? '收起試聽' : '試聽'}
                 </button>
-                <button onClick={() => setEditing(s)} style={editButtonStyle}>
+                <button onClick={() => startEditing(s)} style={editButtonStyle}>
                   編輯
                 </button>
                 <ConfirmDeleteButton
@@ -2356,6 +2850,8 @@ function SongSection({
               <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {artistName(s.artistId)}
                 {hasNoPlayableSource(s) && <span style={{ color: 'var(--error)' }}> · ⚠ 沒有可播放來源</span>}
+                {sourceReviewStatus(s) === 'unverified' && <span style={{ color: 'var(--accent)' }}> · 來源待核對</span>}
+                {sourceReviewStatus(s) === 'verified' && <span style={{ color: 'var(--success)' }}> · ✓ 來源已核對</span>}
               </span>
               {/* 主題標籤：原本清單裡完全看不出每首歌有沒有指定主題、指定了哪些，
                   要點開編輯表單才看得到。這裡直接把主題用小標籤列出來，掃過清單
@@ -2426,47 +2922,42 @@ function SongSection({
                   )}
                 </div>
               )}
-            {previewSongId === s.id &&
-              (() => {
-                // 依目前選定的來源播放；選定的那個來源這首歌剛好沒有時（例如切換過去但這首歌
-                // 沒有 Deezer 來源），依優先序自動退回下一個可用的，不會顯示空白一片。
-                const source =
-                  previewSource === 'apple' && s.appleMusicPreviewUrl
-                    ? 'apple'
-                    : previewSource === 'deezer' && s.deezerPreviewUrl
-                      ? 'deezer'
-                      : previewSource === 'youtube' && s.youtubeVideoId
-                        ? 'youtube'
-                        : s.appleMusicPreviewUrl
-                          ? 'apple'
-                          : s.deezerPreviewUrl
-                            ? 'deezer'
-                            : s.youtubeVideoId
-                              ? 'youtube'
-                              : null;
-
-                if (source === 'apple') {
-                  return <audio controls autoPlay src={s.appleMusicPreviewUrl!} style={{ width: '100%' }} />;
-                }
-                if (source === 'deezer') {
-                  return <audio controls autoPlay src={s.deezerPreviewUrl!} style={{ width: '100%' }} />;
-                }
-                if (source === 'youtube') {
-                  return (
-                    <iframe
-                      width="100%"
-                      height="220"
-                      src={`https://www.youtube.com/embed/${s.youtubeVideoId}?autoplay=1`}
-                      title={s.title}
-                      style={{ border: 'none', borderRadius: '8px' }}
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      referrerPolicy="strict-origin-when-cross-origin"
-                      allowFullScreen
-                    />
-                  );
-                }
-                return null;
-              })()}
+            {previewSongId === s.id && <SongPreviewPlayer song={s} source={resolvePreviewSource(s, previewSource)} />}
+            {/* 邊聽邊核對：就在播放器下面，不用聽完還要點編輯、捲到表單最下面找勾選框。
+                各平台各自一顆按鈕，狀態跟著標籤走（已核對時綠色，再點一次取消）。 */}
+            {previewSongId === s.id && (s.appleMusicPreviewUrl || s.deezerPreviewUrl) && (
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ color: 'var(--ink-dim)', fontSize: '0.78rem' }}>聽完覺得是正確版本？</span>
+                {s.appleMusicPreviewUrl && (
+                  <button
+                    type="button"
+                    disabled={verifyBusyId === s.id}
+                    onClick={() => setSourceVerified(s, 'apple', !s.appleMusicVerified)}
+                    style={{
+                      ...editButtonStyle,
+                      borderColor: s.appleMusicVerified ? 'var(--success)' : 'var(--groove)',
+                      color: s.appleMusicVerified ? 'var(--success)' : 'var(--ink)',
+                    }}
+                  >
+                    {s.appleMusicVerified ? '✓ Apple Music 已核對（點此取消）' : '標記 Apple Music 來源為正確'}
+                  </button>
+                )}
+                {s.deezerPreviewUrl && (
+                  <button
+                    type="button"
+                    disabled={verifyBusyId === s.id}
+                    onClick={() => setSourceVerified(s, 'deezer', !s.deezerVerified)}
+                    style={{
+                      ...editButtonStyle,
+                      borderColor: s.deezerVerified ? 'var(--success)' : 'var(--groove)',
+                      color: s.deezerVerified ? 'var(--success)' : 'var(--ink)',
+                    }}
+                  >
+                    {s.deezerVerified ? '✓ Deezer 已核對（點此取消）' : '標記 Deezer 來源為正確'}
+                  </button>
+                )}
+              </div>
+            )}
           </li>
         ))}
       </ul>
@@ -2793,7 +3284,7 @@ function SongForm({
             checked={form.appleMusicVerified}
             onChange={(e) => setForm((f) => ({ ...f, appleMusicVerified: e.target.checked }))}
           />
-          已人工核對過，這個 Apple Music 來源就是正確版本（批次腳本用 --force 重新整理過期網址時跳過這首歌）
+          已人工核對過，這個 Apple Music 來源就是正確版本（之後批次腳本若需要重新搜尋比對，會跳過這首歌，不會被覆蓋）
         </label>
 
         <input
@@ -2816,7 +3307,7 @@ function SongForm({
             checked={form.deezerVerified}
             onChange={(e) => setForm((f) => ({ ...f, deezerVerified: e.target.checked }))}
           />
-          已人工核對過，這個 Deezer 來源就是正確版本（批次腳本用 --force 重新整理過期網址時跳過這首歌）
+          已人工核對過，這個 Deezer 來源就是正確版本（之後批次腳本若需要重新搜尋比對，會跳過這首歌，不會被覆蓋）
         </label>
 
         <button
