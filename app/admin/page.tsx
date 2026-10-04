@@ -289,6 +289,10 @@ function ArtistSection({
         }}
       />
 
+      {artists.length > 1 && (
+        <ArtistMergeAccordion artists={artists} songs={songs} onChanged={onChanged} onError={onError} onNotice={onNotice} />
+      )}
+
       {artists.length > 8 && (
         <input
           value={search}
@@ -423,6 +427,169 @@ function ArtistForm({
       )}
       {formError && <span style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{formError}</span>}
     </form>
+  );
+}
+
+/**
+ * 合併重複歌手——不小心把同一位歌手拆成兩筆資料是很容易發生的手誤：批次匯入時猜錯了
+ * 頻道名稱、或手動輸入時正式名稱跟簡稱打成了兩個不同條目（「五月天」vs「Mayday」、
+ * 「盧廣仲」vs「盧廣仲 Crowd Lu」），導致同一位歌手的歌曲分散掛在兩筆歌手資料底下，
+ * 篩選題庫、看歌手底下歌曲清單時都會各看到一半。原本完全沒有辦法處理這種情況——
+ * 只能把其中一筆底下的歌曲一首一首點開編輯表單改成另一個歌手，改完才能刪掉空的那筆。
+ *
+ * 這裡直接複用既有的「更新歌曲」「刪除歌手」API，不另外新增後端合併邏輯：把來源歌手
+ * 底下所有歌曲的 artistId 一一改成目標歌手，改完來源歌手底下自然就沒有歌曲了，
+ * 再呼叫刪除歌手——這兩個 API 本來就存在、也都已經測試過，重新組合出新功能比重新
+ * 寫一套後端合併邏輯風險更低。
+ */
+function ArtistMergeAccordion({
+  artists,
+  songs,
+  onChanged,
+  onError,
+  onNotice,
+}: { artists: Artist[]; songs: Song[] } & SectionCallbacks) {
+  const [open, setOpen] = useState(false);
+  const [sourceId, setSourceId] = useState('');
+  const [targetId, setTargetId] = useState('');
+  const [merging, setMerging] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+
+  const sourceSongCount = songs.filter((s) => s.artistId === sourceId).length;
+  const sourceArtist = artists.find((a) => a.id === sourceId);
+  const targetArtist = artists.find((a) => a.id === targetId);
+  // 目標選單排除掉目前選的來源，避免選到同一個——合併一個歌手到它自己沒有意義。
+  const targetOptions = artists.filter((a) => a.id !== sourceId);
+
+  async function handleMerge() {
+    if (!sourceId || !targetId || sourceId === targetId) return;
+    setMerging(true);
+    try {
+      const songsToMove = songs.filter((s) => s.artistId === sourceId);
+      let failCount = 0;
+      for (const song of songsToMove) {
+        const result = await songRepository.updateSong(song.id, {
+          title: song.title,
+          artistId: targetId,
+          youtubeVideoId: song.youtubeVideoId ?? '',
+          appleMusicTrackId: song.appleMusicTrackId ?? '',
+          appleMusicPreviewUrl: song.appleMusicPreviewUrl ?? '',
+          appleMusicSkip: song.appleMusicSkip,
+          appleMusicVerified: song.appleMusicVerified,
+          deezerTrackId: song.deezerTrackId ?? '',
+          deezerPreviewUrl: song.deezerPreviewUrl ?? '',
+          deezerSkip: song.deezerSkip,
+          deezerVerified: song.deezerVerified,
+          aliases: song.aliases,
+          durationSec: song.durationSec,
+          lyrics: song.lyrics,
+          themeIds: song.themeIds,
+        });
+        if (!result.ok) failCount++;
+      }
+      if (failCount > 0) {
+        onError(`合併時有 ${failCount} 首歌轉移失敗，來源歌手暫不刪除，請檢查後再試一次`);
+        onChanged();
+        return;
+      }
+      // 全部轉移成功，來源歌手底下現在沒有歌曲了，可以安全刪除。
+      const deleteResult = await songRepository.deleteArtist(sourceId);
+      if (!deleteResult.ok) {
+        onError(deleteResult.error ?? '歌曲已全部轉移，但刪除原本的歌手失敗，請手動刪除');
+        onChanged();
+        return;
+      }
+      onNotice(`已把「${sourceArtist?.name}」的 ${songsToMove.length} 首歌併入「${targetArtist?.name}」`);
+      setSourceId('');
+      setTargetId('');
+      onChanged();
+    } finally {
+      setMerging(false);
+    }
+  }
+
+  return (
+    <div style={{ border: '1px solid var(--groove)', borderRadius: '10px', overflow: 'hidden' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: '100%',
+          textAlign: 'left',
+          padding: '12px 16px',
+          background: 'var(--bg)',
+          border: 'none',
+          color: 'var(--ink)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          cursor: 'pointer',
+          fontSize: '0.95rem',
+        }}
+      >
+        <span>合併重複歌手</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+          {open ? '收合' : '展開'}
+          <CollapseChevron open={open} />
+        </span>
+      </button>
+
+      {open && (
+        <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '10px', borderTop: '1px solid var(--groove)' }}>
+          <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', margin: 0 }}>
+            如果同一位歌手不小心被拆成兩筆資料（例如正式名稱跟簡稱各建立了一筆），在這裡把其中一筆的歌曲全部轉移到另一筆，轉移完來源那筆會自動刪除。
+          </p>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <select value={sourceId} onChange={(e) => { setSourceId(e.target.value); setConfirming(false); }} style={{ ...inputStyle, flex: 1, minWidth: '160px' }}>
+              <option value="">選擇要合併掉的歌手…</option>
+              {artists.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}（{songs.filter((s) => s.artistId === a.id).length} 首）
+                </option>
+              ))}
+            </select>
+            <span style={{ color: 'var(--ink-dim)' }}>併入 →</span>
+            <select
+              value={targetId}
+              onChange={(e) => { setTargetId(e.target.value); setConfirming(false); }}
+              disabled={!sourceId}
+              style={{ ...inputStyle, flex: 1, minWidth: '160px' }}
+            >
+              <option value="">選擇要保留的歌手…</option>
+              {targetOptions.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {sourceId && targetId && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              {!confirming ? (
+                <button type="button" onClick={() => setConfirming(true)} style={buttonStyle}>
+                  {sourceSongCount > 0
+                    ? `把「${sourceArtist?.name}」的 ${sourceSongCount} 首歌轉移到「${targetArtist?.name}」`
+                    : `刪除「${sourceArtist?.name}」（底下沒有歌曲）並合併`}
+                </button>
+              ) : (
+                <>
+                  <span style={{ color: 'var(--error)', fontSize: '0.85rem' }}>
+                    確定嗎？「{sourceArtist?.name}」這筆資料會被刪除，{sourceSongCount} 首歌會改掛在「{targetArtist?.name}」底下，這個動作無法復原。
+                  </span>
+                  <button type="button" onClick={handleMerge} disabled={merging} style={dangerButtonStyle}>
+                    {merging ? '合併中…' : '確定合併'}
+                  </button>
+                  <button type="button" onClick={() => setConfirming(false)} style={editButtonStyle}>
+                    取消
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1836,6 +2003,33 @@ function SongSection({
     }
   }
 
+  // 批次刪除——健康檢查篩出「沒有可播放來源」的歌曲，通常不是該補資料修好，而是整筆
+  // 資料本身就是廢的（例如播放清單匯入時影片後來被刪除/私人化、或是從來沒成功找到過
+  // 任何試聽來源），該刪掉而不是留著佔題庫空間。跟批次套用主題共用同一組「勾選→操作」
+  // 的選取狀態（selectedSongIds），差別只在於這是刪除而不是更新，所以另外用
+  // ConfirmDeleteButton 包一層確認，不能像套用主題那樣直接按了就送出。
+  async function deleteBulkSelected() {
+    const targets = songs.filter((s) => selectedSongIds.has(s.id));
+    if (targets.length === 0) return;
+    setBulkApplying(true);
+    try {
+      let failCount = 0;
+      for (const song of targets) {
+        const result = await songRepository.deleteSong(song.id);
+        if (!result.ok) failCount++;
+      }
+      if (failCount > 0) {
+        onError(`批次刪除時有 ${failCount} 首失敗，其餘已成功`);
+      } else {
+        onNotice(`已刪除 ${targets.length} 首歌`);
+      }
+      setSelectedSongIds(new Set());
+      onChanged();
+    } finally {
+      setBulkApplying(false);
+    }
+  }
+
   // 歌手／主題查詢可以同時使用（交集），跟比賽建立流程的「擇一」不同——
   // 這裡單純是管理頁面找歌曲用的篩選，不是決定比賽題庫，同時縮小範圍反而更好用。
   // 健康檢查篩選（healthFilter）也是交集疊加上去，不是取代前面兩個篩選——例如可以同時
@@ -1985,6 +2179,30 @@ function SongSection({
           </button>
         )}
       </div>
+
+      {/* 批次刪除獨立拆成自己的條件區塊，只靠「有沒有選取歌曲」決定要不要顯示——不像
+          批次套用主題那樣額外要求 themes.length > 0。這兩件事本來就無關：刪除不需要
+          主題資料存在，如果硬綁在一起，完全沒建立過任何主題的題庫就會連批次刪除都用
+          不了，變成「要刪幾首壞掉的歌，得先去建一個用不到的主題」這種不合理的前置條件。 */}
+      {selectedSongIds.size > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            flexWrap: 'wrap',
+            padding: '10px 14px',
+            borderRadius: '10px',
+            border: '1px solid var(--groove)',
+          }}
+        >
+          <span style={{ fontSize: '0.85rem', color: 'var(--ink-dim)' }}>已選 {selectedSongIds.size} 首</span>
+          <ConfirmDeleteButton
+            confirmText={`確定要刪除所選的 ${selectedSongIds.size} 首歌嗎？這個動作無法復原。`}
+            onConfirm={deleteBulkSelected}
+          />
+        </div>
+      )}
 
       {selectedSongIds.size > 0 && themes.length > 0 && (
         <div
