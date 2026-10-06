@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><radialGradient id="bg" cx="50%" cy="42%" r="70%"><stop offset="0" stop-color="#1b1c21"/><stop offset="1" stop-color="#0e0f12"/></radialGradient><radialGradient id="lb" cx="40%" cy="35%" r="75%"><stop offset="0" stop-color="#f3cb5c"/><stop offset="1" stop-color="#e0ae33"/></radialGradient></defs>
+<rect width="512" height="512" fill="url(#bg)"/>
+<circle cx="256" cy="256" r="196" fill="#1d1e23"/>
+<g fill="none" stroke="#2f3037" stroke-width="3"><circle cx="256" cy="256" r="178"/><circle cx="256" cy="256" r="160"/><circle cx="256" cy="256" r="142"/><circle cx="256" cy="256" r="124"/></g>
+<g fill="none" stroke="#fff" stroke-linecap="round" opacity=".12" stroke-width="5"><path d="M110 190A160 160 0 0 1 200 108"/><path d="M402 322A160 160 0 0 1 312 404"/></g>
+<circle cx="256" cy="256" r="196" fill="none" stroke="#3a3b43" stroke-width="3"/>
+<circle cx="256" cy="256" r="98" fill="url(#lb)"/>
+<g transform="translate(256 256) scale(7) translate(-32 -32)"><path d="M27.3 28.2a4.9 4.9 0 1 1 7.6 4.1c-1.9 1.2-2.9 2.2-2.9 4.1" fill="none" stroke="#1a1408" stroke-width="3.3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="32" cy="41.2" r="2" fill="#1a1408"/></g>
+<g><path d="M404 108L368 148" stroke="#9a9ba3" stroke-width="10" stroke-linecap="round" fill="none"/><circle cx="404" cy="108" r="22" fill="#2b2c33" stroke="#9a9ba3" stroke-width="6"/><rect x="346" y="140" width="22" height="40" rx="7" transform="rotate(42 357 160)" fill="#e8b93f"/></g>
+</svg>
