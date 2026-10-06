@@ -80,10 +80,14 @@ export default function OnlineRoomPage() {
   // 這個路徑重新加入拿到的是全新的 playerId，比分會歸零重算，是刻意接受的取捨。
   const rejoiningRef = useRef(false);
   const leavingRef = useRef(false);
+  // 剛加入房間的時間：加入當下若有一次加入前就送出的輪詢晚回來，會把名單蓋回沒有自己的舊資料，
+  // 這段短暫時間內不做自我修復，等下一次輪詢拿到新名單即可。
+  const joinedAtRef = useRef(0);
   useEffect(() => {
     if (!room || !playerId) return;
     if (room.players.some((p) => p.id === playerId)) return;
     if (rejoiningRef.current || leavingRef.current) return;
+    if (Date.now() - joinedAtRef.current < 3000) return;
 
     const storedName = sessionStorage.getItem(`room-player-name-${joinCode}`);
     if (!storedName) {
@@ -174,7 +178,19 @@ export default function OnlineRoomPage() {
   }
 
   if (!playerId) {
-    return <JoinPrompt joinCode={joinCode} onJoined={setPlayerId} />;
+    return (
+      <JoinPrompt
+        joinCode={joinCode}
+        onJoined={(id, joinedRoom) => {
+          // 直接套用加入後伺服器回傳的最新房間狀態：否則畫面上還是加入前輪詢到的舊資料
+          // （名單裡沒有自己），下面的自我修復 effect 會誤判「自己被移出房間」，
+          // 把剛存的身分清掉、畫面閃回暱稱輸入表單，同時房間裡卻已經有這位玩家。
+          joinedAtRef.current = Date.now();
+          setRoom(joinedRoom);
+          setPlayerId(id);
+        }}
+      />
+    );
   }
 
   if (!room) {
@@ -361,7 +377,7 @@ function RoomCodeMenu({ joinCode }: { joinCode: string }) {
   );
 }
 
-function JoinPrompt({ joinCode, onJoined }: { joinCode: string; onJoined: (playerId: string) => void }) {
+function JoinPrompt({ joinCode, onJoined }: { joinCode: string; onJoined: (playerId: string, room: RoomState) => void }) {
   const [displayName, setDisplayName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -396,7 +412,7 @@ function JoinPrompt({ joinCode, onJoined }: { joinCode: string; onJoined: (playe
     }
     sessionStorage.setItem(`room-player-${joinCode}`, result.data.playerId);
     sessionStorage.setItem(`room-player-name-${joinCode}`, trimmed);
-    onJoined(result.data.playerId);
+    onJoined(result.data.playerId, result.data.room);
   }
 
   return (
