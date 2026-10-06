@@ -608,7 +608,7 @@ export default function SpeedrunPage() {
                   className={`choice-btn ${isWrongPick ? 'is-wrong' : ''}`}
                   whileTap={{ scale: 0.95 }}
                 >
-                  {choice.title}
+                  <span className="choice-btn-text" title={choice.title}>{choice.title}</span>
                   {/* 答對這一題會立刻整個切換到換題畫面，按鈕本身沒有可見的停留時間可以
                       顯示「對」的回饋，所以這裡只在答錯時補圖示徽章——答錯會鎖定 2 秒
                       （見上面 WRONG_ANSWER_LOCKOUT_MS），這段時間足夠讓搖晃動畫跟圖示

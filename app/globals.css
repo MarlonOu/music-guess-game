@@ -348,7 +348,13 @@ input:focus-visible {
 */
 .choice-btn {
   position: relative;
-  padding: 15px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  /* 固定高度（容納 3 行），歌名再長也只在按鈕內截斷，不會把整個區塊撐高 */
+  height: 86px;
+  padding: 10px 12px;
   border-radius: 11px;
   border: 1px solid var(--groove);
   background: var(--bg-raised);
@@ -361,6 +367,14 @@ input:focus-visible {
     border-color 0.15s ease,
     background-color 0.15s ease,
     opacity 0.15s ease;
+}
+
+.choice-btn-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
 .choice-btn:disabled {
@@ -1358,6 +1372,11 @@ body::before {
   min-height: var(--room-stage);
 }
 
+/* 選擇題：預留「錯誤提示 + 兩排固定高度按鈕」的高度，換題或選項變化都不改變區塊高度 */
+.stage-dock-main.is-choice {
+  min-height: 218px;
+}
+
 .stage-dock-main.is-text {
   min-height: 44px;
 }
@@ -1515,7 +1534,7 @@ body::before {
   }
 
   .room-grid {
-    --room-stage: clamp(220px, min(30vw, 40dvh), 380px);
+    --room-stage: clamp(220px, min(30vw, 34dvh), 380px);
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
     align-items: stretch;

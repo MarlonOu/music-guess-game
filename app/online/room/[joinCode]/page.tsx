@@ -791,7 +791,7 @@ function ChoiceButtons({
               className={`choice-btn ${feedbackClass}`}
               whileTap={{ scale: 0.95 }}
             >
-              {choice.title}
+              <span className="choice-btn-text" title={choice.title}>{choice.title}</span>
               {/* 答對／答錯的彈跳、搖晃動畫交給 CSS（.choice-btn.is-correct／.is-wrong，
                   見 app/globals.css），這裡不再額外用 Framer Motion 的 animate 疊加一次
                   幾乎一樣的縮放效果——同一個按鈕同時被兩套動畫系統控制同一個屬性，
@@ -1075,7 +1075,7 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
             </div>
 
             <div className="stage-dock">
-              <div className={`stage-dock-main${room.answerMode === 'text' ? ' is-text' : ''}`}>
+              <div className={`stage-dock-main${room.answerMode === 'text' ? ' is-text' : room.answerMode === 'choice' ? ' is-choice' : ''}`}>
                 {showingLastReveal ? (
                   <>
                     {room.lastRevealedThemeLabels.length > 0 && (
