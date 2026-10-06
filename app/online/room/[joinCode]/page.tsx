@@ -39,7 +39,6 @@ export default function OnlineRoomPage() {
   const [messages, setMessages] = useState<RoomMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const lastMessageAtRef = useRef<string | null>(null);
-  const [copied, setCopied] = useState(false);
 
   // 先確認這個瀏覽器分頁有沒有這個房間的 playerId（建立/加入房間時存的）；
   // 沒有的話（例如直接貼連結開新分頁）顯示補填暱稱的表單，補加入房間後才能繼續。
@@ -159,16 +158,6 @@ export default function OnlineRoomPage() {
     router.push('/online');
   }
 
-  async function handleCopyCode() {
-    try {
-      await navigator.clipboard.writeText(joinCode);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
-    } catch {
-      // 剪貼簿不可用（非 https、權限被拒）時靜默略過，房號本來就顯示在畫面上
-    }
-  }
-
   function handleMessageSent(message: RoomMessage) {
     // 送出成功就直接把伺服器回傳的訊息加進畫面，不用等下一次輪詢才看到自己剛打的字
     setMessages((prev) => (prev.some((m) => m.id === message.id) ? prev : [...prev, message]));
@@ -208,16 +197,7 @@ export default function OnlineRoomPage() {
           <span className="room-eyebrow">Online</span>
           <h1>線上模式</h1>
         </div>
-        <button
-          type="button"
-          className={`room-code${copied ? ' is-copied' : ''}`}
-          onClick={handleCopyCode}
-          aria-label={`房號 ${room.joinCode}，點擊複製`}
-        >
-          <span className="room-code-label">房號</span>
-          <span className="room-code-value">{room.joinCode}</span>
-          <span className="room-code-copy">{copied ? '已複製' : '複製'}</span>
-        </button>
+        <RoomCodeMenu joinCode={room.joinCode} />
       </header>
 
       <div className={`room-grid${isSingle ? ' is-single' : ''}`}>
@@ -281,6 +261,103 @@ export default function OnlineRoomPage() {
         </>
       )}
     </main>
+  );
+}
+
+/** 房號膠囊：點「複製」展開選單，選擇複製房號代碼或加入連結 */
+function RoomCodeMenu({ joinCode }: { joinCode: string }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState<'code' | 'link' | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent | TouchEvent) {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('touchstart', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('touchstart', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
+
+  async function copyText(text: string): Promise<boolean> {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // 非 https 或權限被拒時，退回舊式 execCommand
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+      } catch {
+        return false;
+      }
+    }
+  }
+
+  async function handleCopy(kind: 'code' | 'link') {
+    const text = kind === 'code' ? joinCode : `${window.location.origin}/online/room/${joinCode}`;
+    const ok = await copyText(text);
+    setOpen(false);
+    if (!ok) return;
+    setCopied(kind);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setCopied(null), 1800);
+  }
+
+  return (
+    <div className="room-code-wrap" ref={rootRef}>
+      <div className={`room-code${copied ? ' is-copied' : ''}`}>
+        <span className="room-code-label">房號</span>
+        <span className="room-code-value">{joinCode}</span>
+        <button
+          type="button"
+          className="room-code-copy"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          {copied ? (copied === 'code' ? '已複製代碼' : '已複製連結') : '複製'}
+          {!copied && (
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true" style={{ transform: open ? 'rotate(180deg)' : undefined, transition: 'transform 0.2s ease' }}>
+              <path d="M2 3.5 5 6.5 8 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </button>
+      </div>
+      {open && (
+        <div className="room-code-menu" role="menu">
+          <button type="button" role="menuitem" className="room-code-item" onClick={() => handleCopy('code')} autoFocus>
+            <span className="room-code-item-title">複製房號代碼</span>
+            <span className="room-code-item-sub">{joinCode}</span>
+          </button>
+          <button type="button" role="menuitem" className="room-code-item" onClick={() => handleCopy('link')}>
+            <span className="room-code-item-title">複製加入連結</span>
+            <span className="room-code-item-sub">朋友點開就能直接加入</span>
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

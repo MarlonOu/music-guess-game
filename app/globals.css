@@ -1276,26 +1276,20 @@ body::before {
   letter-spacing: -0.01em;
 }
 
+.room-code-wrap {
+  position: relative;
+}
+
 .room-code {
   display: inline-flex;
   align-items: center;
   gap: 10px;
   min-height: 44px;
-  padding: 0 8px 0 16px;
+  padding: 0 6px 0 16px;
   border-radius: 999px;
   border: 1px solid var(--groove);
   background: var(--bg-raised);
   color: var(--ink);
-  cursor: pointer;
-  transition: border-color 0.2s ease, transform 0.2s ease;
-}
-
-.room-code:hover {
-  border-color: var(--ink-dim);
-}
-
-.room-code:active {
-  transform: scale(0.98);
 }
 
 .room-code-label {
@@ -1312,21 +1306,96 @@ body::before {
 }
 
 .room-code-copy {
+  border: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 52px;
-  height: 30px;
-  padding: 0 10px;
+  gap: 6px;
+  min-width: 60px;
+  height: 34px;
+  padding: 0 12px;
   border-radius: 999px;
   background: var(--groove);
-  font-size: 0.72rem;
-  color: var(--ink-dim);
+  font-size: 0.74rem;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.room-code-copy:hover {
+  background: #33343b;
 }
 
 .room-code.is-copied .room-code-copy {
   background: var(--accent);
   color: var(--accent-ink);
+}
+
+.room-code-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 240px;
+  padding: 6px;
+  border-radius: 16px;
+  border: 1px solid var(--groove);
+  background: var(--bg-raised);
+  box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.7);
+  animation: room-menu-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+  transform-origin: top right;
+}
+
+@keyframes room-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+}
+
+.room-code-item {
+  border: 0;
+  background: transparent;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 52px;
+  padding: 10px 14px;
+  border-radius: 11px;
+  text-align: left;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.room-code-item:hover,
+.room-code-item:focus-visible {
+  background: var(--groove);
+}
+
+.room-code-item:focus-visible {
+  outline-offset: -2px;
+}
+
+.room-code-item-title {
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.room-code-item-sub {
+  font-size: 0.76rem;
+  color: var(--ink-dim);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .room-code-menu {
+    animation: none;
+  }
 }
 
 .room-grid {
