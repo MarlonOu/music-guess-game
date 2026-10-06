@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import type { QuestionPayload } from '../../lib/types/question';
 import type { Song } from '../../lib/types/song';
 import type { AudioController, AudioPlaybackStatus } from '../../lib/audio/audioController';
+import { AnswerSticker } from './AnswerSticker';
 import { resolvePlaybackTarget } from '../../lib/audio/resolvePlaybackTarget';
 
 interface QuestionRendererProps {
@@ -12,7 +13,7 @@ interface QuestionRendererProps {
   /** 由 GamePage 建立並持有，整場比賽期間為同一個實例，換題不重建 */
   controller: AudioController | null;
   /** 公布答案後傳入：中心貼紙翻成歌名／歌手 */
-  reveal?: { title: string; artist?: string } | null;
+  reveal?: { title: string; artist?: string; coverUrl?: string | null } | null;
 }
 
 const STATUS_LABEL: Record<AudioPlaybackStatus, string> = {
@@ -109,10 +110,7 @@ export function QuestionRenderer({ question, song, controller, reveal }: Questio
         {spinning && <span className="stage-ring" aria-hidden="true" />}
         <div className="stage-sticker-slot">
           {reveal ? (
-            <div className="stage-sticker is-answer" role="status">
-              <span className="stage-answer-title">{reveal.title}</span>
-              {reveal.artist && <span className="stage-answer-artist">{reveal.artist}</span>}
-            </div>
+            <AnswerSticker title={reveal.title} artist={reveal.artist} coverUrl={reveal.coverUrl} />
           ) : (
             <button
               type="button"

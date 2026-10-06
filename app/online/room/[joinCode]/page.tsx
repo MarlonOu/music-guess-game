@@ -18,6 +18,7 @@ import { WRONG_ANSWER_LOCKOUT_MS } from '../../../../lib/constants/choiceMode';
 import { RankBadge, PlayerIdentity, playerDotColor } from '../../../../components/game/PlayerBadges';
 import { ArtistFilter } from '../../../../components/filter/ArtistFilter';
 import { ThemeFilter } from '../../../../components/filter/ThemeFilter';
+import { AnswerSticker } from '../../../../components/game/AnswerSticker';
 import { StageDisc } from '../../../../components/game/StageDisc';
 import { SELECTABLE_GAME_MODES } from '../../../../lib/constants/gameMode';
 
@@ -993,15 +994,6 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', width: '100%', maxWidth: '480px' }}>
-      <div className="round-cover" aria-hidden={!(showingLastReveal && room.lastRevealedCoverUrl)}>
-        {showingLastReveal && room.lastRevealedCoverUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element -- 外部 YouTube 縮圖，不經 Next 圖片最佳化
-          <img key={room.lastRevealedCoverUrl} src={room.lastRevealedCoverUrl} alt={`${room.lastRevealedTitle ?? ''} 封面`} />
-        ) : (
-          '?'
-        )}
-      </div>
-
       <span style={{ color: 'var(--ink-dim)', fontFamily: 'var(--font-mono)' }}>
         第 {room.currentRoundIndex + 1} / {room.roundCount} 題
       </span>
@@ -1029,9 +1021,13 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', width: '100%' }}>
             <div className="stage-slot">
               {showingLastReveal ? (
-                <StageDisc answer>
-                  <span className="stage-answer-title">{room.lastRevealedTitle}</span>
-                  {room.lastRevealedArtist && <span className="stage-answer-artist">{room.lastRevealedArtist}</span>}
+                <StageDisc bare>
+                  <AnswerSticker
+                    key={room.lastRevealedAt ?? 'answer'}
+                    title={room.lastRevealedTitle ?? ''}
+                    artist={room.lastRevealedArtist}
+                    coverUrl={room.lastRevealedCoverUrl}
+                  />
                 </StageDisc>
               ) : countdown > 0 ? (
                 <StageDisc>

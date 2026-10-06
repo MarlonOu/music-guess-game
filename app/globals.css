@@ -1220,31 +1220,6 @@ body::before {
   min-height: 80px;
 }
 
-/* 左上角封面：題目進行中是問號占位，公布答案後顯示該題封面 */
-.round-cover {
-  position: absolute;
-  top: max(16px, env(safe-area-inset-top));
-  left: max(16px, env(safe-area-inset-left));
-  width: 56px;
-  height: 56px;
-  border-radius: 10px;
-  overflow: hidden;
-  border: 1px solid var(--groove);
-  background: var(--bg-raised);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--ink-dim);
-  font-family: var(--font-display);
-  font-weight: 700;
-}
-
-.round-cover img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  animation: stage-flip 0.5s cubic-bezier(0.22, 1, 0.36, 1);
-}
 
 /* 線上房間整體版面：寬螢幕左右並排（唱盤／聊天室同屏），窄螢幕直向堆疊並縮小唱盤 */
 .room-grid {
@@ -1310,4 +1285,71 @@ body::before {
   .room-scores {
     order: 0;
   }
+}
+
+/* 公布答案：封面印滿貼紙 */
+.stage-sticker.is-answer {
+  position: relative;
+  overflow: hidden;
+  transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.stage-sticker.is-answer.has-cover {
+  width: 72%;
+  justify-content: flex-end;
+  padding: 0 10% 8%;
+  color: #fff;
+}
+
+.stage-cover {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  /* hqdefault 為 4:3 且上下各有黑邊，放大到高度 133% 把黑邊裁出貼紙之外 */
+  height: 133.4%;
+  width: auto;
+  max-width: none;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+
+.stage-cover.is-loaded {
+  opacity: 1;
+}
+
+.stage-cover-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(10, 10, 12, 0.88) 0%, rgba(10, 10, 12, 0.55) 38%, rgba(10, 10, 12, 0) 66%);
+}
+
+/* 唱片中軸孔 */
+.stage-spindle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4.5%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--bg);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
+}
+
+.stage-sticker.is-answer > .stage-answer-title,
+.stage-sticker.is-answer > .stage-answer-artist {
+  position: relative;
+}
+
+.stage-sticker.has-cover .stage-answer-title {
+  font-size: clamp(0.85rem, 3.4vw, 1.1rem);
+  line-height: 1.15;
+  -webkit-line-clamp: 2;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+
+.stage-sticker.has-cover .stage-answer-artist {
+  opacity: 0.85;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
 }

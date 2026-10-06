@@ -15,6 +15,7 @@ import { generateId } from '../../lib/utils/id';
 import { AudioController } from '../../lib/audio/audioController';
 import { useGameEngine } from './useGameEngine';
 import { QuestionRenderer } from './QuestionRenderer';
+import { youtubeCoverUrl } from './AnswerSticker';
 import { RankBadge, PlayerIdentity } from './PlayerBadges';
 
 interface GamePageProps {
@@ -296,7 +297,11 @@ export function GamePage({ mode, title }: GamePageProps) {
               question={state.currentQuestion}
               song={currentSong}
               controller={audioController}
-              reveal={revealing ? { title: state.currentQuestion.correctTitle, artist: currentArtistName } : null}
+              reveal={
+                revealing
+                  ? { title: state.currentQuestion.correctTitle, artist: currentArtistName, coverUrl: youtubeCoverUrl(currentSong.youtubeVideoId) }
+                  : null
+              }
             />
             {revealing && currentThemeLabels.length > 0 && (
               <p style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>主題：{currentThemeLabels.join('、')}</p>
