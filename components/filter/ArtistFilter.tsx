@@ -1,5 +1,6 @@
 'use client';
 
+import { CheckRow } from './CheckRow';
 import type { Artist } from '../../lib/types/theme';
 
 interface ArtistFilterProps {
@@ -20,7 +21,7 @@ export function ArtistFilter({ artists, selectedIds, onToggle }: ArtistFilterPro
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: '6px',
+        gap: '2px',
         // 固定列高、超出可滑動：避免歌手清單一長，篩選區塊把整個頁面往下撐得很長，
         // 尤其線上模式的房間 lobby 頁面下面還有聊天室要顯示，清單本身要能收在固定高度內。
         maxHeight: '260px',
@@ -30,26 +31,12 @@ export function ArtistFilter({ artists, selectedIds, onToggle }: ArtistFilterPro
       }}
     >
       {artists.map((a) => (
-        <label
+        <CheckRow
           key={a.id}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            padding: '10px 14px',
-            borderRadius: '10px',
-            border: '1px solid var(--groove)',
-            background: selectedIds.includes(a.id) ? 'var(--bg-raised)' : 'transparent',
-            flexShrink: 0,
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={selectedIds.includes(a.id)}
-            onChange={() => onToggle(a.id)}
-          />
-          <span>{a.name}</span>
-        </label>
+          checked={selectedIds.includes(a.id)}
+          onChange={() => onToggle(a.id)}
+          label={a.name}
+        />
       ))}
     </div>
   );

@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
-import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { AudioController, type AudioPlaybackStatus } from '../../lib/audio/audioController';
 import { speedrunRepository } from '../../lib/repository/speedrunRepository';
@@ -10,6 +9,8 @@ import type { SpeedrunQuestion, SpeedrunSubmitResponse, SpeedrunLeaderboardEntry
 import { SPEEDRUN_TRANSITION_SEC, SPEEDRUN_AUDIO_WAIT_CAP_MS } from '../../lib/constants/speedrun';
 import { WRONG_ANSWER_LOCKOUT_MS } from '../../lib/constants/choiceMode';
 import { TransitionDisc } from '../../components/speedrun/TransitionDisc';
+
+import { PageShell } from '../../components/layout/PageShell';
 
 const QUESTION_COUNT = 10;
 /** 碼表畫面更新頻率；不需要真的到毫秒等級的更新頻率，肉眼看起來夠平滑即可，
@@ -491,36 +492,23 @@ export default function SpeedrunPage() {
   };
 
   return (
-    <main
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        padding: '48px 24px',
-        gap: '24px',
-      }}
+    <PageShell
+      title="速通挑戰"
+      subtitle={
+        phase === 'intro'
+          ? `隨機片段 ${QUESTION_COUNT} 題選擇題，全部答對的總用時就是你的成績。答錯鎖 ${WRONG_ANSWER_LOCKOUT_MS / 1000} 秒，鎖定期間碼表照跑。`
+          : undefined
+      }
+      width={420}
+      showBack={phase === 'intro' || phase === 'results'}
     >
-      <motion.header
-        initial={{ opacity: 0, y: -12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: 'easeOut' }}
-        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}
-      >
-        <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.8rem' }}>速通挑戰</h1>
-      </motion.header>
-
       {phase === 'intro' && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.1, ease: 'easeOut' }}
-          style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', maxWidth: '360px' }}
+          style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' }}
         >
-          <p style={{ color: 'var(--ink-dim)', fontSize: '0.9rem', textAlign: 'center' }}>
-            隨機片段猜歌＋選擇題搶答，共 {QUESTION_COUNT} 題，碼表計時，答錯鎖 {WRONG_ANSWER_LOCKOUT_MS / 1000} 秒，
-            全部答對後看你的名次。
-          </p>
           <input
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
@@ -556,9 +544,6 @@ export default function SpeedrunPage() {
             </svg>
           </motion.button>
           {introLeaderboard !== null && <LeaderboardList entries={introLeaderboard} />}
-          <Link href="/" style={{ color: 'var(--ink-dim)', fontSize: '0.85rem', textAlign: 'center' }}>
-            返回首頁
-          </Link>
         </motion.div>
       )}
 
@@ -575,7 +560,7 @@ export default function SpeedrunPage() {
       )}
 
       {phase === 'playing' && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', width: '100%', maxWidth: '420px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', width: '100%', maxWidth: '100%' }}>
           <p style={{ color: 'var(--ink-dim)', fontFamily: 'var(--font-mono)' }}>
             第 {questionIndex + 1} / {questions.length} 題
           </p>
@@ -643,7 +628,7 @@ export default function SpeedrunPage() {
       )}
 
       {phase === 'transition' && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', width: '100%', maxWidth: '420px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', width: '100%', maxWidth: '100%' }}>
           <p style={{ color: 'var(--ink-dim)', fontFamily: 'var(--font-mono)' }}>
             第 {questionIndex + 2} / {questions.length} 題
           </p>
@@ -683,7 +668,7 @@ export default function SpeedrunPage() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3 }}
-          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '24px', width: '100%', maxWidth: '420px' }}
+          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '24px', width: '100%', maxWidth: '100%' }}
         >
           <motion.div
             initial={{ opacity: 0, scale: 0.85 }}
@@ -721,12 +706,9 @@ export default function SpeedrunPage() {
           <motion.button whileTap={{ scale: 0.97 }} onClick={handleRetry} style={buttonStyle}>
             再試一次
           </motion.button>
-          <Link href="/" style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>
-            返回首頁
-          </Link>
         </motion.div>
       )}
-    </main>
+    </PageShell>
   );
 }
 

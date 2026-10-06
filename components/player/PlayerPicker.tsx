@@ -110,9 +110,11 @@ export function PlayerPicker({ selected, onChange, onError }: PlayerPickerProps)
                   background: 'transparent',
                   color: 'var(--ink-dim)',
                   cursor: 'pointer',
-                  fontSize: '0.9rem',
+                  fontSize: '1.1rem',
                   lineHeight: 1,
-                  padding: 0,
+                  // 視覺維持小，但點擊範圍用負邊距撐到 44px 高
+                  padding: '13px 10px',
+                  margin: '-13px -10px -13px -4px',
                 }}
               >
                 ×
@@ -122,13 +124,13 @@ export function PlayerPicker({ selected, onChange, onError }: PlayerPickerProps)
         </div>
       )}
 
-      <form onSubmit={handleAddNew} style={{ display: 'flex', gap: '8px' }}>
+      <form onSubmit={handleAddNew} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         <input
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           placeholder="輸入新玩家名字"
           className="field"
-          style={{ flex: 1 }}
+          style={{ flex: '1 1 160px', minWidth: 0 }}
         />
         <button type="submit" className="btn btn-primary">
           新增

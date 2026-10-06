@@ -2,11 +2,19 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { GameMode } from '../../lib/types/match';
 import { roomRepository } from '../../lib/repository/roomRepository';
 import { getGlobalAudioController } from '../../lib/audio/globalAudioController';
+import { PageShell } from '../../components/layout/PageShell';
+
+function ArrowIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M4 10h12m0 0-5-5m5 5-5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 type PendingAction = 'create' | 'join' | null;
 
@@ -94,26 +102,7 @@ function OnlinePageInner() {
   }
 
   return (
-    <main
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '32px',
-        padding: '24px',
-      }}
-    >
-      <motion.div
-        initial={{ opacity: 0, y: -12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: 'easeOut' }}
-        style={{ textAlign: 'center' }}
-      >
-        <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '2rem' }}>線上模式</h1>
-      </motion.div>
-
+    <PageShell title="線上模式" width={420} showBack={!pending}>
       <AnimatePresence mode="wait">
         {!pending && (
           <motion.div
@@ -122,22 +111,22 @@ function OnlinePageInner() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.3, delay: 0.1 }}
-            style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', maxWidth: '360px' }}
+            style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}
           >
-            <motion.button
-              whileTap={{ scale: 0.97 }}
-              onClick={() => setPending('create')}
-              className="btn btn-primary btn-block"
-            >
-              建立房間
-            </motion.button>
-            <motion.button
-              whileTap={{ scale: 0.97 }}
-              onClick={() => setPending('join')}
-              className="btn btn-secondary btn-block"
-            >
-              加入房間
-            </motion.button>
+            <button type="button" onClick={() => setPending('create')} className="action-card is-primary">
+              <span>
+                <span className="action-card-title">建立房間</span>
+                <span className="action-card-desc">你當房主，把房號或 QR Code 分享給朋友</span>
+              </span>
+              <ArrowIcon />
+            </button>
+            <button type="button" onClick={() => setPending('join')} className="action-card">
+              <span>
+                <span className="action-card-title">加入房間</span>
+                <span className="action-card-desc">朋友給了你房號，輸入就能進去</span>
+              </span>
+              <ArrowIcon />
+            </button>
           </motion.div>
         )}
 
@@ -154,7 +143,6 @@ function OnlinePageInner() {
               flexDirection: 'column',
               gap: '12px',
               width: '100%',
-              maxWidth: '360px',
               padding: '20px',
               borderRadius: '14px',
               border: '1px solid var(--groove)',
@@ -189,7 +177,11 @@ function OnlinePageInner() {
               </label>
             )}
 
-            {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
+            {error && (
+              <p role="alert" style={{ color: 'var(--error)', fontSize: '0.85rem' }}>
+                {error}
+              </p>
+            )}
 
             <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
               <button type="submit" disabled={loading} className="btn btn-primary" style={{ flex: 1 }}>
@@ -210,9 +202,6 @@ function OnlinePageInner() {
         )}
       </AnimatePresence>
 
-      <Link href="/" style={{ color: 'var(--ink-dim)', fontSize: '0.9rem' }}>
-        返回首頁
-      </Link>
-    </main>
+    </PageShell>
   );
 }

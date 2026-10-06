@@ -1,5 +1,6 @@
 'use client';
 
+import { CheckRow } from './CheckRow';
 import type { Theme } from '../../lib/types/theme';
 
 interface ThemeFilterProps {
@@ -19,7 +20,7 @@ export function ThemeFilter({ themes, selectedIds, onToggle }: ThemeFilterProps)
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: '6px',
+        gap: '2px',
         maxHeight: '260px',
         overflowY: 'auto',
         overscrollBehavior: 'contain',
@@ -27,26 +28,12 @@ export function ThemeFilter({ themes, selectedIds, onToggle }: ThemeFilterProps)
       }}
     >
       {themes.map((t) => (
-        <label
+        <CheckRow
           key={t.id}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            padding: '10px 14px',
-            borderRadius: '10px',
-            border: '1px solid var(--groove)',
-            background: selectedIds.includes(t.id) ? 'var(--bg-raised)' : 'transparent',
-            flexShrink: 0,
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={selectedIds.includes(t.id)}
-            onChange={() => onToggle(t.id)}
-          />
-          <span>{t.name}</span>
-        </label>
+          checked={selectedIds.includes(t.id)}
+          onChange={() => onToggle(t.id)}
+          label={t.name}
+        />
       ))}
     </div>
   );

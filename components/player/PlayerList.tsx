@@ -22,7 +22,6 @@ export function PlayerList({ players, onEdit, onDelete }: PlayerListProps) {
         flexDirection: 'column',
         gap: '8px',
         width: '100%',
-        maxWidth: '480px',
       }}
     >
       {players.map((p) => (

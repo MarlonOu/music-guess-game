@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Space_Grotesk, Inter, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -38,8 +38,24 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "音樂猜歌",
-  description: "音樂猜歌遊戲",
+  title: { default: "音樂猜歌", template: "%s｜音樂猜歌" },
+  description: "聽見旋律，喊出歌名。單機、線上多人與速通挑戰的猜歌遊戲。",
+  applicationName: "音樂猜歌",
+  appleWebApp: { capable: true, title: "音樂猜歌", statusBarStyle: "black-translucent" },
+  openGraph: {
+    title: "音樂猜歌",
+    description: "聽見旋律，喊出歌名。",
+    locale: "zh_TW",
+    type: "website",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0e0f12",
+  colorScheme: "dark",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

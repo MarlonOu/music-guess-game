@@ -31,7 +31,6 @@ export function PlayerProfileForm({ editingProfile, onSubmit, onCancelEdit }: Pl
         flexDirection: 'column',
         gap: '12px',
         width: '100%',
-        maxWidth: '480px',
         padding: '18px',
         borderRadius: '14px',
         border: '1px solid var(--groove)',
@@ -48,7 +47,7 @@ export function PlayerProfileForm({ editingProfile, onSubmit, onCancelEdit }: Pl
           <PlayerIdentity id={editingProfile.id} name={displayName.trim() || editingProfile.displayName} />
         </div>
       )}
-      <div style={{ display: 'flex', gap: '8px' }}>
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         <input
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
@@ -56,7 +55,7 @@ export function PlayerProfileForm({ editingProfile, onSubmit, onCancelEdit }: Pl
           maxLength={20}
           autoFocus={Boolean(editingProfile)}
           className="field"
-          style={{ flex: 1 }}
+          style={{ flex: '1 1 160px', minWidth: 0 }}
         />
         <button type="submit" className="btn btn-primary">
           {editingProfile ? '儲存' : '新增'}

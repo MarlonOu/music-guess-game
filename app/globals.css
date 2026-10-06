@@ -41,6 +41,7 @@ body {
 
 body {
   min-height: 100%;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   color: var(--ink);
@@ -54,6 +55,17 @@ body {
   box-sizing: border-box;
   padding: 0;
   margin: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--groove) transparent;
 }
 
 a {
@@ -478,7 +490,10 @@ input:focus-visible {
 */
 .track-row {
   position: relative;
-  transition: padding-left 0.2s ease;
+}
+
+.track-row > :nth-child(-n + 2) {
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .track-row::before {
@@ -495,10 +510,11 @@ input:focus-visible {
   transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.track-row:hover,
-.track-row:focus-visible,
-.track-row:active {
-  padding-left: 14px;
+/* 位移用 transform，不改 padding，hover 時不會推擠版面 */
+.track-row:hover > :nth-child(-n + 2),
+.track-row:focus-visible > :nth-child(-n + 2),
+.track-row:active > :nth-child(-n + 2) {
+  transform: translateX(10px);
 }
 
 .track-row:hover::before,
@@ -530,4 +546,358 @@ body::before {
   opacity: 0.025;
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ============ 版型：所有內頁共用的外殼 ============ */
+.shell {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding:
+    max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right))
+    max(48px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+}
+
+.shell-inner {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.shell-nav {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+.shell-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  margin-left: -6px;
+  padding: 0 10px 0 6px;
+  border-radius: 10px;
+  color: var(--ink-dim);
+  font-size: 0.9rem;
+  transition: color 0.15s ease;
+}
+
+.shell-back svg {
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.shell-back:hover {
+  color: var(--ink);
+}
+
+.shell-back:hover svg {
+  transform: translateX(-3px);
+}
+
+/* ============ 大型操作卡片（線上模式入口等） ============ */
+.action-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 84px;
+  padding: 18px 20px;
+  border-radius: 14px;
+  border: 1px solid var(--groove);
+  background: var(--bg-raised);
+  color: var(--ink);
+  text-align: left;
+  transition:
+    border-color 0.18s ease,
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.18s ease;
+}
+
+.action-card:hover {
+  border-color: var(--ink-dim);
+}
+
+.action-card:active {
+  transform: scale(0.985);
+}
+
+.action-card.is-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.action-card.is-primary:hover {
+  filter: brightness(1.06);
+}
+
+.action-card-title {
+  display: block;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.15rem;
+}
+
+.action-card-desc {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+
+.action-card svg {
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.action-card:hover svg {
+  transform: translateX(4px);
+}
+
+/* ============ 計分微調按鈕：視覺 32px，點擊範圍 44px ============ */
+.score-adjust {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--groove);
+  background: transparent;
+  color: var(--ink-dim);
+  font-size: 1.1rem;
+  line-height: 1;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+}
+
+.score-adjust::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+
+.score-adjust:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink-dim);
+}
+
+.score-adjust:active:not(:disabled) {
+  transform: scale(0.9);
+}
+
+.score-adjust.is-plus {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.score-adjust:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ============ 自訂勾選框：原生 input 保留（鍵盤與讀屏），視覺自繪 ============ */
+.check-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.check-row:hover {
+  background: var(--bg-raised);
+}
+
+.check-row input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.check-box {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1.5px solid var(--ink-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.check-box svg {
+  opacity: 0;
+  transform: scale(0.5);
+  transition: opacity 0.12s ease, transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.check-row.is-checked .check-box {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.check-row.is-checked .check-box svg {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.check-row:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ============ 首頁 ============ */
+.home {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding:
+    max(32px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
+    max(32px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+}
+
+.home-inner {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+
+.home-hero {
+  --disc: clamp(200px, min(62vw, 36dvh), 360px);
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+}
+
+.home-side {
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+}
+
+.home-tagline {
+  text-align: center;
+  color: var(--ink-dim);
+  font-size: 0.95rem;
+}
+
+.home-list {
+  width: 100%;
+}
+
+.home-admin {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  min-height: 44px;
+  padding: 0 12px;
+  color: var(--ink-dim);
+  font-size: 0.82rem;
+  transition: color 0.15s ease;
+}
+
+.home-admin:hover {
+  color: var(--ink);
+}
+
+@media (min-width: 640px) and (min-aspect-ratio: 5/4) {
+  .home-inner {
+    max-width: 1120px;
+    flex-direction: row;
+    justify-content: center;
+    gap: clamp(48px, 7vw, 120px);
+  }
+
+  .home-hero {
+    --disc: clamp(240px, min(42vw, 76dvh), 520px);
+  }
+
+  .home-side {
+    max-width: 460px;
+    gap: 20px;
+  }
+
+  .home-tagline {
+    text-align: left;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(1.9rem, 3.4vw, 3rem);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+
+  .home-admin {
+    align-self: flex-start;
+    margin-left: -12px;
+  }
+}
+
+/* ============ 狀態頁（404／錯誤／載入） ============ */
+.status-screen {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 32px 24px;
+}
+
+.status-screen-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  max-width: 360px;
+  text-align: center;
+}
+
+.loading-disc {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, var(--accent) 0 22%, transparent 23%),
+    repeating-radial-gradient(circle, #1a1b20 0 2px, #202126 2px 4px);
+  box-shadow: inset 0 0 0 1px var(--groove);
+  animation:
+    vinyl-spin 1.4s linear infinite,
+    loading-fade-in 0.3s ease 0.35s backwards;
+}
+
+@keyframes loading-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.check-row.is-checked {
+  background: var(--bg-raised);
+}
+
+/* 橫向手機：高度不足時收緊曲目列，避免內容貼邊 */
+@media (max-height: 500px) and (min-aspect-ratio: 5/4) {
+  .home-inner .track-row {
+    min-height: 56px !important;
+    padding-top: 10px !important;
+    padding-bottom: 10px !important;
+  }
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Turntable } from '../components/home/Turntable';
@@ -21,7 +22,15 @@ const MODES: ModeDef[] = [
   { href: '/speedrun', track: 'A3', title: '速通挑戰', desc: '碼表計時，衝上排行榜', tag: '限時', color: 'var(--mode-speedrun)' },
 ];
 
-function TrackRow({ mode, index }: { mode: ModeDef; index: number }) {
+function TrackRow({
+  mode,
+  index,
+  onActive,
+}: {
+  mode: ModeDef;
+  index: number;
+  onActive: (index: number | null) => void;
+}) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
@@ -31,12 +40,17 @@ function TrackRow({ mode, index }: { mode: ModeDef; index: number }) {
       <Link
         href={mode.href}
         className="track-row"
+        onPointerEnter={() => onActive(index)}
+        onPointerLeave={() => onActive(null)}
+        onFocus={() => onActive(index)}
+        onBlur={() => onActive(null)}
         style={{
           display: 'grid',
           gridTemplateColumns: 'auto 1fr auto',
           alignItems: 'center',
           gap: '18px',
           padding: '18px 4px',
+          minHeight: '72px',
           borderBottom: '1px solid var(--groove)',
           // CSS 自訂屬性傳給 globals.css 裡的 .track-row，hover 時的左側色條、
           // 數字變色都讀這個變數——三行共用同一份樣式規則，顏色差異完全由
@@ -82,45 +96,43 @@ function TrackRow({ mode, index }: { mode: ModeDef; index: number }) {
 
 export default function Home() {
   const prefersReducedMotion = useReducedMotion();
+  const [activeTrack, setActiveTrack] = useState<number | null>(null);
 
   return (
-    <main
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '28px',
-        padding: '56px 24px',
-      }}
-    >
-      <Turntable />
+    <main className="home">
+      <div className="home-inner">
+        <div className="home-hero">
+          <Turntable activeTrack={activeTrack} size="var(--disc)" />
+        </div>
 
-      <motion.p
-        initial={prefersReducedMotion ? false : { opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={prefersReducedMotion ? { duration: 0.01 } : { duration: 0.5, delay: 1.1 }}
-        style={{ color: 'var(--ink-dim)', fontSize: '0.95rem' }}
-      >
-        聽見旋律，喊出歌名
-      </motion.p>
+        <div className="home-side">
+          <motion.p
+            className="home-tagline"
+            initial={prefersReducedMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={prefersReducedMotion ? { duration: 0.01 } : { duration: 0.5, delay: 1.1 }}
+          >
+            聽見旋律，喊出歌名
+          </motion.p>
 
-      <nav style={{ width: '100%', maxWidth: '440px' }} aria-label="選擇遊戲模式">
-        {MODES.map((mode, i) => (
-          <TrackRow key={mode.href} mode={mode} index={i} />
-        ))}
-      </nav>
+          <nav className="home-list" aria-label="選擇遊戲模式">
+            {MODES.map((mode, i) => (
+              <TrackRow key={mode.href} mode={mode} index={i} onActive={setActiveTrack} />
+            ))}
+          </nav>
 
-      <motion.div
-        initial={prefersReducedMotion ? false : { opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={prefersReducedMotion ? { duration: 0.01 } : { duration: 0.5, delay: 1.5 }}
-      >
-        <Link href="/admin" prefetch={false} style={{ color: 'var(--ink-dim)', fontSize: '0.82rem' }}>
-          資料庫管理
-        </Link>
-      </motion.div>
+          <motion.div
+            style={{ display: 'flex', flexDirection: 'column' }}
+            initial={prefersReducedMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={prefersReducedMotion ? { duration: 0.01 } : { duration: 0.5, delay: 1.5 }}
+          >
+            <Link href="/admin" prefetch={false} className="home-admin">
+              資料庫管理
+            </Link>
+          </motion.div>
+        </div>
+      </div>
     </main>
   );
 }

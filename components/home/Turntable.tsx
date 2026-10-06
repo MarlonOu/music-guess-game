@@ -1,58 +1,51 @@
 'use client';
 
+import { useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 
 /**
- * 首頁英雄區：一台會下針的轉盤，不是裝飾性插圖。
- *
- * 核心概念：這整個網站的玩法核心是「聽一段音樂、認出是哪一首」——類比到黑膠唱片，
- * 就是「指針落下、唱針接觸溝紋的那一刻，音樂開始」。頁面載入時只演出這一個動作一次：
- * 指針從停靠位置擺入、落在唱片上，落下的瞬間唱片才開始轉動、標題才浮現——視覺上
- * 讓「下針」成為「音樂（這個網站）開始」的理由，不是兩個互不相干的動畫湊在一起。
- * 這之後整個轉盤只剩下緩速、持續的旋轉，刻意安靜，不會有其他搶戲的動效。
- *
- * 中心貼紙（標題所在處）刻意不隨外圈唱片旋轉——這是黑膠在視覺設計上常見的簡化
- * （真實黑膠的中心貼紙其實會跟著轉），但文字持續旋轉會難以閱讀，這裡優先考慮
- * 網頁上的可讀性，用兩個獨立疊放的圖層達成「溝紋在轉、文字維持端正」的效果，
- * 而不是遷就物理上的寫實。
+ * 首頁英雄區：會下針的轉盤。
+ * 載入時演出一次「下針」：指針落下的瞬間，唱片開始轉動、標題浮現。
+ * 之後指針會跟著游標／焦點所在的曲目列，停在對應的音軌位置（A1/A2/A3 三條溝）。
+ * 中心貼紙不隨唱片旋轉，維持文字可讀。
  */
-export function Turntable() {
-  const prefersReducedMotion = useReducedMotion();
-  const skipSequence = Boolean(prefersReducedMotion);
+
+/** 三個音軌對應的指針角度（由外圈到內圈）。 */
+const TRACK_NEEDLE_ANGLES = [-26, -13, 0];
+const REST_ANGLE = -13;
+
+interface TurntableProps {
+  activeTrack?: number | null;
+  /** 唱片直徑，任何 CSS 長度（可為 var()）。 */
+  size?: string;
+}
+
+export function Turntable({ activeTrack = null, size = 'clamp(220px, 58vw, 360px)' }: TurntableProps) {
+  const reduce = useReducedMotion();
+  const skip = Boolean(reduce);
+  const [landed, setLanded] = useState(skip);
+
+  const needleAngle = activeTrack == null ? REST_ANGLE : TRACK_NEEDLE_ANGLES[activeTrack] ?? REST_ANGLE;
+  // 進場動畫期間用原本的 tween；落下之後改用彈簧，讓指針追蹤游標有重量感。
+  const needleTransition = skip
+    ? { duration: 0.01 }
+    : landed
+      ? { type: 'spring' as const, stiffness: 150, damping: 17, mass: 0.8 }
+      : { duration: 0.8, ease: [0.34, 1.1, 0.64, 1] as const, delay: 0.15 };
 
   return (
-    <div
-      style={{
-        position: 'relative',
-        width: 'clamp(220px, 58vw, 360px)',
-        height: 'clamp(220px, 58vw, 360px)',
-        flexShrink: 0,
-      }}
-    >
-      {/* 唱片本體：同心溝紋用 repeating-radial-gradient 畫出，比真的疊很多圈 SVG
-          圓圈輕量很多，持續緩速旋轉（24 秒一圈，刻意很慢——這是背景環境感的旋律，
-          不是搶戲的動效）。減少動態效果時，直接跳過旋轉與下針兩個動作，唱片、
-          指針都直接呈現「已經下針、正在播放」的最終靜止狀態，玩家不會看到
-          唱片真的在轉，但也不會因為完全沒有動畫而顯得像壞掉的圖片。 */}
+    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
       <motion.div
         aria-hidden="true"
-        initial={skipSequence ? false : { opacity: 0, scale: 0.92 }}
-        animate={
-          skipSequence
-            ? { opacity: 1, scale: 1 }
-            : { opacity: 1, scale: 1, rotate: 360 }
-        }
+        initial={skip ? false : { opacity: 0, scale: 0.92 }}
+        animate={skip ? { opacity: 1, scale: 1 } : { opacity: 1, scale: 1, rotate: 360 }}
         transition={
-          skipSequence
+          skip
             ? { duration: 0.01 }
             : {
                 opacity: { duration: 0.5, ease: 'easeOut' },
                 scale: { duration: 0.5, ease: 'easeOut' },
-                // 0.95 秒不是隨便抓的數字：下面指針動畫是 delay 0.15s + duration 0.8s，
-                // 落下的瞬間剛好是 0.95s，這裡的唱片旋轉、下面中心貼紙的淡入都卡在
-                // 同一個時間點觸發，三個動作在這一瞬間同時發生，才會讓人感覺到
-                //「指針落下」跟「音樂開始、標題浮現」是同一件事的兩個面向，
-                // 不是湊巧同時出現的兩段獨立動畫。
+                // 0.95s = 指針進場 delay 0.15 + duration 0.8，落下瞬間三件事同步。
                 rotate: { duration: 24, repeat: Infinity, ease: 'linear', delay: 0.95 },
               }
         }
@@ -66,65 +59,71 @@ export function Turntable() {
         }}
       />
 
-      {/* 中心貼紙：獨立圖層、不隨唱片旋轉，承載標題。落下瞬間（指針動畫結束的那一刻）
-          才淡入放大，讓「標題出現」在視覺因果上跟著「指針落下」發生，而不是各自
-          獨立的進場動畫。 */}
-      <motion.div
-        initial={skipSequence ? false : { opacity: 0, scale: 0.85 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={skipSequence ? { duration: 0.01 } : { duration: 0.45, ease: [0.22, 1, 0.36, 1], delay: 0.95 }}
+      {/* 固定不轉的反光層：唱片轉動時光澤不跟著轉，才有「實體反光」的感覺 */}
+      <div
+        aria-hidden="true"
         style={{
           position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          width: '42%',
-          height: '42%',
+          inset: 0,
           borderRadius: '50%',
-          background: 'var(--accent)',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '2px',
-          boxShadow: '0 4px 16px -4px rgba(0, 0, 0, 0.5)',
+          pointerEvents: 'none',
+          background:
+            'conic-gradient(from 20deg, transparent 0deg, rgba(255,255,255,0.05) 28deg, transparent 62deg, transparent 180deg, rgba(255,255,255,0.04) 208deg, transparent 242deg)',
         }}
-      >
-        <h1
+      />
+
+      {/* 中心貼紙：外層 flex 負責置中，只有內層做 scale，避免 Framer Motion 覆蓋 transform 而跑位 */}
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <motion.div
+          initial={skip ? false : { opacity: 0, scale: 0.85 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={skip ? { duration: 0.01 } : { duration: 0.45, ease: [0.22, 1, 0.36, 1], delay: 0.95 }}
           style={{
-            fontFamily: 'var(--font-display)',
-            fontWeight: 700,
-            fontSize: 'clamp(0.95rem, 4.2vw, 1.15rem)',
-            color: 'var(--accent-ink)',
-            lineHeight: 1.15,
-            letterSpacing: '-0.01em',
+            width: '42%',
+            height: '42%',
+            borderRadius: '50%',
+            background: 'var(--accent)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '4%',
+            boxShadow: '0 4px 16px -4px rgba(0, 0, 0, 0.5)',
           }}
         >
-          音樂猜歌
-        </h1>
-        {/* 唱片中軸孔——體積很小，純粹是這個隱喻裡「唱片」之所以成立的最後一塊
-            拼圖，沒有它中心貼紙看起來只是一顆普通的金色圓點。 */}
-        <div
-          style={{
-            width: '10%',
-            height: '10%',
-            minWidth: '7px',
-            minHeight: '7px',
-            borderRadius: '50%',
-            background: 'var(--accent-ink)',
-            opacity: 0.35,
-          }}
-        />
-      </motion.div>
+          <h1
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontWeight: 700,
+              fontSize: `calc(${size} * 0.058)`,
+              color: 'var(--accent-ink)',
+              lineHeight: 1.15,
+              letterSpacing: '-0.01em',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            音樂猜歌
+          </h1>
+          <div
+            style={{
+              width: '10%',
+              height: '10%',
+              minWidth: '7px',
+              minHeight: '7px',
+              borderRadius: '50%',
+              background: 'var(--accent-ink)',
+              opacity: 0.35,
+            }}
+          />
+        </motion.div>
+      </div>
 
-      {/* 指針（tonearm）：從右上方的固定軸心擺入。停靠角度跟播放角度之間只差一個
-          不大的弧度，模擬真實指針「抬起、移到唱片上方、放下」的運動路徑，不是
-          誇張地從畫面外甩進來。 */}
       <motion.div
         aria-hidden="true"
-        initial={skipSequence ? false : { rotate: -28 }}
-        animate={{ rotate: 0 }}
-        transition={skipSequence ? { duration: 0.01 } : { duration: 0.8, ease: [0.34, 1.1, 0.64, 1], delay: 0.15 }}
+        initial={skip ? false : { rotate: -28 }}
+        animate={{ rotate: needleAngle }}
+        transition={needleTransition}
+        onAnimationComplete={() => setLanded(true)}
         style={{
           position: 'absolute',
           top: '-6%',
@@ -135,12 +134,9 @@ export function Turntable() {
         }}
       >
         <svg viewBox="0 0 100 100" style={{ width: '100%', height: '100%', overflow: 'visible' }}>
-          {/* 軸心底座 */}
           <circle cx="88" cy="12" r="7" fill="var(--ink-dim)" opacity="0.5" />
           <circle cx="88" cy="12" r="3.2" fill="var(--bg-raised)" />
-          {/* 搖臂本身，指向唱片邊緣 */}
           <line x1="88" y1="12" x2="22" y2="78" stroke="var(--ink-dim)" strokeWidth="2.5" strokeLinecap="round" />
-          {/* 唱頭／唱針尖端 */}
           <circle cx="22" cy="78" r="4" fill="var(--accent)" />
         </svg>
       </motion.div>

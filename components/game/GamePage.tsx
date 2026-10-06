@@ -348,37 +348,20 @@ function ScoreStrip({
             {scores[p.id] ?? 0}
           </span>
           {canAdjust && (
-            <span style={{ display: 'flex', gap: '6px' }}>
+            <span style={{ display: 'flex', gap: '12px' }}>
               <button
+                type="button"
                 onClick={() => onAdjust(p.id, -1)}
                 aria-label={`${p.displayName} 減一分`}
-                style={{
-                  width: '26px',
-                  height: '26px',
-                  borderRadius: '50%',
-                  border: '1px solid var(--groove)',
-                  background: 'transparent',
-                  color: 'var(--ink-dim)',
-                  fontSize: '0.9rem',
-                  lineHeight: 1,
-                }}
+                className="score-adjust"
               >
                 −
               </button>
               <button
+                type="button"
                 onClick={() => onAdjust(p.id, 1)}
                 aria-label={`${p.displayName} 加一分`}
-                style={{
-                  width: '26px',
-                  height: '26px',
-                  borderRadius: '50%',
-                  border: 'none',
-                  background: 'var(--accent)',
-                  color: 'var(--accent-ink)',
-                  fontSize: '0.9rem',
-                  lineHeight: 1,
-                  fontWeight: 700,
-                }}
+                className="score-adjust is-plus"
               >
                 +
               </button>
