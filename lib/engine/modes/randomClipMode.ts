@@ -2,7 +2,8 @@ import type { Song } from '../../types/song';
 import type { GameModeStrategy, QuestionPayload } from '../../types/question';
 import { isAnswerCorrect } from '../answerUtils';
 
-export const DEFAULT_CLIP_DURATION_SEC = 8;
+/** 隨機片段長度（秒），與 Apple Music / Deezer 官方試聽片段的 30 秒對齊。 */
+export const DEFAULT_CLIP_DURATION_SEC = 30;
 
 /** 片段起點避開頭尾的邊界範圍（秒）。MV 常有片頭空白、片尾淡出或字幕，頭尾各隨機避開 10~20 秒。 */
 export const CLIP_EDGE_MARGIN_MIN_SEC = 10;

@@ -1838,7 +1838,7 @@ function YouTubePlaylistImportAccordion({
       // 15 個欄位順序的純陣列——先前那個版本陣列長度（13 個元素）跟欄位數對不上，
       // r.durationSec 實際落在了 deezerSkip 這個布林欄位的位置，真正的 durationSec
       // 欄位反而是空的。這個 bug 造成的實際影響：durationSec 空白會讓 RANDOM_CLIP
-      // 模式退回固定 8 秒起播（見 lib/engine/modes/randomClipMode.ts 的防呆邏輯），
+      // 模式退回固定 30 秒起播（見 lib/engine/modes/randomClipMode.ts 的防呆邏輯），
       // 等於「隨機片段猜歌」對所有用播放清單匯入的歌曲，永遠只會從 0 秒開始播，
       // 完全失去「隨機」這件事——用物件寫法即使之後 SONG_CSV_COLUMNS 的順序調整，
       // 這裡也不會因為數錯位置又重演同一種 bug。
