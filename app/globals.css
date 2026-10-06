@@ -1245,3 +1245,69 @@ body::before {
   object-fit: cover;
   animation: stage-flip 0.5s cubic-bezier(0.22, 1, 0.36, 1);
 }
+
+/* 線上房間整體版面：寬螢幕左右並排（唱盤／聊天室同屏），窄螢幕直向堆疊並縮小唱盤 */
+.room-grid {
+  --room-stage: clamp(150px, min(44vw, 24dvh), 300px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  width: 100%;
+  max-width: 560px;
+}
+
+.room-left,
+.room-right {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  min-width: 0;
+}
+
+.room-grid .stage-disc-wrap {
+  --stage: var(--room-stage);
+}
+
+.room-grid .stage-slot {
+  min-height: var(--room-stage);
+}
+
+.stage-dock-main.is-text {
+  min-height: 44px;
+}
+
+@media (min-width: 900px) {
+  .room-grid {
+    --room-stage: clamp(240px, min(32vw, 50dvh), 380px);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 440px);
+    align-items: start;
+    gap: clamp(32px, 5vw, 72px);
+    max-width: 1120px;
+  }
+
+  .room-left {
+    position: sticky;
+    top: 24px;
+  }
+}
+
+/* 窄螢幕：聊天室（搶答輸入）排在計分板前面，讓唱盤與輸入框盡量同屏 */
+.room-scores {
+  width: 100%;
+  order: 2;
+}
+
+.room-leave {
+  order: 3;
+  min-height: 44px;
+}
+
+@media (min-width: 900px) {
+  .room-scores {
+    order: 0;
+  }
+}

@@ -523,6 +523,9 @@ export class AudioController {
       el.style.width = '200px';
       el.style.height = '200px';
       el.style.opacity = '0.01';
+      // 肉眼可見的殘影處理：透明度維持非零（理由見上方），但用 brightness(0) 把畫面染成純黑，
+      // 1% 的黑色疊在深色背景上完全看不出來，播放器的可視判斷（opacity、座標）不受影響。
+      el.style.filter = 'brightness(0)';
       el.style.pointerEvents = 'none';
       document.body.appendChild(el);
     }

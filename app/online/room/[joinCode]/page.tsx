@@ -78,10 +78,11 @@ export default function OnlineRoomPage() {
   // 又有其他原因讓玩家紀錄消失（例如房主之後如果做了踢人功能），至少不會卡死畫面。
   // 這個路徑重新加入拿到的是全新的 playerId，比分會歸零重算，是刻意接受的取捨。
   const rejoiningRef = useRef(false);
+  const leavingRef = useRef(false);
   useEffect(() => {
     if (!room || !playerId) return;
     if (room.players.some((p) => p.id === playerId)) return;
-    if (rejoiningRef.current) return;
+    if (rejoiningRef.current || leavingRef.current) return;
 
     const storedName = sessionStorage.getItem(`room-player-name-${joinCode}`);
     if (!storedName) {
@@ -144,9 +145,15 @@ export default function OnlineRoomPage() {
   // 「真正關閉分頁但沒按離開的人暫時還留在名單裡」的影響小得多。
 
   async function handleLeaveClick() {
+    // 先標記「正在離開」：離開後下一次輪詢會發現自己不在名單裡，自我修復機制會誤以為是異常
+    // 而用同樣暱稱自動重新加入，等於把剛離開的人又塞回房間（變成佔名字的幽靈玩家，
+    // 之後本人想用原暱稱重新加入還會被擋）。
+    leavingRef.current = true;
     if (playerId) {
       await roomRepository.leave(joinCode, playerId);
     }
+    sessionStorage.removeItem(`room-player-${joinCode}`);
+    sessionStorage.removeItem(`room-player-name-${joinCode}`);
     router.push('/online');
   }
 
@@ -208,6 +215,8 @@ export default function OnlineRoomPage() {
         </div>
       </header>
 
+      <div className="room-grid">
+        <div className="room-left">
       <AnimatePresence mode="wait">
         {room.status === 'lobby' && (
           <motion.div
@@ -247,6 +256,13 @@ export default function OnlineRoomPage() {
         )}
       </AnimatePresence>
 
+        </div>
+        <div className="room-right">
+          {room.status === 'playing' && (
+            <div className="room-scores">
+              <ScoreList players={room.players} />
+            </div>
+          )}
       {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
 
       {/* 選擇題搶答模式不需要聊天室——答題完全透過選項按鈕，聊天室原本只是被動保留給
@@ -256,9 +272,11 @@ export default function OnlineRoomPage() {
         <ChatBox joinCode={joinCode} playerId={playerId} messages={messages} onMessageSent={handleMessageSent} answerMode={room.answerMode} />
       )}
 
-      <button onClick={handleLeaveClick} className="btn-text">
-        離開房間
-      </button>
+          <button onClick={handleLeaveClick} className="btn-text room-leave">
+            離開房間
+          </button>
+        </div>
+      </div>
     </main>
   );
 }
@@ -1044,7 +1062,7 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
             </div>
 
             <div className="stage-dock">
-              <div className="stage-dock-main">
+              <div className={`stage-dock-main${room.answerMode === 'text' ? ' is-text' : ''}`}>
                 {showingLastReveal ? (
                   <>
                     {room.lastRevealedThemeLabels.length > 0 && (
@@ -1102,8 +1120,6 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
           </div>
         );
       })()}
-
-      <ScoreList players={room.players} />
 
       {isHost && (
         <button onClick={handleEnd} className="btn btn-danger btn-sm">
