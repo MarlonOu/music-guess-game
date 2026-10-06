@@ -122,6 +122,20 @@ export async function loadRoomState(joinCode: string): Promise<RoomState | null>
     }
   }
 
+  // 剛公布那一題的封面：公布後房間已推進到下一題（或結束），所以回頭取上一題的歌。
+  // 只在公布後的短時間內查詢，避免每次輪詢都多一次資料庫查詢。
+  let lastRevealedCoverUrl: string | null = null;
+  if (room.lastRevealedAt && Date.now() - room.lastRevealedAt.getTime() < 10_000) {
+    const prevIndex = room.status === 'finished' ? room.songQueue.length - 1 : room.currentRoundIndex - 1;
+    const prevSongId = prevIndex >= 0 ? room.songQueue[prevIndex] : undefined;
+    if (prevSongId) {
+      const prevSong = await prisma.song.findUnique({ where: { id: prevSongId }, select: { youtubeVideoId: true } });
+      if (prevSong?.youtubeVideoId) {
+        lastRevealedCoverUrl = `https://i.ytimg.com/vi/${prevSong.youtubeVideoId}/hqdefault.jpg`;
+      }
+    }
+  }
+
   return {
     id: room.id,
     joinCode: room.joinCode,
@@ -144,6 +158,7 @@ export async function loadRoomState(joinCode: string): Promise<RoomState | null>
     lastRevealedArtist: room.lastRevealedArtist,
     lastRevealedThemeLabels: room.lastRevealedThemeLabels,
     lastRevealedAt: room.lastRevealedAt ? room.lastRevealedAt.toISOString() : null,
+    lastRevealedCoverUrl,
     roundStartedAt: room.roundStartedAt ? room.roundStartedAt.toISOString() : null,
     hostPlayerId: room.hostPlayerId,
     players: room.players.map((p: { id: string; displayName: string; score: number }) => ({

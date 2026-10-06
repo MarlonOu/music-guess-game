@@ -83,6 +83,8 @@ export interface RoomState {
   lastRevealedArtist: string | null;
   lastRevealedThemeLabels: string[];
   lastRevealedAt: string | null;
+  /** 剛公布那一題的封面圖網址（YouTube 縮圖）；沒有 YouTube 來源或不在公布期間為 null */
+  lastRevealedCoverUrl: string | null;
   /** 目前這題開始播放的時間戳（ISO 字串），供各玩家端計算該從第幾秒接著播放做同步近似 */
   roundStartedAt: string | null;
   hostPlayerId: string;

@@ -1184,3 +1184,64 @@ body::before {
   gap: 12px;
   padding-top: 4px;
 }
+
+/* 線上房間：唱盤舞台與操作區的固定版位，避免狀態切換時上下跳動 */
+.stage-slot {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  min-height: clamp(220px, min(72vw, 38dvh), 320px);
+}
+
+.stage-dock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 480px;
+}
+
+.stage-dock-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-height: 132px;
+}
+
+.stage-dock-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-height: 80px;
+}
+
+/* 左上角封面：題目進行中是問號占位，公布答案後顯示該題封面 */
+.round-cover {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top));
+  left: max(16px, env(safe-area-inset-left));
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--groove);
+  background: var(--bg-raised);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-dim);
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+.round-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  animation: stage-flip 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}

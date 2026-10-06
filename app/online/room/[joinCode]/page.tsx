@@ -182,6 +182,7 @@ export default function OnlineRoomPage() {
   return (
     <main
       style={{
+        position: 'relative',
         minHeight: '100vh',
         display: 'flex',
         flexDirection: 'column',
@@ -974,6 +975,15 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', width: '100%', maxWidth: '480px' }}>
+      <div className="round-cover" aria-hidden={!(showingLastReveal && room.lastRevealedCoverUrl)}>
+        {showingLastReveal && room.lastRevealedCoverUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element -- 外部 YouTube 縮圖，不經 Next 圖片最佳化
+          <img key={room.lastRevealedCoverUrl} src={room.lastRevealedCoverUrl} alt={`${room.lastRevealedTitle ?? ''} 封面`} />
+        ) : (
+          '?'
+        )}
+      </div>
+
       <span style={{ color: 'var(--ink-dim)', fontFamily: 'var(--font-mono)' }}>
         第 {room.currentRoundIndex + 1} / {room.roundCount} 題
       </span>
@@ -989,110 +999,109 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
       )}
 
       {/*
-        這個區塊在「倒數中」「播放中」「已公布答案」幾種狀態下，內容高度差異很大
-        （純數字倒數 vs 音訊播放動畫+投票按鈕 vs 公布答案文字），如果不固定高度，
-        下面的計分板、聊天室會隨著換狀態上下跳動，體驗很差。用固定的 minHeight
-        把這個區塊的高度鎖住，內容用 justifyContent 置中，不管哪種狀態下面的
-        元素位置都不會跟著移動。這個高度是抓「播放中＋投票按鈕＋投票提示」這個
-        最高的組合再留一點餘裕，如果之後又加了新的狀態內容，記得回來調整這個數字。
+        版面固定成兩段：上段是唱盤舞台（位置永遠不變，貼紙內容隨狀態換成倒數／問號／答案），
+        下段是固定高度的操作區（選項、提示、跳題投票）。不管房間狀態怎麼切換
+        （倒數、選擇題、打字搶答、公布答案），唱盤與其下方元件的座標都不會移動。
       */}
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '20px',
-          minHeight: '390px',
-          width: '100%',
-        }}
-      >
-        {showingLastReveal ? (
-          <>
-            <StageDisc answer>
-              <span className="stage-answer-title">{room.lastRevealedTitle}</span>
-              {room.lastRevealedArtist && <span className="stage-answer-artist">{room.lastRevealedArtist}</span>}
-            </StageDisc>
-            {room.lastRevealedThemeLabels.length > 0 && (
-              <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
-                主題：{room.lastRevealedThemeLabels.join('、')}
-              </p>
-            )}
-            <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>即將進入下一題…</p>
-          </>
-        ) : (
-          <>
-            {countdown > 0 && (
-              <StageDisc>
-                <span key={countdown} style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '3.2rem', lineHeight: 1, animation: 'choice-badge-pop 0.35s cubic-bezier(0.34,1.56,0.64,1)' }}>
-                  {countdown}
-                </span>
-              </StageDisc>
-            )}
-
-            {countdown === 0 && room.currentQuestion?.renderType === 'text-lyric' && (
-              <div
-                style={{
-                  padding: '32px',
-                  borderRadius: '16px',
-                  background: 'var(--bg-raised)',
-                  border: '1px solid var(--groove)',
-                  fontFamily: 'var(--font-display)',
-                  fontSize: '1.4rem',
-                  textAlign: 'center',
-                  maxWidth: '480px',
-                }}
-              >
-                {room.currentQuestion.lyricLineText || '（此題無可用歌詞）'}
-              </div>
-            )}
-
-            {countdown === 0 &&
-              (room.currentQuestion?.renderType === 'audio-intro' || room.currentQuestion?.renderType === 'audio-clip') && (
-                <StageDisc status={audioStatus}>
+      {(() => {
+        const isLyric = countdown === 0 && room.currentQuestion?.renderType === 'text-lyric';
+        const isAudio =
+          room.currentQuestion?.renderType === 'audio-intro' || room.currentQuestion?.renderType === 'audio-clip';
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', width: '100%' }}>
+            <div className="stage-slot">
+              {showingLastReveal ? (
+                <StageDisc answer>
+                  <span className="stage-answer-title">{room.lastRevealedTitle}</span>
+                  {room.lastRevealedArtist && <span className="stage-answer-artist">{room.lastRevealedArtist}</span>}
+                </StageDisc>
+              ) : countdown > 0 ? (
+                <StageDisc>
+                  <span
+                    key={countdown}
+                    style={{
+                      fontFamily: 'var(--font-display)',
+                      fontWeight: 700,
+                      fontSize: '3.2rem',
+                      lineHeight: 1,
+                      animation: 'choice-badge-pop 0.35s cubic-bezier(0.34,1.56,0.64,1)',
+                    }}
+                  >
+                    {countdown}
+                  </span>
+                </StageDisc>
+              ) : isLyric ? (
+                <StageDisc>
+                  <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: '0.95rem', lineHeight: 1.4 }}>
+                    {room.currentQuestion?.lyricLineText || '（此題無可用歌詞）'}
+                  </span>
+                </StageDisc>
+              ) : (
+                <StageDisc status={isAudio ? audioStatus : 'idle'}>
                   <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '2.6rem', lineHeight: 1 }}>?</span>
                 </StageDisc>
               )}
+            </div>
 
-            {countdown === 0 && room.answerMode === 'choice' && room.currentChoices.length > 0 && (
-              <ChoiceButtons
-                key={room.currentRoundIndex}
-                choices={room.currentChoices}
-                choiceFeedback={choiceFeedback}
-                currentRoundIndex={room.currentRoundIndex}
-                onAnswer={handleAnswerChoice}
-              />
-            )}
+            <div className="stage-dock">
+              <div className="stage-dock-main">
+                {showingLastReveal ? (
+                  <>
+                    {room.lastRevealedThemeLabels.length > 0 && (
+                      <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+                        主題：{room.lastRevealedThemeLabels.join('、')}
+                      </p>
+                    )}
+                    <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>即將進入下一題…</p>
+                  </>
+                ) : (
+                  <>
+                    {countdown === 0 && room.answerMode === 'choice' && room.currentChoices.length > 0 && (
+                      <ChoiceButtons
+                        key={room.currentRoundIndex}
+                        choices={room.currentChoices}
+                        choiceFeedback={choiceFeedback}
+                        currentRoundIndex={room.currentRoundIndex}
+                        onAnswer={handleAnswerChoice}
+                      />
+                    )}
+                    {countdown === 0 && room.answerMode === 'text' && (
+                      <p style={{ color: 'var(--ink-dim)', fontSize: '0.9rem', textAlign: 'center' }}>
+                        在下方聊天室打歌名搶答，答對自動得分並公布答案
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
 
-            {countdown === 0 && room.answerMode === 'text' && (
-              <p style={{ color: 'var(--ink-dim)', fontSize: '0.9rem', textAlign: 'center' }}>
-                在下方聊天室打歌名搶答，答對自動得分並公布答案
-              </p>
-            )}
-
-            {countdown === 0 && (
-              <button
-                onClick={handleVoteSkip}
-                disabled={voting}
-                className={`btn btn-toggle ${room.skipVotePlayerIds.includes(playerId) ? 'is-active' : ''}`}
-                style={{ borderRadius: '999px', padding: '8px 20px' }}
-              >
-                {voting
-                  ? '處理中…'
-                  : room.skipVotePlayerIds.includes(playerId)
-                    ? `已投票跳題（${room.skipVotePlayerIds.length}/${room.players.length}）· 點我收回`
-                    : `投票跳題（${room.skipVotePlayerIds.length}/${room.players.length}）`}
-              </button>
-            )}
-
-            {countdown === 0 && room.skipVotePlayerIds.length > 0 && (
-              <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', textAlign: 'center' }}>
-                全員都投票跳題，這題就會流局並直接公布答案
-              </p>
-            )}
-          </>
-        )}
-      </div>
+              <div className="stage-dock-foot" style={{ visibility: !showingLastReveal && countdown === 0 ? 'visible' : 'hidden' }}>
+                <button
+                  onClick={handleVoteSkip}
+                  disabled={voting}
+                  className={`btn btn-toggle ${room.skipVotePlayerIds.includes(playerId) ? 'is-active' : ''}`}
+                  style={{ borderRadius: '999px', padding: '8px 20px' }}
+                >
+                  {voting
+                    ? '處理中…'
+                    : room.skipVotePlayerIds.includes(playerId)
+                      ? `已投票跳題（${room.skipVotePlayerIds.length}/${room.players.length}）· 點我收回`
+                      : `投票跳題（${room.skipVotePlayerIds.length}/${room.players.length}）`}
+                </button>
+                <p
+                  style={{
+                    color: 'var(--ink-dim)',
+                    fontSize: '0.8rem',
+                    textAlign: 'center',
+                    visibility: room.skipVotePlayerIds.length > 0 ? 'visible' : 'hidden',
+                  }}
+                >
+                  全員都投票跳題，這題就會流局並直接公布答案
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <ScoreList players={room.players} />
 
