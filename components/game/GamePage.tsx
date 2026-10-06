@@ -15,7 +15,6 @@ import { generateId } from '../../lib/utils/id';
 import { AudioController } from '../../lib/audio/audioController';
 import { useGameEngine } from './useGameEngine';
 import { QuestionRenderer } from './QuestionRenderer';
-import { youtubeCoverUrl } from './AnswerSticker';
 import { RankBadge, PlayerIdentity } from './PlayerBadges';
 
 interface GamePageProps {
@@ -34,6 +33,7 @@ export function GamePage({ mode, title }: GamePageProps) {
   const matchIdRef = useRef<string | null>(null);
   const persistedRef = useRef(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [covers, setCovers] = useState<Record<string, string | null>>({});
 
   // 播放器容器與 AudioController 在整場比賽期間只建立一次，換題只呼叫 stop()／play()，
   // 不整個銷毀重建 —— 避免 YT.Player 掛載目標被拆除重建造成「player 未附加到 DOM」的競態。
@@ -196,6 +196,24 @@ export function GamePage({ mode, title }: GamePageProps) {
   // 這次沒有選任何對戰人別（單機無人別模式）就完全不顯示得分相關的畫面
   const hasPlayers = players.length > 0;
 
+  // 切到下一題就先在背景查好這首歌的封面（Apple／Deezer／YouTube，由伺服器解析），公布答案時直接使用
+  const currentSongId = currentSong?.id;
+  useEffect(() => {
+    if (!currentSongId || currentSongId in covers) return;
+    let cancelled = false;
+    fetch(`/api/songs/${encodeURIComponent(currentSongId)}/cover`)
+      .then((r) => (r.ok ? r.json() : { coverUrl: null }))
+      .catch(() => ({ coverUrl: null }))
+      .then((data: { coverUrl: string | null }) => {
+        if (!cancelled) setCovers((prev) => ({ ...prev, [currentSongId]: data.coverUrl }));
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSongId]);
+  const coverUrl = currentSongId ? covers[currentSongId] ?? null : null;
+
   const roundNumber = state.currentRoundIndex + 1;
   const progressPct =
     state.unlimitedRounds || !state.roundCount
@@ -299,7 +317,7 @@ export function GamePage({ mode, title }: GamePageProps) {
               controller={audioController}
               reveal={
                 revealing
-                  ? { title: state.currentQuestion.correctTitle, artist: currentArtistName, coverUrl: youtubeCoverUrl(currentSong.youtubeVideoId) }
+                  ? { title: state.currentQuestion.correctTitle, artist: currentArtistName, coverUrl: coverUrl }
                   : null
               }
             />

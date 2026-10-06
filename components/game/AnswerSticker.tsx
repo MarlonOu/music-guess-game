@@ -22,6 +22,8 @@ export function AnswerSticker({ title, artist, coverUrl }: AnswerStickerProps) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const showCover = Boolean(coverUrl) && !failed;
+  // YouTube 縮圖是 4:3 帶黑邊的影片截圖，需要放大裁邊；其餘來源（Apple／Deezer）是正方形專輯封面，直接填滿
+  const isVideoThumb = Boolean(coverUrl?.includes('ytimg.com'));
   // 圖片在 React 掛上 onLoad 之前就載入完成（快取、SSR 輸出）時不會再觸發 load 事件，
   // 所以掛載時要主動檢查 complete。
   const imgRef = useCallback((el: HTMLImageElement | null) => {
@@ -37,7 +39,7 @@ export function AnswerSticker({ title, artist, coverUrl }: AnswerStickerProps) {
           ref={imgRef}
           src={coverUrl!}
           alt=""
-          className={`stage-cover${loaded ? ' is-loaded' : ''}`}
+          className={`stage-cover${isVideoThumb ? ' is-video' : ''}${loaded ? ' is-loaded' : ''}`}
           onLoad={() => setLoaded(true)}
           onError={() => setFailed(true)}
         />

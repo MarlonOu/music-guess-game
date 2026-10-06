@@ -1305,13 +1305,19 @@ body::before {
   position: absolute;
   left: 50%;
   top: 50%;
-  /* hqdefault 為 4:3 且上下各有黑邊，放大到高度 133% 把黑邊裁出貼紙之外 */
-  height: 133.4%;
-  width: auto;
+  height: 100%;
+  width: 100%;
+  object-fit: cover;
   max-width: none;
   transform: translate(-50%, -50%);
   opacity: 0;
   transition: opacity 0.5s ease;
+}
+
+.stage-cover.is-video {
+  /* hqdefault 為 4:3 且上下各有黑邊，放大到高度 133% 把黑邊裁出貼紙之外 */
+  height: 133.4%;
+  width: auto;
 }
 
 .stage-cover.is-loaded {

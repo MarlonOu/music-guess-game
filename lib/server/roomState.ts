@@ -6,6 +6,7 @@ import { FIXED_INTRO_DURATION_SEC } from '../engine/modes/introMode';
 import { DEFAULT_CLIP_DURATION_SEC } from '../engine/modes/randomClipMode';
 import { resolvePlaybackTarget } from '../audio/resolvePlaybackTarget';
 import { CHOICES_PER_ROUND } from './choiceMode';
+import { peekSongCoverUrl } from './songCover';
 
 /**
  * 依房間存好的 songQueue / clipStartSecs / lyricLineIndexes 重建當前題目，
@@ -77,6 +78,8 @@ export async function loadRoomState(joinCode: string): Promise<RoomState | null>
       include: { artist: true, themes: { include: { theme: true } } },
     });
     if (song) {
+      // 題目開始就先在背景暖機這首歌的封面，公布答案時通常已經有快取
+      peekSongCoverUrl(songId);
       const clipStartSec = room.clipStartSecs[room.currentRoundIndex] ?? 0;
       const lyricLineIndex = room.lyricLineIndexes[room.currentRoundIndex] ?? 0;
       const question = buildQuestionFromRoom(room.mode as GameMode, song, clipStartSec, lyricLineIndex);
@@ -128,12 +131,7 @@ export async function loadRoomState(joinCode: string): Promise<RoomState | null>
   if (room.lastRevealedAt && Date.now() - room.lastRevealedAt.getTime() < 10_000) {
     const prevIndex = room.status === 'finished' ? room.songQueue.length - 1 : room.currentRoundIndex - 1;
     const prevSongId = prevIndex >= 0 ? room.songQueue[prevIndex] : undefined;
-    if (prevSongId) {
-      const prevSong = await prisma.song.findUnique({ where: { id: prevSongId }, select: { youtubeVideoId: true } });
-      if (prevSong?.youtubeVideoId) {
-        lastRevealedCoverUrl = `https://i.ytimg.com/vi/${prevSong.youtubeVideoId}/hqdefault.jpg`;
-      }
-    }
+    if (prevSongId) lastRevealedCoverUrl = peekSongCoverUrl(prevSongId);
   }
 
   return {
