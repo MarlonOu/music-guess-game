@@ -1221,24 +1221,132 @@ body::before {
 }
 
 
-/* 線上房間整體版面：寬螢幕左右並排（唱盤／聊天室同屏），窄螢幕直向堆疊並縮小唱盤 */
-.room-grid {
-  --room-stage: clamp(150px, min(44vw, 24dvh), 300px);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 24px;
-  width: 100%;
-  max-width: 560px;
-}
-
-.room-left,
-.room-right {
+/* 線上房間整體版面：寬螢幕左右兩個等高面板（舞台／計分板＋聊天室），窄螢幕直向堆疊 */
+.room-page {
+  position: relative;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 20px;
+  padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+
+.room-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   width: 100%;
+  max-width: 560px;
+}
+
+.room-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.room-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.room-title h1 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.35rem;
+  letter-spacing: -0.01em;
+}
+
+.room-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 8px 0 16px;
+  border-radius: 999px;
+  border: 1px solid var(--groove);
+  background: var(--bg-raised);
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.room-code:hover {
+  border-color: var(--ink-dim);
+}
+
+.room-code:active {
+  transform: scale(0.98);
+}
+
+.room-code-label {
+  font-size: 0.72rem;
+  color: var(--ink-dim);
+}
+
+.room-code-value {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+}
+
+.room-code-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 52px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--groove);
+  font-size: 0.72rem;
+  color: var(--ink-dim);
+}
+
+.room-code.is-copied .room-code-copy {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.room-grid {
+  --room-stage: clamp(150px, min(44vw, 24dvh), 300px);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  width: 100%;
+  max-width: 560px;
+}
+
+.room-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 20px 18px;
+  border-radius: 24px;
+  border: 1px solid var(--groove);
+  background: var(--bg-raised);
+}
+
+.room-left {
+  align-items: center;
+  gap: 20px;
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 36%, rgba(232, 185, 63, 0.07), transparent 70%),
+    var(--bg-raised);
+}
+
+.room-right {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
   min-width: 0;
 }
 
@@ -1254,36 +1362,201 @@ body::before {
   min-height: 44px;
 }
 
-@media (min-width: 900px) {
-  .room-grid {
-    --room-stage: clamp(240px, min(32vw, 50dvh), 380px);
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 440px);
-    align-items: start;
-    gap: clamp(32px, 5vw, 72px);
-    max-width: 1120px;
-  }
-
-  .room-left {
-    position: sticky;
-    top: 24px;
-  }
+.room-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
 }
 
-/* 窄螢幕：聊天室（搶答輸入）排在計分板前面，讓唱盤與輸入框盡量同屏 */
-.room-scores {
+.room-panel-head b {
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+/* 舞台頂列：題號、進度點、房主的提前結束 */
+.room-round {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   width: 100%;
-  order: 2;
+}
+
+.room-round-count {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+
+.room-round-count span {
+  color: var(--ink-dim);
+}
+
+.round-pips {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  justify-content: center;
+  max-width: 220px;
+}
+
+.round-pips i {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--groove);
+  transition: background 0.4s ease;
+}
+
+.round-pips i.is-done {
+  background: var(--ink-dim);
+}
+
+.round-pips i.is-now {
+  background: var(--accent);
+}
+
+.room-end {
+  min-height: 32px;
+  padding: 0 4px;
+  font-size: 0.78rem;
+  color: var(--ink-dim);
+  transition: color 0.2s ease;
+}
+
+.room-end:hover {
+  color: var(--error);
 }
 
 .room-leave {
+  min-height: 48px;
+  border-radius: 14px;
+  border: 1px solid var(--groove);
+  color: var(--ink-dim);
+  font-size: 0.9rem;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.room-leave:hover {
+  border-color: var(--ink-dim);
+  color: var(--ink);
+}
+
+/* 聊天室 */
+.chat-panel {
+  gap: 10px;
+  padding: 16px;
+}
+
+.chat-panel .room-panel-head {
+  margin-bottom: 0;
+}
+
+.chat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: clamp(140px, 22vh, 260px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* 結算畫面 */
+.result-winner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.result-winner .room-eyebrow {
+  color: var(--accent);
+}
+
+.room-scores {
+  gap: 0;
+}
+
+/* 窄螢幕：聊天室（搶答輸入）排在計分板前面，讓唱盤與輸入框盡量同屏 */
+.room-right .score-panel {
+  order: 2;
+}
+
+.room-right .chat-panel {
+  order: 1;
+}
+
+.room-right .room-leave {
   order: 3;
-  min-height: 44px;
 }
 
 @media (min-width: 900px) {
-  .room-scores {
+  .room-page {
+    gap: 28px;
+    padding-top: 32px;
+    padding-bottom: 40px;
+  }
+
+  .room-head {
+    max-width: 1120px;
+  }
+
+  .room-title h1 {
+    font-size: 1.6rem;
+  }
+
+  .room-grid {
+    --room-stage: clamp(220px, min(30vw, 40dvh), 380px);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
+    align-items: stretch;
+    gap: 20px;
+    max-width: 1120px;
+    min-height: min(640px, calc(100dvh - 190px));
+  }
+
+  .room-grid.is-single {
+    grid-template-columns: minmax(0, 560px);
+    justify-content: center;
+  }
+
+  .room-panel {
+    padding: 28px;
+  }
+
+  .room-left {
+    justify-content: center;
+    gap: 28px;
+  }
+
+  .room-right .score-panel,
+  .room-right .chat-panel,
+  .room-right .room-leave {
     order: 0;
+  }
+
+  .chat-panel {
+    flex: 1 1 0;
+    min-height: 260px;
+  }
+
+  .chat-list {
+    flex: 1 1 0;
+    height: auto;
+    min-height: 120px;
+  }
+
+  .score-panel.is-grow {
+    flex: 1 1 0;
   }
 }
 

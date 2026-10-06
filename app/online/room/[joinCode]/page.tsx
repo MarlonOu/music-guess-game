@@ -39,6 +39,7 @@ export default function OnlineRoomPage() {
   const [messages, setMessages] = useState<RoomMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const lastMessageAtRef = useRef<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // 先確認這個瀏覽器分頁有沒有這個房間的 playerId（建立/加入房間時存的）；
   // 沒有的話（例如直接貼連結開新分頁）顯示補填暱稱的表單，補加入房間後才能繼續。
@@ -158,6 +159,16 @@ export default function OnlineRoomPage() {
     router.push('/online');
   }
 
+  async function handleCopyCode() {
+    try {
+      await navigator.clipboard.writeText(joinCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // 剪貼簿不可用（非 https、權限被拒）時靜默略過，房號本來就顯示在畫面上
+    }
+  }
+
   function handleMessageSent(message: RoomMessage) {
     // 送出成功就直接把伺服器回傳的訊息加進畫面，不用等下一次輪詢才看到自己剛打的字
     setMessages((prev) => (prev.some((m) => m.id === message.id) ? prev : [...prev, message]));
@@ -186,98 +197,89 @@ export default function OnlineRoomPage() {
   }
 
   const isHost = room.hostPlayerId === playerId;
+  const hasChat = room.answerMode !== 'choice';
+  // 選擇題模式結算時右欄沒有東西可放（沒有聊天室、計分板已在左欄），改成單欄置中
+  const isSingle = !hasChat && room.status === 'finished';
 
   return (
-    <main
-      style={{
-        position: 'relative',
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        padding: '32px 20px',
-        gap: '24px',
-      }}
-    >
-      <header style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.4rem' }}>線上模式</h1>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            fontFamily: 'var(--font-mono)',
-            fontSize: '1.1rem',
-            letterSpacing: '0.15em',
-            color: 'var(--ink-dim)',
-          }}
-        >
-          房號 {room.joinCode}
+    <main className="room-page">
+      <header className="room-head">
+        <div className="room-title">
+          <span className="room-eyebrow">Online</span>
+          <h1>線上模式</h1>
         </div>
+        <button
+          type="button"
+          className={`room-code${copied ? ' is-copied' : ''}`}
+          onClick={handleCopyCode}
+          aria-label={`房號 ${room.joinCode}，點擊複製`}
+        >
+          <span className="room-code-label">房號</span>
+          <span className="room-code-value">{room.joinCode}</span>
+          <span className="room-code-copy">{copied ? '已複製' : '複製'}</span>
+        </button>
       </header>
 
-      <div className="room-grid">
-        <div className="room-left">
-      <AnimatePresence mode="wait">
-        {room.status === 'lobby' && (
-          <motion.div
-            key="lobby"
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -12 }}
-            transition={{ duration: 0.3 }}
-            style={{ width: '100%', display: 'flex', justifyContent: 'center', flexShrink: 0 }}
-          >
-            <LobbyView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={setRoom} />
-          </motion.div>
-        )}
-        {room.status === 'playing' && (
-          <motion.div
-            key="playing"
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -12 }}
-            transition={{ duration: 0.3 }}
-            style={{ width: '100%', display: 'flex', justifyContent: 'center', flexShrink: 0 }}
-          >
-            <PlayingView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={setRoom} />
-          </motion.div>
-        )}
-        {room.status === 'finished' && (
-          <motion.div
-            key="finished"
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -12 }}
-            transition={{ duration: 0.3 }}
-            style={{ width: '100%', display: 'flex', justifyContent: 'center', flexShrink: 0 }}
-          >
-            <FinishedView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={setRoom} />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <div className={`room-grid${isSingle ? ' is-single' : ''}`}>
+        <section className="room-panel room-left">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={room.status}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.3 }}
+              style={{ width: '100%', display: 'flex', justifyContent: 'center', flexShrink: 0 }}
+            >
+              {room.status === 'lobby' && (
+                <LobbyView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={setRoom} />
+              )}
+              {room.status === 'playing' && (
+                <PlayingView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={setRoom} />
+              )}
+              {room.status === 'finished' && (
+                <FinishedView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={setRoom} />
+              )}
+            </motion.div>
+          </AnimatePresence>
+        </section>
 
-        </div>
-        <div className="room-right">
-          {room.status === 'playing' && (
-            <div className="room-scores">
-              <ScoreList players={room.players} />
-            </div>
-          )}
-      {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
+        {!isSingle && (
+          <aside className="room-right">
+            {room.status === 'playing' && (
+              <section className={`room-panel score-panel${hasChat ? '' : ' is-grow'}`}>
+                <div className="room-panel-head">
+                  <span>計分板</span>
+                  <b>{room.players.length} 人</b>
+                </div>
+                <ScoreList players={room.players} />
+              </section>
+            )}
 
-      {/* 選擇題搶答模式不需要聊天室——答題完全透過選項按鈕，聊天室原本只是被動保留給
-          純聊天用途，但在畫面寸土寸金的手機上多一塊沒有實際功能的區塊反而是干擾，
-          乾脆整個不顯示，畫面更乾淨。打字搶答模式維持不變（聊天室本身就是搶答的管道）。 */}
-      {room.answerMode !== 'choice' && (
-        <ChatBox joinCode={joinCode} playerId={playerId} messages={messages} onMessageSent={handleMessageSent} answerMode={room.answerMode} />
-      )}
+            {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
 
-          <button onClick={handleLeaveClick} className="btn-text room-leave">
+            {/* 選擇題搶答模式不需要聊天室——答題完全透過選項按鈕，聊天室原本只是被動保留給
+                純聊天用途，但在畫面寸土寸金的手機上多一塊沒有實際功能的區塊反而是干擾，
+                乾脆整個不顯示，畫面更乾淨。打字搶答模式維持不變（聊天室本身就是搶答的管道）。 */}
+            {hasChat && (
+              <ChatBox joinCode={joinCode} playerId={playerId} messages={messages} onMessageSent={handleMessageSent} answerMode={room.answerMode} />
+            )}
+
+            <button onClick={handleLeaveClick} className="btn-text room-leave">
+              離開房間
+            </button>
+          </aside>
+        )}
+      </div>
+
+      {isSingle && (
+        <>
+          {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
+          <button onClick={handleLeaveClick} className="btn-text room-leave" style={{ width: '100%', maxWidth: '560px' }}>
             離開房間
           </button>
-        </div>
-      </div>
+        </>
+      )}
     </main>
   );
 }
@@ -994,9 +996,24 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', width: '100%', maxWidth: '480px' }}>
-      <span style={{ color: 'var(--ink-dim)', fontFamily: 'var(--font-mono)' }}>
-        第 {room.currentRoundIndex + 1} / {room.roundCount} 題
-      </span>
+      <div className="room-round">
+        <span className="room-round-count">
+          {String(room.currentRoundIndex + 1).padStart(2, '0')}
+          <span> / {String(room.roundCount).padStart(2, '0')}</span>
+        </span>
+        <div className="round-pips" aria-hidden="true">
+          {Array.from({ length: room.roundCount }, (_, i) => (
+            <i key={i} className={i < room.currentRoundIndex ? 'is-done' : i === room.currentRoundIndex ? 'is-now' : ''} />
+          ))}
+        </div>
+        {isHost ? (
+          <button onClick={handleEnd} className="room-end btn-text">
+            提前結束
+          </button>
+        ) : (
+          <span style={{ width: '56px' }} />
+        )}
+      </div>
 
       {needsUnlock && (
         <button
@@ -1117,11 +1134,6 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
         );
       })()}
 
-      {isHost && (
-        <button onClick={handleEnd} className="btn btn-danger btn-sm">
-          提前結束比賽
-        </button>
-      )}
     </div>
   );
 }
@@ -1140,14 +1152,37 @@ function FinishedView({ room, isHost, onError, onRoomUpdate }: RoomViewProps) {
     if (result.data) onRoomUpdate(result.data);
   }
 
+  const topScore = Math.max(0, ...room.players.map((p) => p.score));
+  const winners = topScore > 0 ? room.players.filter((p) => p.score === topScore) : [];
+  const winnerText = winners.map((p) => p.displayName).join('、');
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', width: '100%', maxWidth: '360px' }}>
-      <p style={{ color: 'var(--ink-dim)' }}>比賽結束</p>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '24px', width: '100%', maxWidth: '420px' }}>
+      <div className="result-winner">
+        <span className="room-eyebrow">比賽結束</span>
+      </div>
+      <StageDisc answer size="clamp(200px, min(56vw, 32dvh), 280px)">
+        {winners.length > 0 ? (
+          <>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.2em', opacity: 0.7 }}>
+              {winners.length > 1 ? 'WINNERS' : 'WINNER'}
+            </span>
+            <span className="stage-answer-title" style={{ fontSize: winnerText.length > 8 ? '0.9rem' : '1.1rem' }}>
+              {winnerText}
+            </span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.4rem', lineHeight: 1 }}>{topScore}</span>
+          </>
+        ) : (
+          <span className="stage-answer-title">無人得分</span>
+        )}
+      </StageDisc>
       <ScoreList players={room.players} showRanking />
-      {isHost && (
-        <button onClick={handleRestart} disabled={restarting} className="btn btn-primary">
+      {isHost ? (
+        <button onClick={handleRestart} disabled={restarting} className="btn btn-primary btn-block">
           {restarting ? '處理中…' : '返回房間再玩一輪'}
         </button>
+      ) : (
+        <p style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>等待房主開啟下一輪…</p>
       )}
     </div>
   );
@@ -1239,21 +1274,14 @@ function ChatBox({
   }
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px',
-        width: '100%',
-        maxWidth: '480px',
-        padding: '12px',
-        borderRadius: '14px',
-        border: '1px solid var(--groove)',
-        background: 'var(--bg-raised)',
-      }}
-    >
+    <section className="room-panel chat-panel">
+      <div className="room-panel-head">
+        <span>聊天室</span>
+        <b>{answerMode === 'choice' ? '純聊天' : '打歌名搶答'}</b>
+      </div>
       <div
         ref={listRef}
+        className="chat-list"
         style={{
           display: 'flex',
           flexDirection: 'column',
@@ -1266,14 +1294,11 @@ function ChatBox({
           // 最小 140px（大約放得下 3~4 行訊息＋輸入框，太矮會太難用）、
           // 最大 260px（避免大螢幕上這一塊佔比過大）、
           // 中間用視窗高度的 22% 動態調整，螢幕愈高聊天室就跟著愈高，螢幕矮的手機也不會被撐爆。
-          height: 'clamp(140px, 22vh, 260px)',
-          overflowY: 'auto',
-          overscrollBehavior: 'contain',
         }}
       >
         {messages.length === 0 && (
           <p style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>
-            {answerMode === 'choice' ? '聊天室：純聊天，搶答請點上面的選項' : '聊天室：搶答也在這裡打字'}
+            {answerMode === 'choice' ? '搶答請點左側選項，這裡只用來聊天' : '搶答也在這裡打字'}
           </p>
         )}
         {messages.map((m) => (
@@ -1315,12 +1340,12 @@ function ChatBox({
           onChange={(e) => setText(e.target.value)}
           placeholder="打字聊天／搶答歌名"
           className="field"
-          style={{ flex: 1 }}
+          style={{ flex: 1, minWidth: 0 }}
         />
-        <button type="submit" disabled={sending} className="btn btn-primary">
+        <button type="submit" disabled={sending} className="btn btn-primary" style={{ flexShrink: 0 }}>
           送出
         </button>
       </form>
-    </div>
+    </section>
   );
 }
