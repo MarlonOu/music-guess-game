@@ -10,7 +10,7 @@ import { motion, useReducedMotion } from 'framer-motion';
  * 即將開始——玩家在整個遊戲歷程裡會重複看到這個「指針起落」的動作十次（每答對一題
  * 一次），讓它成為這個模式節奏感的一部分，而不是看過一次就膩的開場噱頭。
  *
- * 唱片本體的同心溝紋背景跟 AudioStatusIndicator、首頁 Turntable 是同一組
+ * 唱片本體的同心溝紋背景跟 StageDisc、首頁 Turntable 是同一組
  * repeating-radial-gradient 參數，三個畫面共用同一套視覺語彙，玩家從首頁點進來、
  * 玩的過程中、到這個過場畫面，感覺得出來是同一個產品在說同一件事，不是各自獨立的
  * 局部裝飾。

@@ -4,18 +4,36 @@ import { isAnswerCorrect } from '../answerUtils';
 
 export const DEFAULT_CLIP_DURATION_SEC = 8;
 
+/** 片段起點避開頭尾的邊界範圍（秒）。MV 常有片頭空白、片尾淡出或字幕，頭尾各隨機避開 10~20 秒。 */
+export const CLIP_EDGE_MARGIN_MIN_SEC = 10;
+export const CLIP_EDGE_MARGIN_MAX_SEC = 20;
+
 /**
  * 計算隨機片段起始秒數。
  * 輸入：歌曲總長（durationSec）、片段長度（clipDurationSec）
- * 輸出：0 到 (durationSec - clipDurationSec) 之間的整數秒
+ * 輸出：整數秒，保證 clip 不超出歌曲長度，且盡量避開頭尾各 10~20 秒（頭尾邊界各自隨機）。
  * 邊界條件：
- * - 若 durationSec 小於等於 clipDurationSec，起始秒數固定為 0（整首播放）
- * - 回傳值需保證 clip 不超出歌曲長度
+ * - durationSec 小於等於 clipDurationSec：起始秒數固定為 0（整首播放）
+ * - 歌曲太短、扣掉頭尾邊界後沒有空間時：邊界縮小為可用空間的 1/4，仍保留一個居中的隨機範圍
+ * @param random 可注入的亂數來源（預設 Math.random），方便測試
  */
-export function getRandomClipStart(durationSec: number, clipDurationSec: number): number {
+export function getRandomClipStart(
+  durationSec: number,
+  clipDurationSec: number,
+  random: () => number = Math.random
+): number {
   if (durationSec <= clipDurationSec) return 0;
-  const maxStart = durationSec - clipDurationSec;
-  return Math.floor(Math.random() * (maxStart + 1));
+  const slack = durationSec - clipDurationSec;
+  const span = CLIP_EDGE_MARGIN_MAX_SEC - CLIP_EDGE_MARGIN_MIN_SEC;
+  let head = CLIP_EDGE_MARGIN_MIN_SEC + Math.floor(random() * (span + 1));
+  let tail = CLIP_EDGE_MARGIN_MIN_SEC + Math.floor(random() * (span + 1));
+  if (head + tail >= slack) {
+    head = Math.floor(slack / 4);
+    tail = Math.floor(slack / 4);
+  }
+  const minStart = head;
+  const maxStart = slack - tail;
+  return minStart + Math.floor(random() * (maxStart - minStart + 1));
 }
 
 export const randomClipMode: GameModeStrategy = {

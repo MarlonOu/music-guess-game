@@ -18,7 +18,7 @@ import { WRONG_ANSWER_LOCKOUT_MS } from '../../../../lib/constants/choiceMode';
 import { RankBadge, PlayerIdentity, playerDotColor } from '../../../../components/game/PlayerBadges';
 import { ArtistFilter } from '../../../../components/filter/ArtistFilter';
 import { ThemeFilter } from '../../../../components/filter/ThemeFilter';
-import { AudioStatusIndicator } from '../../../../components/game/AudioStatusIndicator';
+import { StageDisc } from '../../../../components/game/StageDisc';
 import { SELECTABLE_GAME_MODES } from '../../../../lib/constants/gameMode';
 
 // 房間狀態輪詢間隔。這是「發現伺服器狀態變了」唯一還剩下的延遲來源——換題本身已經改成
@@ -805,7 +805,7 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
   // 時間戳計算），這段期間顯示上一題的答案，不顯示新一題的倒數／播放內容
   const [showingLastReveal, setShowingLastReveal] = useState(false);
   // 訂閱 AudioController 的播放狀態回呼，用來畫出跟單機模式一致的載入中／播放中／已暫停／
-  // 播放完畢／失敗動畫（見 AudioStatusIndicator）。狀態在每題開始時會被 stop() 重置為 'idle'。
+  // 播放完畢／失敗動畫（見 StageDisc）。狀態在每題開始時會被 stop() 重置為 'idle'。
   const [audioStatus, setAudioStatus] = useState<AudioPlaybackStatus>('idle');
   const playedRoundRef = useRef<number>(-1);
   const [voting, setVoting] = useState(false);
@@ -984,7 +984,7 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
           className="btn btn-primary btn-block"
           style={{ maxWidth: '320px' }}
         >
-          🔊 點一下繼續播放音樂
+          點一下繼續播放音樂
         </button>
       )}
 
@@ -1009,14 +1009,10 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
       >
         {showingLastReveal ? (
           <>
-            <p style={{ color: 'var(--accent)', fontWeight: 600, fontSize: '1.4rem', textAlign: 'center' }}>
-              {room.lastRevealedTitle}
-              {room.lastRevealedArtist && (
-                <span style={{ color: 'var(--ink-dim)', fontWeight: 400, fontSize: '1rem' }}>
-                  {' '}– {room.lastRevealedArtist}
-                </span>
-              )}
-            </p>
+            <StageDisc answer>
+              <span className="stage-answer-title">{room.lastRevealedTitle}</span>
+              {room.lastRevealedArtist && <span className="stage-answer-artist">{room.lastRevealedArtist}</span>}
+            </StageDisc>
             {room.lastRevealedThemeLabels.length > 0 && (
               <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
                 主題：{room.lastRevealedThemeLabels.join('、')}
@@ -1027,7 +1023,11 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
         ) : (
           <>
             {countdown > 0 && (
-              <p style={{ fontFamily: 'var(--font-display)', fontSize: '3rem', color: 'var(--accent)' }}>{countdown}</p>
+              <StageDisc>
+                <span key={countdown} style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '3.2rem', lineHeight: 1, animation: 'choice-badge-pop 0.35s cubic-bezier(0.34,1.56,0.64,1)' }}>
+                  {countdown}
+                </span>
+              </StageDisc>
             )}
 
             {countdown === 0 && room.currentQuestion?.renderType === 'text-lyric' && (
@@ -1049,7 +1049,9 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
 
             {countdown === 0 &&
               (room.currentQuestion?.renderType === 'audio-intro' || room.currentQuestion?.renderType === 'audio-clip') && (
-                <AudioStatusIndicator status={audioStatus} />
+                <StageDisc status={audioStatus}>
+                  <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '2.6rem', lineHeight: 1 }}>?</span>
+                </StageDisc>
               )}
 
             {countdown === 0 && room.answerMode === 'choice' && room.currentChoices.length > 0 && (

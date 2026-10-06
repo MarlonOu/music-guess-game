@@ -32,6 +32,7 @@ export function GamePage({ mode, title }: GamePageProps) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const matchIdRef = useRef<string | null>(null);
   const persistedRef = useRef(false);
+  const [confirmEnd, setConfirmEnd] = useState(false);
 
   // 播放器容器與 AudioController 在整場比賽期間只建立一次，換題只呼叫 stop()／play()，
   // 不整個銷毀重建 —— 避免 YT.Player 掛載目標被拆除重建造成「player 未附加到 DOM」的競態。
@@ -194,98 +195,135 @@ export function GamePage({ mode, title }: GamePageProps) {
   // 這次沒有選任何對戰人別（單機無人別模式）就完全不顯示得分相關的畫面
   const hasPlayers = players.length > 0;
 
-  return (
-    <main
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        padding: '48px 24px',
-        gap: '32px',
-      }}
-    >
-      <header style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.75rem' }}>{title}</h1>
-      </header>
+  const roundNumber = state.currentRoundIndex + 1;
+  const progressPct =
+    state.unlimitedRounds || !state.roundCount
+      ? 0
+      : Math.min(100, ((roundNumber - (state.status === 'question' ? 1 : 0)) / state.roundCount) * 100);
 
-      {loadError && <p style={{ color: 'var(--error)' }}>{loadError}</p>}
-
-      {!loadError && state.status === 'idle' && <p style={{ color: 'var(--ink-dim)' }}>準備中</p>}
-
-      {(state.status === 'question' || state.status === 'reveal') && currentSong && state.currentQuestion && (
-        <>
-          <div style={{ display: 'flex', gap: '24px', alignItems: 'center', color: 'var(--ink-dim)', fontFamily: 'var(--font-mono)' }}>
-            <span>
-              {state.unlimitedRounds ? `第 ${state.currentRoundIndex + 1} 題` : `第 ${state.currentRoundIndex + 1} / ${state.roundCount} 題`}
-            </span>
-          </div>
-          <QuestionRenderer
-            key={state.currentRoundIndex}
-            question={state.currentQuestion}
-            song={currentSong}
-            controller={audioController}
-          />
-
-          {state.status === 'question' && (
-            <button onClick={() => engine.revealAnswer()} className="btn btn-primary">
-              顯示正確答案
-            </button>
-          )}
-
-          {state.status === 'reveal' && (
+  if (loadError || state.status === 'idle') {
+    return (
+      <main className="status-screen" aria-busy={!loadError}>
+        <div className="status-screen-inner">
+          {loadError ? (
             <>
-              {/* 歌名／歌手分成獨立兩行，不用破折號接在同一行——歌名是這一刻真正的答案，
-                  理應是視覺上最重的東西；歌手是補充資訊，用獨立的一行、更小更淡的處理
-                  自然就能分出主從，不需要靠一個標點符號把兩種不同性質的文字硬接在一起。 */}
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                <p style={{ color: 'var(--accent)', fontWeight: 700, fontSize: '1.6rem', textAlign: 'center' }}>
-                  {state.currentQuestion.correctTitle}
-                </p>
-                {currentArtistName && (
-                  <p style={{ color: 'var(--ink-dim)', fontSize: '1rem' }}>{currentArtistName}</p>
-                )}
-              </div>
-              {currentThemeLabels.length > 0 && (
-                <p style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>
-                  主題：{currentThemeLabels.join('、')}
-                </p>
-              )}
-              <button onClick={() => engine.nextQuestion()} className="btn btn-primary">
-                下一題
-              </button>
+              <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.4rem' }}>無法開始</h1>
+              <p role="alert" style={{ color: 'var(--error)', fontSize: '0.92rem', lineHeight: 1.6 }}>
+                {loadError}
+              </p>
+              <Link href="/match-setup" className="btn btn-primary">
+                回到建立比賽
+              </Link>
+            </>
+          ) : (
+            <>
+              <div className="loading-disc" />
+              <p style={{ color: 'var(--ink-dim)', fontSize: '0.9rem' }}>準備中</p>
             </>
           )}
-
-          {hasPlayers && (
-            <ScoreStrip
-              players={players}
-              scores={state.scores}
-              canAdjust={state.status === 'reveal'}
-              onAdjust={(id, delta) => engine.awardPoint(id, delta)}
-            />
-          )}
-
-          <button
-            onClick={() => {
-              if (window.confirm('確定要提前結束這場比賽嗎？')) engine.endMatchEarly();
-            }}
-            className="btn btn-danger btn-sm"
-          >
-            結束比賽
-          </button>
-        </>
-      )}
-
-      {state.status === 'finished' && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-          {hasPlayers && <ScoreBoard players={players} scores={state.scores} />}
-          <p style={{ color: 'var(--ink-dim)' }}>比賽結束</p>
-          <Link href="/" className="btn btn-primary">
-            返回首頁
-          </Link>
         </div>
-      )}
+      </main>
+    );
+  }
+
+  if (state.status === 'finished') {
+    return (
+      <main className="shell">
+        <div className="shell-inner" style={{ maxWidth: 420, alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '2rem', letterSpacing: '-0.02em' }}>
+            比賽結束
+          </h1>
+          <p style={{ color: 'var(--ink-dim)', fontSize: '0.92rem' }}>共 {state.results.length} 題</p>
+          {hasPlayers && <ScoreBoard players={players} scores={state.scores} />}
+          <div style={{ display: 'flex', gap: '10px', width: '100%', maxWidth: '360px' }}>
+            <Link href="/match-setup" className="btn btn-primary" style={{ flex: 1 }}>
+              再來一場
+            </Link>
+            <Link href="/" className="btn btn-ghost">
+              首頁
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  const revealing = state.status === 'reveal';
+
+  return (
+    <main className="play-shell">
+      <div className="play-top">
+        <div>
+          {confirmEnd ? (
+            <span style={{ display: 'inline-flex', gap: '6px' }}>
+              <button type="button" className="btn btn-danger btn-sm" onClick={() => engine.endMatchEarly()}>
+                確定結束
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirmEnd(false)}>
+                取消
+              </button>
+            </span>
+          ) : (
+            <button type="button" className="shell-back" onClick={() => setConfirmEnd(true)} style={{ background: 'none', border: 'none' }}>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+              結束
+            </button>
+          )}
+        </div>
+        <div className="play-count" aria-live="polite">
+          {state.unlimitedRounds ? (
+            <>第 {roundNumber} 題</>
+          ) : (
+            <>
+              {roundNumber}
+              <span> / {state.roundCount}</span>
+            </>
+          )}
+        </div>
+        <div style={{ textAlign: 'right', color: 'var(--ink-dim)', fontSize: '0.8rem' }}>{title}</div>
+      </div>
+      <div className="play-progress" aria-hidden="true">
+        <i style={{ width: `${progressPct}%` }} />
+      </div>
+
+      <div className="play-body">
+        {currentSong && state.currentQuestion && (
+          <>
+            <QuestionRenderer
+              key={state.currentRoundIndex}
+              question={state.currentQuestion}
+              song={currentSong}
+              controller={audioController}
+              reveal={revealing ? { title: state.currentQuestion.correctTitle, artist: currentArtistName } : null}
+            />
+            {revealing && currentThemeLabels.length > 0 && (
+              <p style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>主題：{currentThemeLabels.join('、')}</p>
+            )}
+            {hasPlayers && (
+              <ScoreStrip
+                players={players}
+                scores={state.scores}
+                canAdjust={revealing}
+                onAdjust={(id, delta) => engine.awardPoint(id, delta)}
+              />
+            )}
+          </>
+        )}
+      </div>
+
+      <div className="play-bar">
+        {!revealing ? (
+          <button type="button" onClick={() => engine.revealAnswer()} className="btn btn-primary">
+            顯示正確答案
+          </button>
+        ) : (
+          <button type="button" onClick={() => engine.nextQuestion()} className="btn btn-primary">
+            下一題
+          </button>
+        )}
+      </div>
     </main>
   );
 }
@@ -319,38 +357,16 @@ function ScoreStrip({
 }) {
   const ranked = [...players].sort((a, b) => (scores[b.id] ?? 0) - (scores[a.id] ?? 0));
   return (
-    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'center', width: '100%', maxWidth: '480px' }}>
+    <div className="score-strip">
       {ranked.map((p) => (
-        <div
-          key={p.id}
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '8px',
-            width: '108px',
-            padding: '14px 10px',
-            borderRadius: '14px',
-            border: '1px solid var(--groove)',
-            background: 'var(--bg-raised)',
-          }}
-        >
+        <div key={p.id} className="score-card">
           <PlayerIdentity id={p.id} name={p.displayName} />
-          <span
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontWeight: 700,
-              fontSize: '1.6rem',
-              lineHeight: 1,
-              color: 'var(--accent)',
-            }}
-          >
-            {scores[p.id] ?? 0}
-          </span>
-          {canAdjust && (
-            <span style={{ display: 'flex', gap: '12px' }}>
+          <span className="score-card-value">{scores[p.id] ?? 0}</span>
+          {(
+            <span className="score-card-adjust" style={{ visibility: canAdjust ? 'visible' : 'hidden' }} aria-hidden={!canAdjust}>
               <button
                 type="button"
+                tabIndex={canAdjust ? 0 : -1}
                 onClick={() => onAdjust(p.id, -1)}
                 aria-label={`${p.displayName} 減一分`}
                 className="score-adjust"
@@ -359,6 +375,7 @@ function ScoreStrip({
               </button>
               <button
                 type="button"
+                tabIndex={canAdjust ? 0 : -1}
                 onClick={() => onAdjust(p.id, 1)}
                 aria-label={`${p.displayName} 加一分`}
                 className="score-adjust is-plus"
@@ -378,7 +395,7 @@ function ScoreBoard({ players, scores }: { players: PlayerProfile[]; scores: Rec
   const topScore = ranked[0] ? scores[ranked[0].id] ?? 0 : 0;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', maxWidth: '360px' }}>
-      <p style={{ textAlign: 'center', color: 'var(--ink-dim)', fontSize: '0.9rem' }}>最終戰績</p>
+      
       <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {ranked.map((p, i) => {
           const score = scores[p.id] ?? 0;

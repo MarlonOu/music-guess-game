@@ -105,7 +105,7 @@ input:focus-visible {
   }
 }
 
-/* 音訊播放狀態動畫（見 components/game/AudioStatusIndicator.tsx），單機與線上模式共用 */
+/* 音訊播放狀態動畫（見 components/game/StageDisc.tsx），單機與線上模式共用 */
 @keyframes vinyl-spin {
   from {
     transform: rotate(0deg);
@@ -900,4 +900,287 @@ body::before {
     padding-top: 10px !important;
     padding-bottom: 10px !important;
   }
+}
+
+/* ============ 單機遊戲舞台：唱片＋貼紙播放鍵 ============ */
+.stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+}
+
+.stage-disc-wrap {
+  --stage: clamp(220px, min(72vw, 38dvh), 320px);
+  position: relative;
+  width: var(--stage);
+  height: var(--stage);
+}
+
+.stage-disc {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: repeating-radial-gradient(circle at center, #1a1b20 0 2px, #202126 2px 4px);
+  box-shadow:
+    0 22px 50px -18px rgba(0, 0, 0, 0.7),
+    inset 0 0 0 1px var(--groove);
+  transition: box-shadow 0.4s ease;
+}
+
+.stage-disc::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 20deg, transparent 0deg, rgba(255, 255, 255, 0.06) 28deg, transparent 62deg, transparent 180deg, rgba(255, 255, 255, 0.045) 208deg, transparent 242deg);
+}
+
+.stage-disc.is-spinning {
+  animation: vinyl-spin 6s linear infinite;
+  box-shadow:
+    0 22px 60px -14px rgba(232, 185, 63, 0.22),
+    inset 0 0 0 1px var(--groove);
+}
+
+.stage-disc.is-loading {
+  animation: vinyl-pulse 1s ease-in-out infinite;
+}
+
+.stage-disc.is-error {
+  box-shadow: 0 0 0 2px var(--error), 0 22px 50px -18px rgba(0, 0, 0, 0.7);
+}
+
+/* 播放時從貼紙向外擴散的環，像聲波 */
+.stage-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 42%;
+  height: 42%;
+  margin: -21% 0 0 -21%;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  opacity: 0;
+  pointer-events: none;
+  animation: stage-ring 2.4s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+
+@keyframes stage-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+}
+
+.stage-sticker-slot {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stage-sticker {
+  width: 42%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: var(--accent-ink);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8%;
+  text-align: center;
+  box-shadow: 0 4px 18px -4px rgba(0, 0, 0, 0.55);
+}
+
+.stage-sticker.is-button {
+  cursor: pointer;
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.15s ease;
+}
+
+.stage-sticker.is-button:hover:not(:disabled) {
+  transform: scale(1.05);
+  filter: brightness(1.06);
+}
+
+.stage-sticker.is-button:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.stage-sticker.is-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.stage-sticker.is-answer {
+  width: 62%;
+  animation: stage-flip 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes stage-flip {
+  0% {
+    transform: rotateY(90deg) scale(0.7);
+    opacity: 0;
+  }
+  100% {
+    transform: rotateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.stage-answer-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(1rem, 4.6vw, 1.35rem);
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.stage-answer-artist {
+  font-size: 0.8rem;
+  opacity: 0.7;
+  overflow-wrap: anywhere;
+}
+
+.stage-status {
+  font-size: 0.85rem;
+  color: var(--ink-dim);
+  min-height: 1.3em;
+}
+
+.stage-status[data-state='playing'] {
+  color: var(--success);
+}
+
+.stage-status[data-state='error'] {
+  color: var(--error);
+}
+
+.stage-controls {
+  display: flex;
+  gap: 8px;
+  min-height: 44px;
+  align-items: center;
+}
+
+/* ============ 遊戲中版型：頂欄＋進度條＋底部操作列 ============ */
+.play-shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+}
+
+.play-top {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  min-height: 56px;
+  padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
+}
+
+.play-count {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+
+.play-count span {
+  color: var(--ink-dim);
+}
+
+.play-progress {
+  height: 3px;
+  background: var(--groove);
+}
+
+.play-progress > i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.play-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: 24px max(20px, env(safe-area-inset-right)) 24px max(20px, env(safe-area-inset-left));
+}
+
+.play-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 14px max(20px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+  background: linear-gradient(to top, var(--bg) 70%, transparent);
+}
+
+.play-bar .btn-primary {
+  width: 100%;
+  max-width: 420px;
+  min-height: 52px;
+  font-size: 1.02rem;
+}
+
+.score-strip {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: 100%;
+  max-width: 480px;
+}
+
+.score-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 132px;
+  flex: 1 1 132px;
+  max-width: 220px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--groove);
+  background: var(--bg-raised);
+}
+
+.score-card-value {
+  grid-row: span 1;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--accent);
+  text-align: right;
+}
+
+.score-card-adjust {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 4px;
 }
