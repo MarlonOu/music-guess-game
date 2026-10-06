@@ -1488,6 +1488,12 @@ body::before {
   overscroll-behavior: contain;
 }
 
+.score-panel .score-list {
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 /* 結算畫面 */
 .result-winner {
   display: flex;
@@ -1533,14 +1539,40 @@ body::before {
     font-size: 1.6rem;
   }
 
+  /* 版面高度鎖在視窗內（底部留白），玩家再多也只在計分板內捲動，不會把聊天室擠出畫面 */
   .room-grid {
     --room-stage: clamp(220px, min(30vw, 34dvh), 380px);
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
+    grid-template-rows: minmax(0, 1fr);
     align-items: stretch;
     gap: 20px;
     max-width: 1120px;
-    min-height: min(640px, calc(100dvh - 190px));
+    height: max(560px, calc(100dvh - 210px));
+  }
+
+  .room-panel {
+    min-height: 0;
+  }
+
+  .room-left {
+    overflow-y: auto;
+  }
+
+  .room-right {
+    min-height: 0;
+  }
+
+  .score-panel {
+    flex: 0 1 auto;
+    overflow: hidden;
+  }
+
+  .score-panel .score-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    max-height: none;
   }
 
   .room-grid.is-single {
@@ -1553,7 +1585,7 @@ body::before {
   }
 
   .room-left {
-    justify-content: center;
+    justify-content: safe center;
     gap: 28px;
   }
 

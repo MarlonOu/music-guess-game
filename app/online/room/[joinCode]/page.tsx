@@ -1198,7 +1198,7 @@ function ScoreList({ players, showRanking }: { players: RoomState['players']; sh
   const ranked = [...players].sort((a, b) => b.score - a.score);
   const topScore = ranked[0]?.score ?? 0;
   return (
-    <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+    <ul className={showRanking ? undefined : 'score-list'} style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
       {ranked.map((p, i) => {
         const isTop = p.score === topScore && topScore > 0;
         return (
