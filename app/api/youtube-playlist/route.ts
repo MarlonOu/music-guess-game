@@ -40,19 +40,62 @@ function extractPlaylistId(input: string): string | null {
 // snippet.title 永遠是上傳者設定的預設語言（常常是英文），所以網站上看到中文、匯入後卻變英文。
 // 改由 videos.list／channels.list 以 hl 取得在地化版本，找不到才退回預設標題。
 const DISPLAY_LANGUAGE = 'zh-TW';
-const LOCALIZATION_KEYS = ['zh-TW', 'zh-Hant', 'zh-HK', 'zh'];
+const LOCALIZATION_KEYS = ['zh-TW', 'zh-Hant-TW', 'zh-Hant', 'zh-HK', 'zh-Hant-HK', 'zh'];
 
 function pickLocalized(
   localizations: Record<string, { title?: string }> | undefined,
   hlTitle: string | undefined
 ): string | undefined {
   // 有明確的繁中在地化資料時優先採用；hl 回傳的 snippet.localized 若沒有對應語言會回到預設語言，
-  // 因此只當第二順位
+  // 因此只當後備。簡體（zh-CN／zh-Hans）排在最後，總比純英文／拼音有用，管理者仍可手動修改。
   for (const key of LOCALIZATION_KEYS) {
     const t = localizations?.[key]?.title?.trim();
     if (t) return t;
   }
+  const other = Object.keys(localizations ?? {}).find((k) => /^zh/i.test(k) && localizations?.[k]?.title?.trim());
+  if (other) return localizations![other].title!.trim();
   return hlTitle?.trim() || undefined;
+}
+
+/** 去掉 YouTube 自動產生的藝人頻道後綴：英文「 - Topic」，在地化後會變成「 - 主題／主题」 */
+function stripTopicSuffix(name: string): string {
+  return name.replace(/\s*[-–—]\s*(topic|主題|主题)\s*$/i, '').trim();
+}
+
+const HAS_CJK = /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/;
+
+/**
+ * 自動產生的 Topic 影片，標題與頻道常是羅馬拼音／英文（"Shuo Ai Ni"、"Jolin Tsai"），
+ * 但 YouTube 網站上看到的是中文。API 取不到時，用 iTunes（台灣商店）以影片長度當驗證：
+ * 藝人 Topic 影片的長度就是該曲目長度，與 iTunes 結果相差 3 秒內且名稱含中文才採用，
+ * 避免把不同版本或同名歌曲的資料套錯。查不到就維持原樣。
+ */
+async function lookupChineseNames(
+  artist: string,
+  title: string,
+  durationSec: number
+): Promise<{ title: string; artist: string } | null> {
+  if (durationSec <= 0 || (HAS_CJK.test(title) && HAS_CJK.test(artist))) return null;
+  try {
+    const term = encodeURIComponent(`${artist} ${title}`.trim());
+    const res = await fetch(`https://itunes.apple.com/search?term=${term}&country=TW&media=music&entity=song&limit=8`, {
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { results?: { trackName?: string; artistName?: string; trackTimeMillis?: number }[] };
+    const hit = (data.results ?? []).find(
+      (r) =>
+        r.trackName &&
+        r.artistName &&
+        HAS_CJK.test(r.trackName) &&
+        typeof r.trackTimeMillis === 'number' &&
+        Math.abs(r.trackTimeMillis / 1000 - durationSec) <= 3
+    );
+    if (!hit) return null;
+    return { title: hit.trackName!.trim(), artist: hit.artistName!.replace(/\s*[（(].*[）)]\s*$/, '').trim() };
+  } catch {
+    return null;
+  }
 }
 
 /** 解析 YouTube API 回傳的 ISO 8601 時長格式（例如 PT4M13S）為總秒數 */
@@ -196,12 +239,26 @@ export async function GET(request: NextRequest) {
       videoId: item.videoId,
       title: localizedTitleById.get(item.videoId) ?? item.title,
       // YouTube 自動產生的藝人頻道名稱帶有「 - Topic」後綴，不是歌手名稱本身，匯入時要去掉
-      channelTitle: (channelNameById.get(item.channelId) ?? item.channelTitle).replace(/\s*[-–—]\s*topic$/i, '').trim(),
+      channelTitle: stripTopicSuffix(channelNameById.get(item.channelId) ?? item.channelTitle),
       thumbnailUrl: item.thumbnailUrl,
       durationSec: durationById.get(item.videoId) ?? 0,
       embeddable: embeddableById.get(item.videoId) ?? true,
       unavailable: unavailableById.get(item.videoId) ?? (item.title === 'Private video' || item.title === 'Deleted video'),
     }));
+
+    // 標題或頻道仍是英文／拼音的項目，嘗試用 iTunes 補上中文名稱（見 lookupChineseNames）
+    const queue = results.filter((r) => !r.unavailable && !(HAS_CJK.test(r.title) && HAS_CJK.test(r.channelTitle)));
+    await Promise.all(
+      Array.from({ length: 5 }, async () => {
+        for (let r = queue.shift(); r; r = queue.shift()) {
+          const zh = await lookupChineseNames(r.channelTitle, r.title, r.durationSec);
+          if (zh) {
+            r.title = zh.title;
+            r.channelTitle = zh.artist;
+          }
+        }
+      })
+    );
 
     return NextResponse.json({
       results,
