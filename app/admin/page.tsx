@@ -2383,6 +2383,409 @@ function YouTubePlaylistImportAccordion({
 }
 
 
+// ===== 批次比對 Apple Music／Deezer 來源 =====
+// 把 scripts/fetch-apple-previews.mjs、scripts/fetch-deezer-previews.mjs 的功能搬進管理頁面：
+// 逐首呼叫 /api/songs/match-sources（伺服器端統一節流並查詢外部 API），結果先列出來讓管理者
+// 試聽核對，勾選後才寫入——自動比對可能選到翻唱／Live／精選輯版本，不能無人審核就覆蓋。
+type MatchPlatform = 'apple' | 'deezer';
+type MatchMode = 'fill' | 'refresh';
+
+interface SourceCandidateView {
+  trackId: string;
+  trackName: string;
+  artistName: string;
+  previewUrl: string;
+  durationSec: number;
+}
+
+interface SourceMatchItem {
+  key: string;
+  songId: string;
+  platform: MatchPlatform;
+  mode: MatchMode;
+  status: 'found' | 'refreshed' | 'notfound' | 'error';
+  confidence?: 'high' | 'low';
+  candidate?: SourceCandidateView;
+  durationDiffSec?: number | null;
+  note?: string;
+  /** 套用這個候選來源 */
+  apply: boolean;
+  /** 找不到時：標記「已確認這個平台沒有這首歌」，之後批次比對會略過 */
+  markSkip: boolean;
+}
+
+const PLATFORM_LABEL: Record<MatchPlatform, string> = { apple: 'Apple Music', deezer: 'Deezer' };
+const PLATFORM_INTERVAL_SEC: Record<MatchPlatform, number> = { apple: 3, deezer: 2 };
+
+function SourceMatchAccordion({
+  songs,
+  artists,
+  onChanged,
+  onError,
+  onNotice,
+}: { songs: Song[]; artists: Artist[] } & SectionCallbacks) {
+  const [open, setOpen] = useState(false);
+  const [platforms, setPlatforms] = useState<Record<MatchPlatform, boolean>>({ apple: true, deezer: true });
+  const [mode, setMode] = useState<MatchMode>('fill');
+  const [country, setCountry] = useState('TW');
+  const [items, setItems] = useState<SourceMatchItem[]>([]);
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [applying, setApplying] = useState(false);
+  const [previewKey, setPreviewKey] = useState<string | null>(null);
+  const cancelRef = useRef(false);
+
+  const songById = useMemo(() => new Map(songs.map((s) => [s.id, s])), [songs]);
+  const artistNameById = useMemo(() => new Map(artists.map((a) => [a.id, a.name])), [artists]);
+
+  /** 依目前模式與勾選的平台，列出需要處理的（歌曲, 平台）組合 */
+  const tasks = useMemo(() => {
+    const out: { song: Song; platform: MatchPlatform }[] = [];
+    for (const song of songs) {
+      for (const platform of ['apple', 'deezer'] as MatchPlatform[]) {
+        if (!platforms[platform]) continue;
+        const url = platform === 'apple' ? song.appleMusicPreviewUrl : song.deezerPreviewUrl;
+        const trackId = platform === 'apple' ? song.appleMusicTrackId : song.deezerTrackId;
+        const skip = platform === 'apple' ? song.appleMusicSkip : song.deezerSkip;
+        if (mode === 'fill' ? !url && !skip : Boolean(url && trackId)) out.push({ song, platform });
+      }
+    }
+    return out;
+  }, [songs, platforms, mode]);
+
+  const estimateMin = Math.ceil(
+    tasks.reduce((sum, t) => sum + PLATFORM_INTERVAL_SEC[t.platform] * (mode === 'fill' ? 1.5 : 1), 0) / 60
+  );
+
+  async function run() {
+    if (tasks.length === 0 || running) return;
+    cancelRef.current = false;
+    setRunning(true);
+    setItems([]);
+    setPreviewKey(null);
+    setProgress({ done: 0, total: tasks.length });
+    let done = 0;
+    for (const { song, platform } of tasks) {
+      if (cancelRef.current) break;
+      const key = `${song.id}:${platform}`;
+      let item: SourceMatchItem = { key, songId: song.id, platform, mode, status: 'error', apply: false, markSkip: false };
+      try {
+        const res = await fetch('/api/songs/match-sources', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            platform,
+            mode,
+            title: song.title,
+            artist: artistNameById.get(song.artistId) ?? '',
+            aliases: song.aliases,
+            durationSec: song.durationSec,
+            trackId: platform === 'apple' ? song.appleMusicTrackId : song.deezerTrackId,
+            country,
+          }),
+        });
+        if (!res.ok) {
+          item = { ...item, note: res.status === 401 ? '登入已失效，請重新整理頁面' : `伺服器回應 HTTP ${res.status}` };
+        } else {
+          const data = await res.json();
+          if (data.status === 'found' || data.status === 'refreshed') {
+            item = {
+              ...item,
+              status: data.status,
+              confidence: data.confidence,
+              candidate: data.candidate,
+              durationDiffSec: data.durationDiffSec ?? null,
+              note: data.note,
+              // 高信心與「用既有 id 刷新」預設勾選；低信心必須管理者試聽後自己勾
+              apply: data.status === 'refreshed' || data.confidence === 'high',
+            };
+          } else if (data.status === 'notfound') {
+            item = { ...item, status: 'notfound', note: data.note };
+          } else {
+            item = { ...item, note: data.error ?? '查詢失敗' };
+          }
+        }
+      } catch {
+        item = { ...item, note: '網路錯誤' };
+      }
+      done += 1;
+      setItems((prev) => [...prev, item]);
+      setProgress({ done, total: tasks.length });
+    }
+    setRunning(false);
+  }
+
+  function updateItem(key: string, patch: Partial<SourceMatchItem>) {
+    setItems((prev) => prev.map((it) => (it.key === key ? { ...it, ...patch } : it)));
+  }
+
+  const applicable = items.filter((it) => (it.apply && it.candidate) || (it.markSkip && it.status === 'notfound'));
+
+  async function applySelected() {
+    if (applicable.length === 0) return;
+    setApplying(true);
+    try {
+      const bySong = new Map<string, SourceMatchItem[]>();
+      for (const it of applicable) bySong.set(it.songId, [...(bySong.get(it.songId) ?? []), it]);
+      let fail = 0;
+      const appliedKeys = new Set<string>();
+      for (const [songId, group] of bySong) {
+        const song = songById.get(songId);
+        if (!song) continue;
+        const overrides: Partial<Omit<Song, 'id' | 'createdAt'>> = {};
+        for (const it of group) {
+          if (it.apply && it.candidate) {
+            // 重新比對選到的是新來源，舊的「已人工核對」標記不再適用；用 id 刷新則維持原標記
+            const keepVerified = it.status === 'refreshed';
+            if (it.platform === 'apple') {
+              Object.assign(overrides, {
+                appleMusicTrackId: it.candidate.trackId,
+                appleMusicPreviewUrl: it.candidate.previewUrl,
+                appleMusicSkip: false,
+                appleMusicVerified: keepVerified ? song.appleMusicVerified : false,
+              });
+            } else {
+              Object.assign(overrides, {
+                deezerTrackId: it.candidate.trackId,
+                deezerPreviewUrl: it.candidate.previewUrl,
+                deezerSkip: false,
+                deezerVerified: keepVerified ? song.deezerVerified : false,
+              });
+            }
+          } else if (it.markSkip) {
+            Object.assign(overrides, it.platform === 'apple' ? { appleMusicSkip: true } : { deezerSkip: true });
+          }
+        }
+        const result = await songRepository.updateSong(song.id, songToUpdateInput(song, overrides));
+        if (result.ok) group.forEach((it) => appliedKeys.add(it.key));
+        else fail += 1;
+      }
+      setItems((prev) => prev.filter((it) => !appliedKeys.has(it.key)));
+      if (fail > 0) onError(`有 ${fail} 首歌套用失敗，其餘已成功`);
+      else onNotice(`已套用 ${appliedKeys.size} 項來源`);
+      onChanged();
+    } finally {
+      setApplying(false);
+    }
+  }
+
+  const count = (pred: (it: SourceMatchItem) => boolean) => items.filter(pred).length;
+
+  return (
+    <div style={{ border: '1px solid var(--groove)', borderRadius: '10px', overflow: 'hidden' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        style={{
+          width: '100%',
+          textAlign: 'left',
+          padding: '12px 16px',
+          background: 'var(--bg)',
+          border: 'none',
+          color: 'var(--ink)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          cursor: 'pointer',
+          fontSize: '0.95rem',
+        }}
+      >
+        <span>批次比對 Apple Music／Deezer 來源</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+          {open ? '收合' : '展開'}
+          <CollapseChevron open={open} />
+        </span>
+      </button>
+
+      {open && (
+        <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '10px', borderTop: '1px solid var(--groove)' }}>
+          <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', margin: 0 }}>
+            自動用歌名＋歌手搜尋試聽來源，結果列出後請試聽核對再套用；不會直接覆蓋。已標記「已確認找不到」的歌曲會略過。
+          </p>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center' }}>
+            <fieldset style={{ border: 'none', padding: 0, margin: 0, display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <legend style={{ float: 'left', color: 'var(--ink-dim)', fontSize: '0.8rem', marginRight: '8px', padding: 0 }}>平台</legend>
+              {(['apple', 'deezer'] as MatchPlatform[]).map((p) => (
+                <label key={p} style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '0.85rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={platforms[p]}
+                    disabled={running}
+                    onChange={(e) => setPlatforms((prev) => ({ ...prev, [p]: e.target.checked }))}
+                  />
+                  {PLATFORM_LABEL[p]}
+                </label>
+              ))}
+            </fieldset>
+            <fieldset style={{ border: 'none', padding: 0, margin: 0, display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <legend style={{ float: 'left', color: 'var(--ink-dim)', fontSize: '0.8rem', marginRight: '8px', padding: 0 }}>模式</legend>
+              <label style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '0.85rem' }}>
+                <input type="radio" name="match-mode" checked={mode === 'fill'} disabled={running} onChange={() => setMode('fill')} />
+                補上缺少的來源
+              </label>
+              <label style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '0.85rem' }}>
+                <input type="radio" name="match-mode" checked={mode === 'refresh'} disabled={running} onChange={() => setMode('refresh')} />
+                刷新過期網址（用既有 id）
+              </label>
+            </fieldset>
+            {platforms.apple && (
+              <label style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '0.85rem', color: 'var(--ink-dim)' }}>
+                Apple 商店地區
+                <select value={country} disabled={running} onChange={(e) => setCountry(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '4px 8px' }}>
+                  <option value="TW">TW</option>
+                  <option value="US">US</option>
+                  <option value="JP">JP</option>
+                  <option value="HK">HK</option>
+                  <option value="KR">KR</option>
+                </select>
+              </label>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
+            {!running ? (
+              <button type="button" onClick={run} disabled={tasks.length === 0} style={{ ...buttonStyle, padding: '8px 14px', fontSize: '0.85rem' }}>
+                開始比對（{tasks.length} 項）
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  cancelRef.current = true;
+                }}
+                style={editButtonStyle}
+              >
+                停止（已完成 {progress.done} / {progress.total}）
+              </button>
+            )}
+            <span style={{ color: 'var(--ink-dim)', fontSize: '0.78rem' }}>
+              {tasks.length === 0
+                ? mode === 'fill'
+                  ? '目前沒有需要補來源的歌曲'
+                  : '目前沒有可刷新的歌曲（需要已有 track id 與試聽網址）'
+                : `預估約 ${Math.max(1, estimateMin)} 分鐘（外部 API 建議每分鐘不超過約 20 次，伺服器已自動控制間隔）`}
+            </span>
+          </div>
+
+          {(running || progress.total > 0) && (
+            <div
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={progress.total}
+              aria-valuenow={progress.done}
+              aria-label="比對進度"
+              style={{ height: '6px', borderRadius: '999px', background: 'var(--groove)', overflow: 'hidden' }}
+            >
+              <div
+                style={{
+                  width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%`,
+                  height: '100%',
+                  background: 'var(--accent)',
+                  transition: 'width 200ms ease-out',
+                }}
+              />
+            </div>
+          )}
+
+          {items.length > 0 && (
+            <>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
+                  高信心／已刷新 {count((i) => i.status === 'refreshed' || i.confidence === 'high')}、低信心 {count((i) => i.confidence === 'low')}、
+                  找不到 {count((i) => i.status === 'notfound')}、失敗 {count((i) => i.status === 'error')}
+                </span>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    style={editButtonStyle}
+                    onClick={() => setItems((prev) => prev.map((it) => (it.candidate ? { ...it, apply: it.status === 'refreshed' || it.confidence === 'high' } : it)))}
+                  >
+                    只選高信心
+                  </button>
+                  <button
+                    type="button"
+                    style={editButtonStyle}
+                    onClick={() => setItems((prev) => prev.map((it) => ({ ...it, apply: false, markSkip: false })))}
+                  >
+                    全部取消
+                  </button>
+                </div>
+              </div>
+
+              <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '460px', overflowY: 'auto', overscrollBehavior: 'contain', padding: 0 }}>
+                {items.map((it) => {
+                  const song = songById.get(it.songId);
+                  if (!song) return null;
+                  const label = `${artistNameById.get(song.artistId) ?? '（未知歌手）'}－${song.title}`;
+                  return (
+                    <li key={it.key} style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--groove)' }}>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        {it.candidate ? (
+                          <input
+                            type="checkbox"
+                            checked={it.apply}
+                            onChange={(e) => updateItem(it.key, { apply: e.target.checked })}
+                            aria-label={`套用 ${PLATFORM_LABEL[it.platform]} 來源：${label}`}
+                          />
+                        ) : (
+                          <span style={{ width: '13px' }} aria-hidden />
+                        )}
+                        <span style={{ fontSize: '0.85rem' }}>{label}</span>
+                        <span style={{ fontSize: '0.7rem', padding: '1px 8px', borderRadius: '999px', border: '1px solid var(--groove)', color: 'var(--ink-dim)' }}>
+                          {PLATFORM_LABEL[it.platform]}
+                        </span>
+                        {it.status === 'refreshed' && <span style={{ fontSize: '0.72rem', color: 'var(--success)' }}>已取得最新網址</span>}
+                        {it.confidence === 'high' && <span style={{ fontSize: '0.72rem', color: 'var(--success)' }}>高信心</span>}
+                        {it.confidence === 'low' && <span style={{ fontSize: '0.72rem', color: 'var(--accent)' }}>低信心：請試聽確認</span>}
+                        {it.status === 'notfound' && <span style={{ fontSize: '0.72rem', color: 'var(--ink-dim)' }}>找不到{it.note ? `（${it.note}）` : ''}</span>}
+                        {it.status === 'error' && <span style={{ fontSize: '0.72rem', color: 'var(--error)' }}>失敗：{it.note}</span>}
+                      </div>
+                      {it.candidate && (
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', paddingLeft: '21px', fontSize: '0.78rem', color: 'var(--ink-dim)' }}>
+                          <span>
+                            「{it.candidate.trackName}」－{it.candidate.artistName}
+                            {it.candidate.durationSec > 0 && `・${formatDuration(it.candidate.durationSec)}`}
+                            {it.note && `・${it.note}`}
+                          </span>
+                          <button
+                            type="button"
+                            style={{ ...editButtonStyle, padding: '2px 10px', fontSize: '0.75rem' }}
+                            onClick={() => setPreviewKey((k) => (k === it.key ? null : it.key))}
+                          >
+                            {previewKey === it.key ? '收起試聽' : '試聽'}
+                          </button>
+                          {previewKey === it.key && <audio controls autoPlay src={it.candidate.previewUrl} style={{ height: '32px' }} />}
+                        </div>
+                      )}
+                      {it.status === 'notfound' && it.mode === 'fill' && (
+                        <label style={{ display: 'flex', gap: '6px', alignItems: 'center', paddingLeft: '21px', fontSize: '0.75rem', color: 'var(--ink-dim)' }}>
+                          <input type="checkbox" checked={it.markSkip} onChange={(e) => updateItem(it.key, { markSkip: e.target.checked })} />
+                          標記為「已確認 {PLATFORM_LABEL[it.platform]} 找不到」，之後批次比對略過這首
+                        </label>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+
+              <button
+                type="button"
+                onClick={applySelected}
+                disabled={applying || running || applicable.length === 0}
+                style={{ ...buttonStyle, alignSelf: 'flex-start' }}
+              >
+                {applying ? '套用中…' : `套用所選的 ${applicable.length} 項`}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface SongFormState {
   title: string;
   artistId: string;
@@ -2794,6 +3197,8 @@ function SongSection({
       <AppleMusicSearchAccordion onPick={setApplePrefill} />
 
       <DeezerSearchAccordion onPick={setDeezerPrefill} />
+
+      <SourceMatchAccordion songs={songs} artists={artists} onChanged={onChanged} onError={onError} onNotice={onNotice} />
 
       <YouTubePlaylistImportAccordion themes={themes} existingSongs={songs} artists={artists} onImported={onChanged} onNotice={onNotice} />
 
@@ -3299,6 +3704,10 @@ function SongForm({
   const [newArtistName, setNewArtistName] = useState('');
   // 別名清單的新增輸入框（見下方「答案比對」區塊）
   const [newAlias, setNewAlias] = useState('');
+  // 自動判斷主題（與播放清單匯入共用 /api/themes/suggest）：結果「疊加」到已勾選的主題上，
+  // 不會取消管理者手動勾過的，說明文字顯示依據，仍需管理者確認後才送出表單。
+  const [suggestingThemes, setSuggestingThemes] = useState(false);
+  const [themeSuggestNote, setThemeSuggestNote] = useState<{ text: string; tone: 'ok' | 'warn' } | null>(null);
   // Apple/Deezer 的 track id 純粹是給批次腳本重新查詢核對用，日常編輯很少需要看到，
   // 預設收起來，表單不會一次塞滿太多欄位；已經有值的話（例如舊資料本來就填過）預設展開，
   // 避免管理者以為那筆資料不見了。
@@ -3307,6 +3716,51 @@ function SongForm({
   );
   // 表單自己的驗證/送出錯誤，顯示在送出按鈕旁邊，而不是丟到頁面最上方（太容易被忽略）
   const [formError, setFormError] = useState<string | null>(null);
+
+  async function handleSuggestThemes() {
+    const title = form.title.trim();
+    const artist =
+      form.artistId === NEW_ARTIST_OPTION ? newArtistName.trim() : (artists.find((a) => a.id === form.artistId)?.name ?? '');
+    if (!title || !artist) {
+      setThemeSuggestNote({ text: '請先填寫歌名並選擇歌手，再自動判斷主題', tone: 'warn' });
+      return;
+    }
+    setSuggestingThemes(true);
+    setThemeSuggestNote(null);
+    try {
+      const res = await fetch('/api/themes/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: [{ key: 'form', title, artist }],
+          themes: themes.map((t) => ({ id: t.id, name: t.name, description: t.description ?? '' })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setThemeSuggestNote({ text: data.error ?? '自動判斷主題失敗', tone: 'warn' });
+        return;
+      }
+      const hit = (data.results as { key: string; themeIds: string[]; reason: string }[]).find((r) => r.key === 'form');
+      const warnings: string[] = data.warnings ?? [];
+      const suffix = warnings.length > 0 ? `（${warnings.join('；')}）` : '';
+      if (!hit || hit.themeIds.length === 0) {
+        setThemeSuggestNote({ text: `沒有把握，請手動選擇${suffix}`, tone: 'warn' });
+        return;
+      }
+      const added = hit.themeIds.filter((id) => !form.themeIds.includes(id));
+      setForm((f) => ({ ...f, themeIds: Array.from(new Set([...f.themeIds, ...hit.themeIds])) }));
+      const names = hit.themeIds.map((id) => themes.find((t) => t.id === id)?.name).filter(Boolean).join('、');
+      setThemeSuggestNote({
+        text: `${data.mode === 'ai' ? 'AI' : '規則'}建議：${names}${hit.reason ? `（${hit.reason}）` : ''}${added.length === 0 ? '，皆已勾選' : ''}${suffix}`,
+        tone: 'ok',
+      });
+    } catch {
+      setThemeSuggestNote({ text: '自動判斷主題失敗，請檢查網路後再試', tone: 'warn' });
+    } finally {
+      setSuggestingThemes(false);
+    }
+  }
 
   function addAlias() {
     const trimmed = newAlias.trim();
@@ -3478,7 +3932,24 @@ function SongForm({
 
       {themes.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>主題（可複選，選填）</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>主題（可複選，選填）</span>
+            <button
+              type="button"
+              onClick={handleSuggestThemes}
+              disabled={suggestingThemes}
+              style={{ ...editButtonStyle, padding: '4px 12px', fontSize: '0.78rem' }}
+            >
+              {suggestingThemes ? '判斷中…' : '自動判斷主題'}
+            </button>
+          </div>
+          <div aria-live="polite">
+            {themeSuggestNote && (
+              <p style={{ margin: 0, fontSize: '0.78rem', color: themeSuggestNote.tone === 'ok' ? 'var(--success)' : 'var(--ink-dim)' }}>
+                {themeSuggestNote.text}
+              </p>
+            )}
+          </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
             {themes.map((t) => {
               const checked = form.themeIds.includes(t.id);
