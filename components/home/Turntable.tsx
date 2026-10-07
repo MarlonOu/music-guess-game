@@ -6,12 +6,12 @@ import { motion, useReducedMotion } from 'framer-motion';
 /**
  * 首頁英雄區：會下針的轉盤。
  * 載入時演出一次「下針」：指針落下的瞬間，唱片開始轉動、標題浮現。
- * 之後指針會跟著游標／焦點所在的曲目列，停在對應的音軌位置（A1/A2/A3 三條溝）。
+ * 之後指針會跟著游標／焦點所在的曲目列，停在對應的音軌位置（A1~A4 四條溝）。
  * 中心貼紙不隨唱片旋轉，維持文字可讀。
  */
 
 /** 三個音軌對應的指針角度（由外圈到內圈）。 */
-const TRACK_NEEDLE_ANGLES = [-26, -13, 0];
+const TRACK_NEEDLE_ANGLES = [-28, -19, -9, 0];
 const REST_ANGLE = -13;
 
 interface TurntableProps {

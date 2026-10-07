@@ -23,6 +23,7 @@
      不互相污染，視覺結果完全不變。 */
   --mode-online: var(--success);
   --mode-speedrun: var(--error);
+  --mode-streak: #8f7de0;
   --font-display: var(--font-space-grotesk), "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
   --font-body: var(--font-inter), "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-ibm-plex-mono), ui-monospace, "SFMono-Regular", monospace;
@@ -1751,4 +1752,343 @@ body::before {
 .stage-sticker.has-cover .stage-answer-artist {
   opacity: 0.85;
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+
+
+/* 無限連勝模式 */
+.streak-rules {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  counter-reset: rule;
+}
+
+.streak-rules li {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-left: 40px;
+  counter-increment: rule;
+}
+
+.streak-rules li::before {
+  content: counter(rule);
+  position: absolute;
+  left: 0;
+  top: 1px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1.5px solid var(--mode-streak);
+  color: var(--mode-streak);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.streak-rules b {
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+.streak-rules span {
+  color: var(--ink-dim);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.streak-best {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-radius: 14px;
+  border: 1px solid var(--groove);
+  background: var(--bg-raised);
+  color: var(--ink-dim);
+  font-size: 0.88rem;
+}
+
+.streak-best b {
+  font-family: var(--font-mono);
+  font-size: 1.5rem;
+  color: var(--accent);
+}
+
+.streak-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.streak-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--groove);
+  background: var(--bg-raised);
+}
+
+.streak-stats span {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.16em;
+  color: var(--ink-dim);
+}
+
+.streak-stats b {
+  font-family: var(--font-mono);
+  font-size: 1.4rem;
+  line-height: 1.1;
+}
+
+.streak-stats > div:first-child b {
+  color: var(--accent);
+}
+
+.streak-timeline {
+  display: flex;
+  gap: 4px;
+}
+
+.streak-seg {
+  flex-basis: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.streak-seg-bar {
+  position: relative;
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--groove);
+  overflow: hidden;
+}
+
+.streak-seg-bar i {
+  position: absolute;
+  inset: 0;
+  width: 0;
+  background: var(--accent);
+}
+
+.streak-seg.is-done .streak-seg-bar i {
+  width: 100%;
+  background: var(--ink-dim);
+}
+
+.streak-seg.is-now .streak-seg-bar i {
+  width: 100%;
+  opacity: 0.4;
+}
+
+.streak-seg.is-now .streak-seg-bar i.is-run {
+  width: 0;
+  opacity: 1;
+  animation: streak-fill linear forwards;
+}
+
+@keyframes streak-fill {
+  to {
+    width: 100%;
+  }
+}
+
+.streak-seg-label {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--ink-dim);
+}
+
+.streak-seg.is-now .streak-seg-label {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.streak-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 34px;
+  align-items: center;
+}
+
+.streak-chips-empty {
+  color: var(--ink-dim);
+  font-size: 0.82rem;
+}
+
+.streak-chip {
+  max-width: 100%;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--groove);
+  color: var(--ink-dim);
+  font-size: 0.82rem;
+  text-decoration: line-through;
+  text-decoration-color: var(--error);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.streak-form {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.streak-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.streak-input-wrap .field {
+  width: 100%;
+}
+
+.streak-form .btn {
+  flex-shrink: 0;
+  min-width: 64px;
+}
+
+.streak-suggest {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 10;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  border-radius: 14px;
+  border: 1px solid var(--groove);
+  background: var(--bg-raised);
+  box-shadow: 0 -14px 36px -12px rgba(0, 0, 0, 0.7);
+}
+
+.streak-suggest li {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  cursor: pointer;
+  font-size: 0.92rem;
+}
+
+.streak-suggest li small {
+  color: var(--ink-dim);
+  font-size: 0.76rem;
+}
+
+.streak-suggest li.is-hi,
+.streak-suggest li:hover {
+  background: var(--groove);
+}
+
+.streak-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.streak-actions .btn {
+  width: 100%;
+}
+
+.streak-reveal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.streak-verdict {
+  text-align: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.25rem;
+}
+
+.streak-verdict.is-ok {
+  color: var(--success);
+}
+
+.streak-verdict.is-bad {
+  color: var(--error);
+}
+
+.streak-result {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 28px 22px;
+  border-radius: 24px;
+  border: 1px solid var(--groove);
+  background:
+    radial-gradient(ellipse 80% 70% at 50% 0%, rgba(143, 125, 224, 0.14), transparent 70%),
+    var(--bg-raised);
+}
+
+.streak-result-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+  color: var(--ink-dim);
+}
+
+.streak-result-main b {
+  font-family: var(--font-mono);
+  font-size: clamp(3.4rem, 18vw, 5rem);
+  line-height: 1;
+  color: var(--accent);
+}
+
+.streak-result dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.streak-result dl > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--groove);
+}
+
+.streak-result dt {
+  color: var(--ink-dim);
+  font-size: 0.78rem;
+}
+
+.streak-result dd {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 1.4rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .streak-seg.is-now .streak-seg-bar i.is-run {
+    animation: none;
+    width: 100%;
+  }
 }
