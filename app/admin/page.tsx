@@ -1724,6 +1724,8 @@ interface PlaylistRowState extends PlaylistSongResult {
   // 「幫目前每一列的 themeIds 設定同一個起始值」，設定完管理者仍然可以對任何一列
   // 個別勾掉/加上其他主題，兩種操作方式不衝突、是同一份狀態的兩種編輯入口。
   themeIds: string[];
+  /** 自動判斷主題時模型／規則給的簡短依據，顯示在該列主題下方供管理者核對 */
+  themeReason?: string;
   // 這個影片對應的 youtubeVideoId 如果已經存在資料庫裡，代表這首歌先前已經匯入過；
   // 在匯入前就先標出來，不用等按下「批次匯入」才在結果裡發現「略過重複」，
   // 也能讓管理者提前決定要不要連這幾首一起取消勾選、不送出重複的匯入請求。
@@ -1762,6 +1764,8 @@ function YouTubePlaylistImportAccordion({
   // 設定起始值用的暫存——適合「大部分都一樣，少數幾首不同」的情況：先全部套用一次，
   // 再對那幾首例外個別調整，不用 50 首都從頭勾一遍。
   const [quickApplyThemeIds, setQuickApplyThemeIds] = useState<string[]>([]);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestNote, setSuggestNote] = useState<string | null>(null);
   const themeNameById = new Map(themes.map((t) => [t.id, t.name]));
   const existingVideoIds = new Set(existingSongs.map((s) => s.youtubeVideoId).filter(Boolean));
 
@@ -1824,6 +1828,55 @@ function YouTubePlaylistImportAccordion({
   function applyThemesToSelected() {
     if (quickApplyThemeIds.length === 0) return;
     setRows((prev) => prev.map((r) => (r.selected ? { ...r, themeIds: [...quickApplyThemeIds] } : r)));
+  }
+
+  // 自動判斷主題：把已勾選的列（歌名＋歌手）連同既有主題清單送到伺服器，由伺服器查年份／曲風
+  // 並請 Claude 從既有主題裡挑選。結果「疊加」到每列目前已勾的主題上（不會清掉管理者手動
+  // 勾過的），並附上依據文字；仍然要由管理者檢查後才會真正匯入。
+  async function handleAutoSuggest() {
+    const targets = rows.filter((r) => r.selected && !r.unavailable);
+    if (targets.length === 0 || themes.length === 0) return;
+    setSuggesting(true);
+    setSuggestNote(null);
+    setError(null);
+    try {
+      const res = await fetch('/api/themes/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: targets.map((r) => ({ key: r.videoId, title: r.title, artist: r.artistName.trim() || r.channelTitle })),
+          themes: themes.map((t) => ({ id: t.id, name: t.name, description: t.description ?? '' })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? '自動判斷主題失敗');
+        return;
+      }
+      const byKey = new Map<string, { themeIds: string[]; reason: string }>(
+        (data.results as { key: string; themeIds: string[]; reason: string }[]).map((r) => [r.key, r])
+      );
+      const withTheme = targets.filter((r) => (byKey.get(r.videoId)?.themeIds.length ?? 0) > 0).length;
+      setRows((prev) =>
+        prev.map((row) => {
+          const hit = byKey.get(row.videoId);
+          if (!hit) return row;
+          return {
+            ...row,
+            themeIds: Array.from(new Set([...row.themeIds, ...hit.themeIds])),
+            themeReason: hit.themeIds.length > 0 ? hit.reason : '沒有把握，請手動選擇',
+          };
+        })
+      );
+      const warnings: string[] = data.warnings ?? [];
+      setSuggestNote(
+        `${data.mode === 'ai' ? 'AI' : '規則'}判斷完成：${targets.length} 首中有 ${withTheme} 首找到建議主題（查到年份／曲風 ${data.factsFound} 首）。請檢查後再匯入。${warnings.length > 0 ? ' ' + warnings.join('；') : ''}`
+      );
+    } catch {
+      setError('自動判斷主題失敗，請檢查網路後再試');
+    } finally {
+      setSuggesting(false);
+    }
   }
 
   async function handleImportSelected() {
@@ -2006,6 +2059,25 @@ function YouTubePlaylistImportAccordion({
                 </div>
               )}
 
+              {themes.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={handleAutoSuggest}
+                      disabled={suggesting || selectedCount === 0}
+                      style={{ ...buttonStyle, padding: '8px 14px', fontSize: '0.85rem' }}
+                    >
+                      {suggesting ? '判斷中…' : `自動判斷已勾選 ${selectedCount} 首的主題`}
+                    </button>
+                    <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem' }}>
+                      查年份／曲風，再依既有主題挑選；結果只是建議，下方可逐首修改。
+                    </span>
+                  </div>
+                  {suggestNote && <p style={{ color: 'var(--success)', fontSize: '0.8rem' }}>{suggestNote}</p>}
+                </div>
+              )}
+
               <ul
                 style={{
                   listStyle: 'none',
@@ -2095,6 +2167,11 @@ function YouTubePlaylistImportAccordion({
                           );
                         })}
                       </div>
+                    )}
+                    {r.themeReason && (
+                      <span style={{ paddingLeft: '26px', color: 'var(--ink-dim)', fontSize: '0.72rem' }}>
+                        自動判斷：{r.themeReason}
+                      </span>
                     )}
                   </li>
                 ))}
