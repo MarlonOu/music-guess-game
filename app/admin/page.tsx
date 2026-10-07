@@ -2429,10 +2429,142 @@ interface SourceMatchItem {
   apply: boolean;
   /** 找不到時：標記「已確認這個平台沒有這首歌」，之後批次比對會略過 */
   markSkip: boolean;
+  /** 候選來源是管理者手動搜尋指定的 */
+  manual?: boolean;
 }
 
 const PLATFORM_LABEL: Record<MatchPlatform, string> = { apple: 'Apple Music', deezer: 'Deezer' };
 const PLATFORM_INTERVAL_SEC: Record<MatchPlatform, number> = { apple: 3, deezer: 2 };
+
+/** 單列的手動來源搜尋：用歌名＋歌手（可改關鍵字）搜尋平台，試聽後點「關連這個來源」指定給該列 */
+function ManualSourceSearch({
+  platform,
+  defaultQuery,
+  country,
+  targetDurationSec,
+  rowLabel,
+  onPick,
+  onClose,
+}: {
+  platform: MatchPlatform;
+  defaultQuery: string;
+  country: string;
+  targetDurationSec: number;
+  rowLabel: string;
+  onPick: (candidate: SourceCandidateView) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState(defaultQuery);
+  const [results, setResults] = useState<SourceCandidateView[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [playing, setPlaying] = useState<string | null>(null);
+  const requestId = useRef(0);
+
+  async function search() {
+    const q = query.trim();
+    if (!q || searching) return;
+    const id = ++requestId.current;
+    setSearching(true);
+    setError(null);
+    setPlaying(null);
+    try {
+      const url =
+        platform === 'apple'
+          ? `/api/apple-music-search?q=${encodeURIComponent(q)}&country=${encodeURIComponent(country)}`
+          : `/api/deezer-search?q=${encodeURIComponent(q)}`;
+      const res = await fetch(url);
+      const data = await res.json().catch(() => ({}));
+      if (id !== requestId.current) return;
+      if (!res.ok) {
+        setError(data.error ?? `搜尋失敗（HTTP ${res.status}）`);
+        setResults(null);
+      } else {
+        setResults(Array.isArray(data.results) ? data.results : []);
+      }
+    } catch {
+      if (id === requestId.current) {
+        setError('網路錯誤，請稍後再試');
+        setResults(null);
+      }
+    } finally {
+      if (id === requestId.current) setSearching(false);
+    }
+  }
+
+  return (
+    <div
+      role="group"
+      aria-label={`手動搜尋 ${PLATFORM_LABEL[platform]} 來源：${rowLabel}`}
+      style={{ marginLeft: '21px', padding: '10px', borderRadius: '8px', border: '1px solid var(--groove)', background: 'var(--bg)', display: 'flex', flexDirection: 'column', gap: '8px' }}
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          search();
+        }}
+        style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}
+      >
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          aria-label={`${PLATFORM_LABEL[platform]} 搜尋關鍵字`}
+          placeholder="歌名 歌手"
+          style={{ ...inputStyle, flex: '1 1 200px', minHeight: '40px' }}
+        />
+        <button type="submit" disabled={searching || !query.trim()} style={{ ...buttonStyle, padding: '8px 14px', fontSize: '0.85rem', minHeight: '40px' }}>
+          {searching ? '搜尋中…' : '搜尋'}
+        </button>
+        <button type="button" onClick={onClose} style={{ ...editButtonStyle, minHeight: '40px' }}>
+          關閉
+        </button>
+      </form>
+      <div role="status" aria-live="polite" style={{ fontSize: '0.78rem', color: error ? 'var(--error)' : 'var(--ink-dim)' }}>
+        {error ?? (results ? (results.length === 0 ? '沒有搜尋結果，請換個關鍵字（例如只輸入歌名，或改用英文名稱）' : `找到 ${results.length} 筆，試聽確認後點「關連這個來源」`) : '')}
+      </div>
+      {results && results.length > 0 && (
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '260px', overflowY: 'auto', overscrollBehavior: 'contain' }}>
+          {results.map((r) => {
+            const diff = targetDurationSec > 0 && r.durationSec > 0 ? Math.abs(r.durationSec - targetDurationSec) : null;
+            const key = r.trackId;
+            return (
+              <li key={key} style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--groove)' }}>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.82rem', flex: '1 1 160px', minWidth: 0, overflowWrap: 'anywhere' }}>
+                    「{r.trackName}」－{r.artistName}
+                    {r.durationSec > 0 && `・${formatDuration(r.durationSec)}`}
+                    {diff !== null && (
+                      <span style={{ color: diff > 15 ? 'var(--accent)' : 'var(--success)' }}>
+                        {`（與題庫差 ${diff} 秒）`}
+                      </span>
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    style={{ ...editButtonStyle, minHeight: '36px' }}
+                    aria-pressed={playing === key}
+                    onClick={() => setPlaying((k) => (k === key ? null : key))}
+                  >
+                    {playing === key ? '收起試聽' : '試聽'}
+                  </button>
+                  <button
+                    type="button"
+                    style={{ ...buttonStyle, padding: '6px 12px', fontSize: '0.8rem', minHeight: '36px' }}
+                    onClick={() => onPick(r)}
+                  >
+                    關連這個來源
+                  </button>
+                </div>
+                {playing === key && <audio controls autoPlay src={r.previewUrl} style={{ height: '32px', maxWidth: '100%' }} />}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 function SourceMatchAccordion({
   songs,
@@ -2450,6 +2582,9 @@ function SourceMatchAccordion({
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [applying, setApplying] = useState(false);
   const [previewKey, setPreviewKey] = useState<string | null>(null);
+  const [searchKey, setSearchKey] = useState<string | null>(null);
+  const [addSongId, setAddSongId] = useState('');
+  const [addPlatform, setAddPlatform] = useState<MatchPlatform>('apple');
   const cancelRef = useRef(false);
 
   const songById = useMemo(() => new Map(songs.map((s) => [s.id, s])), [songs]);
@@ -2536,6 +2671,35 @@ function SourceMatchAccordion({
     setItems((prev) => prev.map((it) => (it.key === key ? { ...it, ...patch } : it)));
   }
 
+  /** 手動搜尋後選定來源：取代該列的候選，視為管理者已核對，預設勾選套用 */
+  function pickManual(key: string, candidate: SourceCandidateView) {
+    updateItem(key, {
+      status: 'found',
+      confidence: undefined,
+      candidate,
+      durationDiffSec: null,
+      note: undefined,
+      manual: true,
+      apply: true,
+      markSkip: false,
+    });
+    setSearchKey(null);
+    setPreviewKey(null);
+  }
+
+  /** 為不在這次比對結果內的歌曲手動新增一列 */
+  function addManualRow() {
+    const song = songById.get(addSongId);
+    if (!song) return;
+    const key = `${song.id}:${addPlatform}`;
+    setItems((prev) =>
+      prev.some((it) => it.key === key)
+        ? prev
+        : [{ key, songId: song.id, platform: addPlatform, mode: 'fill', status: 'notfound', note: '手動新增', apply: false, markSkip: false }, ...prev]
+    );
+    setSearchKey(key);
+  }
+
   const applicable = items.filter((it) => (it.apply && it.candidate) || (it.markSkip && it.status === 'notfound'));
 
   async function applySelected() {
@@ -2552,21 +2716,20 @@ function SourceMatchAccordion({
         const overrides: Partial<Omit<Song, 'id' | 'createdAt'>> = {};
         for (const it of group) {
           if (it.apply && it.candidate) {
-            // 重新比對選到的是新來源，舊的「已人工核對」標記不再適用；用 id 刷新則維持原標記
-            const keepVerified = it.status === 'refreshed';
+            // 勾選套用代表管理者已試聽核對過（高、低信心皆然），來源一律標記為已核對
             if (it.platform === 'apple') {
               Object.assign(overrides, {
                 appleMusicTrackId: it.candidate.trackId,
                 appleMusicPreviewUrl: it.candidate.previewUrl,
                 appleMusicSkip: false,
-                appleMusicVerified: keepVerified ? song.appleMusicVerified : false,
+                appleMusicVerified: true,
               });
             } else {
               Object.assign(overrides, {
                 deezerTrackId: it.candidate.trackId,
                 deezerPreviewUrl: it.candidate.previewUrl,
                 deezerSkip: false,
-                deezerVerified: keepVerified ? song.deezerVerified : false,
+                deezerVerified: true,
               });
             }
           } else if (it.markSkip) {
@@ -2619,6 +2782,7 @@ function SourceMatchAccordion({
         <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '10px', borderTop: '1px solid var(--groove)' }}>
           <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem', margin: 0 }}>
             自動用歌名＋歌手搜尋試聽來源，結果列出後請試聽核對再套用；不會直接覆蓋。已標記「已確認找不到」的歌曲會略過。
+            勾選並套用的來源（含低信心）會一律標記為「已人工核對」。每一列都可用「手動搜尋」改選正確的來源。
           </p>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center' }}>
@@ -2706,6 +2870,32 @@ function SourceMatchAccordion({
             </div>
           )}
 
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+            <label style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '0.8rem', color: 'var(--ink-dim)' }}>
+              手動指定歌曲
+              <select value={addSongId} onChange={(e) => setAddSongId(e.target.value)} style={{ ...inputStyle, width: 'auto', maxWidth: '260px', padding: '4px 8px', minHeight: '36px' }}>
+                <option value="">選擇歌曲…</option>
+                {songs.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {(artistNameById.get(s.artistId) ?? '（未知歌手）')}－{s.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <select
+              aria-label="手動指定的平台"
+              value={addPlatform}
+              onChange={(e) => setAddPlatform(e.target.value as MatchPlatform)}
+              style={{ ...inputStyle, width: 'auto', padding: '4px 8px', minHeight: '36px' }}
+            >
+              <option value="apple">Apple Music</option>
+              <option value="deezer">Deezer</option>
+            </select>
+            <button type="button" disabled={!addSongId || running} onClick={addManualRow} style={{ ...editButtonStyle, minHeight: '36px' }}>
+              加入並搜尋來源
+            </button>
+          </div>
+
           {items.length > 0 && (
             <>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -2725,7 +2915,7 @@ function SourceMatchAccordion({
                   <button
                     type="button"
                     style={editButtonStyle}
-                    onClick={() => setItems((prev) => prev.map((it) => (it.candidate ? { ...it, apply: it.status === 'refreshed' || it.confidence === 'high' } : it)))}
+                    onClick={() => setItems((prev) => prev.map((it) => (it.candidate ? { ...it, apply: it.status === 'refreshed' || it.confidence === 'high' || Boolean(it.manual) } : it)))}
                   >
                     只選高信心
                   </button>
@@ -2762,11 +2952,31 @@ function SourceMatchAccordion({
                           {PLATFORM_LABEL[it.platform]}
                         </span>
                         {it.status === 'refreshed' && <span style={{ fontSize: '0.72rem', color: 'var(--success)' }}>已取得最新網址</span>}
+                        {it.manual && <span style={{ fontSize: '0.72rem', color: 'var(--success)' }}>手動指定</span>}
                         {it.confidence === 'high' && <span style={{ fontSize: '0.72rem', color: 'var(--success)' }}>高信心</span>}
                         {it.confidence === 'low' && <span style={{ fontSize: '0.72rem', color: 'var(--accent)' }}>低信心：請試聽確認</span>}
                         {it.status === 'notfound' && <span style={{ fontSize: '0.72rem', color: 'var(--ink-dim)' }}>找不到{it.note ? `（${it.note}）` : ''}</span>}
                         {it.status === 'error' && <span style={{ fontSize: '0.72rem', color: 'var(--error)' }}>失敗：{it.note}</span>}
+                        <button
+                          type="button"
+                          aria-expanded={searchKey === it.key}
+                          style={{ ...editButtonStyle, padding: '2px 10px', fontSize: '0.75rem', minHeight: '32px', marginLeft: 'auto' }}
+                          onClick={() => setSearchKey((k) => (k === it.key ? null : it.key))}
+                        >
+                          {searchKey === it.key ? '收起搜尋' : '手動搜尋'}
+                        </button>
                       </div>
+                      {searchKey === it.key && (
+                        <ManualSourceSearch
+                          platform={it.platform}
+                          defaultQuery={`${song.title} ${artistNameById.get(song.artistId) ?? ''}`.trim()}
+                          country={country}
+                          targetDurationSec={song.durationSec}
+                          rowLabel={label}
+                          onPick={(c) => pickManual(it.key, c)}
+                          onClose={() => setSearchKey(null)}
+                        />
+                      )}
                       {it.candidate && (
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', paddingLeft: '21px', fontSize: '0.78rem', color: 'var(--ink-dim)' }}>
                           <span>
