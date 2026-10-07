@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Papa from 'papaparse';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -8,6 +8,15 @@ import type { Song } from '../../lib/types/song';
 import type { Artist, ArtistGender, Theme } from '../../lib/types/theme';
 import { songRepository, type ImportSummary } from '../../lib/repository/songRepository';
 import { SONG_CSV_COLUMNS, ALIAS_LIST_SEPARATOR } from '../../lib/csv/songCsv';
+import {
+  artistHintsFor,
+  buildSongMatchIndex,
+  findSongMatch,
+  isDuplicateMatch,
+  suggestArtistName,
+  suggestSongFields,
+  type SongMatch,
+} from '../../lib/engine/songMatch';
 
 const GENDER_OPTIONS: { value: ArtistGender; label: string }[] = [
   { value: 'MALE', label: '男歌手' },
@@ -1726,10 +1735,25 @@ interface PlaylistRowState extends PlaylistSongResult {
   themeIds: string[];
   /** 自動判斷主題時模型／規則給的簡短依據，顯示在該列主題下方供管理者核對 */
   themeReason?: string;
-  // 這個影片對應的 youtubeVideoId 如果已經存在資料庫裡，代表這首歌先前已經匯入過；
-  // 在匯入前就先標出來，不用等按下「批次匯入」才在結果裡發現「略過重複」，
-  // 也能讓管理者提前決定要不要連這幾首一起取消勾選、不送出重複的匯入請求。
-  alreadyExists: boolean;
+  /** 匯入後實際使用的歌名（預設由影片標題推測，可逐列編輯）；title 則保留 YouTube 原始標題供對照 */
+  songTitle: string;
+  /** 自動推測的歌名，用來判斷管理者是否改過歌名 */
+  suggestedTitle: string;
+  /** 自動帶入的歌手，用來判斷管理者是否改過歌手 */
+  suggestedArtist: string;
+  /** 別名（其他也算答對的說法） */
+  aliases: string[];
+  /** 別名輸入框尚未按下新增的草稿，匯入時會一併納入，避免打了字卻漏按新增 */
+  aliasDraft: string;
+  // 與題庫的比對結果（見 lib/engine/songMatch.ts）：影片 id、歌名／別名＋歌手相同視為重複，
+  // 只有歌名相同則僅提示。歌名或歌手一被編輯就重新比對，結果即時反映在該列。
+  match: SongMatch | null;
+  /** 這一列是因為偵測到重複而被自動取消勾選的，編輯後不再重複時才會自動勾回 */
+  autoDeselected: boolean;
+}
+
+function sanitizeAlias(raw: string): string {
+  return raw.trim().split(ALIAS_LIST_SEPARATOR).join('；');
 }
 
 /**
@@ -1742,11 +1766,13 @@ interface PlaylistRowState extends PlaylistSongResult {
 function YouTubePlaylistImportAccordion({
   themes,
   existingSongs,
+  artists,
   onImported,
   onNotice,
 }: {
   themes: Theme[];
   existingSongs: Song[];
+  artists: Artist[];
   onImported: () => void;
   onNotice: (msg: string) => void;
 }) {
@@ -1767,7 +1793,60 @@ function YouTubePlaylistImportAccordion({
   const [suggesting, setSuggesting] = useState(false);
   const [suggestNote, setSuggestNote] = useState<string | null>(null);
   const themeNameById = new Map(themes.map((t) => [t.id, t.name]));
-  const existingVideoIds = new Set(existingSongs.map((s) => s.youtubeVideoId).filter(Boolean));
+  const matchIndex = useMemo(() => {
+    const artistNameById = new Map(artists.map((a) => [a.id, a.name]));
+    return buildSongMatchIndex(
+      existingSongs.map((s) => ({
+        id: s.id,
+        title: s.title,
+        aliases: s.aliases,
+        artistName: artistNameById.get(s.artistId) ?? '',
+        youtubeVideoId: s.youtubeVideoId,
+      }))
+    );
+  }, [existingSongs, artists]);
+
+  /** 依列目前的歌名／歌手重新比對題庫；歌名與歌手都還是自動帶入的值時，額外使用原始標題與頻道名稱佐證 */
+  function computeMatch(row: Pick<PlaylistRowState, 'videoId' | 'title' | 'songTitle' | 'suggestedTitle' | 'artistName' | 'suggestedArtist' | 'channelTitle'>): SongMatch | null {
+    return findSongMatch(matchIndex, {
+      videoId: row.videoId,
+      rawTitle: row.title,
+      songTitle: row.songTitle,
+      artistName: row.artistName,
+      channelTitle: row.channelTitle,
+      useRaw: row.songTitle === row.suggestedTitle && row.artistName === row.suggestedArtist,
+    });
+  }
+
+  /** 編輯某一列的歌名／歌手／別名：套用變更後重新比對，重複狀態改變時同步調整勾選 */
+  function editRow(idx: number, patch: Partial<PlaylistRowState>) {
+    setRows((prev) =>
+      prev.map((row, i) => {
+        if (i !== idx) return row;
+        const next = { ...row, ...patch };
+        if ('songTitle' in patch || 'artistName' in patch) {
+          next.match = computeMatch(next);
+          const dup = isDuplicateMatch(next.match);
+          if (dup && next.selected) {
+            next.selected = false;
+            next.autoDeselected = true;
+          } else if (!dup && next.autoDeselected) {
+            next.selected = !next.unavailable && next.embeddable;
+            next.autoDeselected = false;
+          }
+        }
+        return next;
+      })
+    );
+  }
+
+  function addRowAlias(idx: number) {
+    const row = rows[idx];
+    const alias = sanitizeAlias(row.aliasDraft);
+    if (!alias) return;
+    const exists = [row.songTitle, ...row.aliases].some((a) => a.trim().toLowerCase() === alias.toLowerCase());
+    editRow(idx, { aliases: exists ? row.aliases : [...row.aliases, alias], aliasDraft: '' });
+  }
 
   async function handleFetch() {
     if (url.trim().length === 0) return;
@@ -1784,17 +1863,29 @@ function YouTubePlaylistImportAccordion({
       const results: PlaylistSongResult[] = data.results ?? [];
       setRows(
         results.map((r) => {
-          const alreadyExists = existingVideoIds.has(r.videoId);
-          return {
+          const suggestion = suggestSongFields(r.title, artistHintsFor(matchIndex, r.title, r.channelTitle));
+          const suggestedArtist = suggestArtistName(matchIndex, r.title, r.channelTitle);
+          const base = {
             ...r,
+            suggestedArtist,
+            songTitle: suggestion.title,
+            suggestedTitle: suggestion.title,
+            aliases: suggestion.aliases,
+            aliasDraft: '',
+            artistName: suggestedArtist,
+          };
+          const match = computeMatch(base);
+          const alreadyExists = isDuplicateMatch(match);
+          return {
+            ...base,
             // 不可用（私人/已刪除）、關閉外部嵌入、或資料庫裡已經有的項目預設不勾選——
             // 已存在的這首歌再匯入一次只會在批次匯入 API 裡被判定成重複而略過，
             // 預先幫管理者把這些排除掉，省去「匯入完才在結果列表裡發現某幾首是重複」
             // 這一輪來回，也不會因為這些已存在的列佔住版面而混淆「真正還沒匯入」的有幾首。
             selected: !r.unavailable && r.embeddable && !alreadyExists,
-            artistName: r.channelTitle,
             themeIds: [],
-            alreadyExists,
+            match,
+            autoDeselected: alreadyExists && !r.unavailable && r.embeddable,
           };
         })
       );
@@ -1844,7 +1935,7 @@ function YouTubePlaylistImportAccordion({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          items: targets.map((r) => ({ key: r.videoId, title: r.title, artist: r.artistName.trim() || r.channelTitle })),
+          items: targets.map((r) => ({ key: r.videoId, title: r.songTitle.trim() || r.title, artist: r.artistName.trim() || r.channelTitle })),
           themes: themes.map((t) => ({ id: t.id, name: t.name, description: t.description ?? '' })),
         }),
       });
@@ -1879,6 +1970,20 @@ function YouTubePlaylistImportAccordion({
     }
   }
 
+  function aliasesForImport(r: PlaylistRowState): string[] {
+    const title = (r.songTitle.trim() || r.title).toLowerCase();
+    const list = [...r.aliases];
+    const draft = sanitizeAlias(r.aliasDraft);
+    if (draft) list.push(draft);
+    const seen = new Set<string>([title]);
+    return list.filter((a) => {
+      const k = a.toLowerCase();
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }
+
   async function handleImportSelected() {
     const selectedRows = rows.filter((r) => r.selected);
     if (selectedRows.length === 0) return;
@@ -1899,9 +2004,9 @@ function YouTubePlaylistImportAccordion({
         fields: [...SONG_CSV_COLUMNS],
         data: selectedRows.map((r) => {
           const row: Record<(typeof SONG_CSV_COLUMNS)[number], string> = {
-            title: r.title,
+            title: r.songTitle.trim() || r.title,
             artist: r.artistName.trim() || '(未知歌手)',
-            aliases: '',
+            aliases: aliasesForImport(r).join(ALIAS_LIST_SEPARATOR),
             youtubeVideoId: r.videoId,
             appleMusicTrackId: '',
             appleMusicPreviewUrl: '',
@@ -1999,7 +2104,7 @@ function YouTubePlaylistImportAccordion({
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                 <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>
                   共 {rows.length} 首，已選 {selectedCount} 首
-                  {rows.some((r) => r.alreadyExists) && `（${rows.filter((r) => r.alreadyExists).length} 首資料庫裡已經有了，預設不勾選）`}
+                  {rows.some((r) => isDuplicateMatch(r.match)) && `（${rows.filter((r) => isDuplicateMatch(r.match)).length} 首題庫裡已經有了，預設不勾選）`}
                 </span>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button type="button" onClick={() => toggleAll(true)} style={editButtonStyle}>
@@ -2107,38 +2212,119 @@ function YouTubePlaylistImportAccordion({
                         type="checkbox"
                         checked={r.selected}
                         disabled={r.unavailable}
-                        onChange={(e) =>
-                          setRows((prev) => prev.map((row, i) => (i === idx ? { ...row, selected: e.target.checked } : row)))
-                        }
+                        aria-label={`選取「${r.songTitle || r.title}」`}
+                        onChange={(e) => editRow(idx, { selected: e.target.checked, autoDeselected: false })}
                       />
                       {r.thumbnailUrl && (
                         // eslint-disable-next-line @next/next/no-img-element -- 縮圖來自 YouTube 外部網域，非本地靜態資源，不適合用 next/image
                         <img src={r.thumbnailUrl} alt="" width={48} height={36} style={{ borderRadius: '4px', flexShrink: 0 }} />
                       )}
-                      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                        <span style={{ fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {r.title}
-                        </span>
+                      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          <input
+                            value={r.songTitle}
+                            onChange={(e) => editRow(idx, { songTitle: e.target.value })}
+                            placeholder="歌名"
+                            aria-label="歌名"
+                            disabled={r.unavailable}
+                            style={{ ...inputStyle, flex: '1 1 180px', minWidth: 0 }}
+                          />
+                          <input
+                            value={r.artistName}
+                            onChange={(e) => editRow(idx, { artistName: e.target.value })}
+                            placeholder="歌手名稱"
+                            aria-label="歌手名稱"
+                            disabled={r.unavailable}
+                            style={{ ...inputStyle, flex: '0 1 140px', minWidth: 0 }}
+                          />
+                        </div>
                         {r.unavailable ? (
                           <span style={{ color: 'var(--error)', fontSize: '0.75rem' }}>影片已私人化或刪除，無法匯入</span>
                         ) : !r.embeddable ? (
                           <span style={{ color: 'var(--error)', fontSize: '0.75rem' }}>擁有者關閉外部嵌入播放，遊戲內會無聲</span>
-                        ) : r.alreadyExists ? (
-                          <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem' }}>資料庫裡已經有這首了</span>
+                        ) : r.match && isDuplicateMatch(r.match) ? (
+                          <span style={{ color: 'var(--accent)', fontSize: '0.75rem' }}>
+                            題庫已有：{r.match.song.artistName}－{r.match.song.title}
+                            {r.match.via === 'video' ? '（同一支影片）' : r.match.via === 'alias' ? '（符合別名）' : ''}
+                            ，已取消勾選；修改歌名或歌手可重新比對
+                          </span>
+                        ) : r.match ? (
+                          <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem' }}>
+                            題庫有同名歌曲（歌手：{r.match.song.artistName}），歌手不同，仍可匯入
+                          </span>
                         ) : (
                           <span style={{ color: 'var(--ink-dim)', fontSize: '0.75rem' }}>{formatDuration(r.durationSec)}</span>
                         )}
+                        {r.songTitle !== r.title && (
+                          <span
+                            title={r.title}
+                            style={{ color: 'var(--ink-dim)', fontSize: '0.7rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                          >
+                            原標題：{r.title}
+                          </span>
+                        )}
                       </div>
-                      <input
-                        value={r.artistName}
-                        onChange={(e) =>
-                          setRows((prev) => prev.map((row, i) => (i === idx ? { ...row, artistName: e.target.value } : row)))
-                        }
-                        placeholder="歌手名稱"
-                        disabled={r.unavailable}
-                        style={{ ...inputStyle, width: '140px', flexShrink: 0 }}
-                      />
                     </div>
+                    {/* 別名管理：與歌名同一區塊，匯入時寫入 aliases（玩家答對歌名或任一別名都算對） */}
+                    {!r.unavailable && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px', paddingLeft: '26px' }}>
+                        <span style={{ color: 'var(--ink-dim)', fontSize: '0.72rem' }}>別名</span>
+                        {r.aliases.map((alias) => (
+                          <span
+                            key={alias}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '2px 4px 2px 10px',
+                              borderRadius: '999px',
+                              border: '1px solid var(--groove)',
+                              fontSize: '0.75rem',
+                            }}
+                          >
+                            {alias}
+                            <button
+                              type="button"
+                              onClick={() => editRow(idx, { aliases: r.aliases.filter((a) => a !== alias) })}
+                              aria-label={`移除別名「${alias}」`}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: 'var(--ink-dim)',
+                                cursor: 'pointer',
+                                width: '22px',
+                                height: '22px',
+                                lineHeight: 1,
+                              }}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                        <input
+                          value={r.aliasDraft}
+                          onChange={(e) => editRow(idx, { aliasDraft: e.target.value })}
+                          onKeyDown={(e) => {
+                            // 輸入法選字時的 Enter 不能當成「新增」
+                            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                              e.preventDefault();
+                              addRowAlias(idx);
+                            }
+                          }}
+                          placeholder="輸入別名後按 Enter"
+                          aria-label={`「${r.songTitle || r.title}」的別名`}
+                          style={{ ...inputStyle, width: '150px', padding: '4px 8px', fontSize: '0.78rem' }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => addRowAlias(idx)}
+                          disabled={r.aliasDraft.trim().length === 0}
+                          style={{ ...editButtonStyle, padding: '4px 10px', fontSize: '0.75rem' }}
+                        >
+                          新增
+                        </button>
+                      </div>
+                    )}
                     {/* 每一列各自的主題勾選——跟上面「快速套用」是同一份狀態（r.themeIds）的
                         兩個編輯入口，快速套用負責設起始值，這裡負責個別微調或是從零逐首設定。 */}
                     {themes.length > 0 && !r.unavailable && (
@@ -2186,7 +2372,7 @@ function YouTubePlaylistImportAccordion({
                 {importing ? '匯入中…' : `批次匯入所選的 ${selectedCount} 首`}
               </button>
               <p style={{ color: 'var(--ink-dim)', fontSize: '0.75rem' }}>
-                歌手名稱預設取自影片頻道名稱，翻唱／合輯／官方頻道名稱常常跟實際歌手不同，匯入前建議逐一確認或修正。
+                歌名由影片標題推測、歌手名稱預設取自頻道名稱，翻唱／合輯／官方頻道常與實際歌手不同，匯入前請逐一確認或修正；歌名與歌手改動後會重新比對題庫。
               </p>
             </>
           )}
@@ -2609,7 +2795,7 @@ function SongSection({
 
       <DeezerSearchAccordion onPick={setDeezerPrefill} />
 
-      <YouTubePlaylistImportAccordion themes={themes} existingSongs={songs} onImported={onChanged} onNotice={onNotice} />
+      <YouTubePlaylistImportAccordion themes={themes} existingSongs={songs} artists={artists} onImported={onChanged} onNotice={onNotice} />
 
       <SongForm
         key={`${editing?.id ?? 'new'}-${artistsKey}-${themesKey}-${prefill?.videoId ?? ''}-${applePrefill?.trackId ?? ''}-${deezerPrefill?.trackId ?? ''}`}
