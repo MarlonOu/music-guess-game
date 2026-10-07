@@ -5,6 +5,7 @@ import { createSpeedrunSession } from '../../../../lib/server/speedrunSession';
 import { buildChoiceSongIds, CHOICES_PER_ROUND } from '../../../../lib/server/choiceMode';
 import { getRandomClipStart, DEFAULT_CLIP_DURATION_SEC } from '../../../../lib/engine/modes/randomClipMode';
 import { resolvePlaybackTarget, resolvePlaybackFallback } from '../../../../lib/audio/resolvePlaybackTarget';
+import { deezerPlayPath } from '../../../../lib/server/deezerPreview';
 import type { SpeedrunQuestion } from '../../../../lib/types/speedrun';
 
 const QUESTION_COUNT = 10;
@@ -28,7 +29,8 @@ export async function POST(request: NextRequest) {
       durationSec: s.durationSec,
       youtubeVideoId: s.youtubeVideoId,
       appleMusicPreviewUrl: s.appleMusicPreviewUrl,
-      deezerPreviewUrl: s.deezerPreviewUrl,
+      // 題目要隱藏歌曲身分，所以只給加密過的站內播放路徑，不給原始網址與 track id
+      deezerPlayUrl: deezerPlayPath(s.deezerTrackId) ?? s.deezerPreviewUrl,
       themeIds: s.themes.map((t: { themeId: string }) => t.themeId),
     }));
 

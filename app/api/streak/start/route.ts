@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
       youtubeVideoId: s.youtubeVideoId,
       appleMusicPreviewUrl: s.appleMusicPreviewUrl,
       deezerPreviewUrl: s.deezerPreviewUrl,
+      deezerTrackId: s.deezerTrackId,
     }));
     const created = createStreakSession(pool);
     if (!created) {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getStreakClipRequest } from '../../../../lib/server/streakSession';
+import { resolveDeezerPreview } from '../../../../lib/server/deezerPreview';
 import { clipPreview } from '../../../../lib/server/audioClip';
 import { allowRequest, getClientIp } from '../../../../lib/server/rateLimit';
 
@@ -16,7 +17,9 @@ export async function GET(request: NextRequest) {
   if (!clip) {
     return NextResponse.json({ error: '這一段音訊已失效' }, { status: 404 });
   }
-  const audio = await clipPreview(clip.cacheKey, clip.url, clip.startSec, clip.durationSec);
+  // Deezer 的網址會過期：有 track id 就即時取最新網址，查不到才退回資料庫存的舊網址
+  const url = clip.deezerTrackId ? ((await resolveDeezerPreview(clip.deezerTrackId)) ?? clip.url) : clip.url;
+  const audio = await clipPreview(clip.cacheKey, url, clip.startSec, clip.durationSec);
   if (!audio) {
     return NextResponse.json({ error: '音訊處理失敗' }, { status: 502 });
   }

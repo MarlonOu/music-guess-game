@@ -327,8 +327,9 @@ function SongPreviewPlayer({ song, source }: { song: Song; source: PreviewSource
   if (source === 'apple' && song.appleMusicPreviewUrl) {
     return <audio key={`${song.id}-apple`} controls autoPlay src={song.appleMusicPreviewUrl} style={{ width: '100%' }} />;
   }
-  if (source === 'deezer' && song.deezerPreviewUrl) {
-    return <audio key={`${song.id}-deezer`} controls autoPlay src={song.deezerPreviewUrl} style={{ width: '100%' }} />;
+  if (source === 'deezer' && (song.deezerPlayUrl || song.deezerPreviewUrl)) {
+    // 優先用站內解析路徑：存在資料庫的 Deezer 網址帶時效簽章，常常已經過期
+    return <audio key={`${song.id}-deezer`} controls autoPlay src={song.deezerPlayUrl || song.deezerPreviewUrl} style={{ width: '100%' }} />;
   }
   if (source === 'youtube' && song.youtubeVideoId) {
     return (

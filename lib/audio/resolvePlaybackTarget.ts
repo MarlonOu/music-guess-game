@@ -12,6 +12,8 @@ interface PlayableSong {
   youtubeVideoId?: string | null;
   appleMusicPreviewUrl?: string | null;
   deezerPreviewUrl?: string | null;
+  /** 站內穩定的 Deezer 播放路徑（伺服器即時解析最新網址），有值時優先於 deezerPreviewUrl */
+  deezerPlayUrl?: string | null;
 }
 
 interface PlayableQuestion {
@@ -55,8 +57,9 @@ interface PlayableQuestion {
 export function resolvePlaybackTargets(song: PlayableSong, question: PlayableQuestion): PlaybackTarget[] {
   if (question.renderType === 'text-lyric') return [];
 
-  const nativeAudioUrl = song.appleMusicPreviewUrl || song.deezerPreviewUrl;
-  const nativeSource: AudioSource | null = song.appleMusicPreviewUrl ? 'apple' : song.deezerPreviewUrl ? 'deezer' : null;
+  const deezerUrl = song.deezerPlayUrl || song.deezerPreviewUrl;
+  const nativeAudioUrl = song.appleMusicPreviewUrl || deezerUrl;
+  const nativeSource: AudioSource | null = song.appleMusicPreviewUrl ? 'apple' : deezerUrl ? 'deezer' : null;
   const targets: PlaybackTarget[] = [];
 
   if (question.renderType === 'audio-intro') {

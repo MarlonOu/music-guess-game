@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { deezerPlayPath } from './deezerPreview';
 import { isAnswerCorrect } from '../engine/answerUtils';
 import { getRandomClipStart, DEFAULT_CLIP_DURATION_SEC } from '../engine/modes/randomClipMode';
 import type { PlayFallback } from '../audio/audioController';
@@ -31,6 +32,8 @@ export interface StreakPoolSong {
   youtubeVideoId?: string | null;
   appleMusicPreviewUrl?: string | null;
   deezerPreviewUrl?: string | null;
+  /** Deezer 試聽網址會過期，伺服器端取音訊與公布答案時一律依 track id 即時解析最新網址 */
+  deezerTrackId?: string | null;
 }
 
 interface CurrentQuestion {
@@ -105,7 +108,10 @@ function buildPlayback(
     if (k === 'youtube') {
       return { source: 'youtube' as const, idOrUrl: cur.song.youtubeVideoId!, startSec: cur.clipStartSec, durationSec };
     }
-    const directUrl = k === 'apple' ? cur.song.appleMusicPreviewUrl! : cur.song.deezerPreviewUrl!;
+    const directUrl =
+      k === 'apple'
+        ? cur.song.appleMusicPreviewUrl!
+        : (deezerPlayPath(cur.song.deezerTrackId) ?? cur.song.deezerPreviewUrl!);
     if (opts.reveal) return { source: k, idOrUrl: directUrl, startSec: 0, durationSec: undefined };
     const q = `t=${session.token}&q=${session.streak + 1}&k=${k}&s=${cur.stage}`;
     return { source: k, idOrUrl: `/api/streak/audio?${q}`, startSec: 0, durationSec };
@@ -147,7 +153,7 @@ export function getStreakClipRequest(
   questionNumber: number,
   source: string,
   stage: number
-): { cacheKey: string; url: string; startSec: number; durationSec: number } | null {
+): { cacheKey: string; url: string; deezerTrackId?: string; startSec: number; durationSec: number } | null {
   const session = sessions.get(token);
   if (!session || session.over || !session.current || session.current.resolved !== 'open') return null;
   const cur = session.current;
@@ -159,6 +165,7 @@ export function getStreakClipRequest(
   return {
     cacheKey: `${cur.song.id}:${source}:${cur.nativeStartSec}:${durationSec}`,
     url,
+    deezerTrackId: source === 'deezer' ? (cur.song.deezerTrackId ?? undefined) : undefined,
     startSec: cur.nativeStartSec,
     durationSec,
   };

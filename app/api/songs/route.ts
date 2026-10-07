@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../../lib/db';
 import type { Song } from '../../../lib/types/song';
+import { deezerPlayPath } from '../../../lib/server/deezerPreview';
 
 function toSong(row: {
   id: string;
@@ -32,6 +33,7 @@ function toSong(row: {
     appleMusicPreviewUrl: row.appleMusicPreviewUrl ?? undefined,
     deezerTrackId: row.deezerTrackId ?? undefined,
     deezerPreviewUrl: row.deezerPreviewUrl ?? undefined,
+    deezerPlayUrl: deezerPlayPath(row.deezerTrackId) ?? undefined,
     appleMusicSkip: row.appleMusicSkip,
     deezerSkip: row.deezerSkip,
     appleMusicVerified: row.appleMusicVerified,

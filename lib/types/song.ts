@@ -15,6 +15,9 @@ export interface Song {
   deezerTrackId?: string;
   /** Deezer 官方 30 秒試聽片段的直接可播放網址，Apple Music 沒有這首歌時的第二優先來源 */
   deezerPreviewUrl?: string;
+  /** 播放用的穩定站內路徑（由伺服器依 track id 即時解析最新試聽網址）；有值時一律優先於 deezerPreviewUrl，
+   *  因為 Deezer 的試聽網址帶時效簽章，存在資料庫的網址會過期。後台編輯仍然只使用 deezerPreviewUrl／deezerTrackId。 */
+  deezerPlayUrl?: string;
   /** 管理者已確認 Apple Music 上真的找不到這首歌（或找到的都不對），批次腳本應跳過不要自動搜尋 */
   appleMusicSkip: boolean;
   /** 同上，給 Deezer 用 */
