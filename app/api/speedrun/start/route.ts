@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { allowRequest, getClientIp } from '../../../../lib/server/rateLimit';
 import { prisma } from '../../../../lib/db';
 import { createSpeedrunSession } from '../../../../lib/server/speedrunSession';
 import { buildChoiceSongIds, CHOICES_PER_ROUND } from '../../../../lib/server/choiceMode';
@@ -13,7 +14,11 @@ const QUESTION_COUNT = 10;
 // （這是單人挑戰，沒有其他玩家需要同步進度，沒有輪詢的必要）。
 // 每題不含「哪個選項才是正解」，真相只存在伺服器記憶體裡（見 lib/server/speedrunSession.ts），
 // 之後每答一題都要呼叫 /api/speedrun/check 讓伺服器判定，不是客戶端自己比對。
-export async function POST() {
+export async function POST(request: NextRequest) {
+  // 每個 IP 每分鐘最多開 8 場，擋掉用腳本大量開場、蒐集題目的行為
+  if (!allowRequest(`speedrun-start:${getClientIp(request)}`, 8, 60_000)) {
+    return NextResponse.json({ error: '操作太頻繁，請稍後再試' }, { status: 429 });
+  }
   try {
     const songs = await prisma.song.findMany({ include: { themes: { select: { themeId: true } } } });
     const pool = songs.map((s) => ({

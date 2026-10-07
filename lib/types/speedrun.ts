@@ -27,6 +27,9 @@ export interface SpeedrunCheckResponse {
   finished: boolean;
   /** 只有 finished 為 true 時才有值：伺服器算出的總耗時（毫秒） */
   totalTimeMs: number | null;
+  /** 伺服器強制的答錯鎖定中：這次請求沒有被判定 */
+  locked?: boolean;
+  retryAfterMs?: number;
 }
 
 export interface SpeedrunLeaderboardEntry {

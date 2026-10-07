@@ -1,39 +1,46 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { motion, useReducedMotion } from 'framer-motion';
 import { PageShell } from '../../components/layout/PageShell';
 import { StageDisc } from '../../components/game/StageDisc';
 import { AnswerSticker } from '../../components/game/AnswerSticker';
-import { songRepository } from '../../lib/repository/songRepository';
+import { LeaderboardList } from '../../components/game/LeaderboardList';
+import { SongSearchInput } from '../../components/game/SongSearchInput';
 import { getGlobalAudioController } from '../../lib/audio/globalAudioController';
 import type { AudioController, AudioPlaybackStatus } from '../../lib/audio/audioController';
-import { resolvePlaybackTarget, resolvePlaybackFallback } from '../../lib/audio/resolvePlaybackTarget';
-import { isAnswerCorrect } from '../../lib/engine/answerUtils';
-import { STREAK_STAGES_SEC, STREAK_BEST_STORAGE_KEY, streakPointsForStage } from '../../lib/constants/streak';
-import type { Song } from '../../lib/types/song';
-import type { Artist } from '../../lib/types/theme';
+import { streakRepository } from '../../lib/repository/streakRepository';
+import { useSongIndex } from '../../lib/client/useSongIndex';
+import {
+  STREAK_STAGES_SEC,
+  STREAK_BEST_STORAGE_KEY,
+  PLAYER_NAME_STORAGE_KEY,
+  streakPointsForStage,
+} from '../../lib/constants/streak';
+import type {
+  StreakAnswer,
+  StreakLeaderboardEntry,
+  StreakPlayback,
+  StreakQuestion,
+  StreakSubmitResponse,
+} from '../../lib/types/streak';
 
-type Phase = 'loading' | 'intro' | 'playing' | 'revealed' | 'over';
+type Phase = 'loading' | 'intro' | 'starting' | 'playing' | 'revealed' | 'submitting' | 'results';
 
 const LAST_STAGE = STREAK_STAGES_SEC.length - 1;
 
-function shuffle<T>(items: T[]): T[] {
-  const arr = [...items];
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
+const STATUS_LABEL: Record<AudioPlaybackStatus, string> = {
+  idle: '點中間開始播放',
+  loading: '載入中…',
+  playing: '播放中',
+  paused: '已暫停',
+  finished: '播放完畢，可再聽一次',
+  error: '播放失敗，點中間重試',
+};
 
 function normalize(s: string): string {
-  return s.toLowerCase().replace(/\s+/g, '');
-}
-
-function isPlayable(song: Song): boolean {
-  return resolvePlaybackTarget(song, { renderType: 'audio-intro' }) !== null;
+  return s.toLowerCase().replace(/[\s　]+/g, '');
 }
 
 function PlayIcon() {
@@ -52,43 +59,69 @@ function PauseIcon() {
   );
 }
 
+const inputStyle = {
+  padding: '12px 16px',
+  borderRadius: '10px',
+  border: '1px solid var(--groove)',
+  background: 'var(--bg-raised)',
+  color: 'var(--ink)',
+  fontSize: '1rem',
+} as const;
+const buttonStyle = {
+  padding: '13px 22px',
+  borderRadius: '10px',
+  border: '1px solid var(--accent)',
+  background: 'var(--accent)',
+  color: 'var(--accent-ink)',
+  fontWeight: 600,
+  fontSize: '0.95rem',
+} as const;
+const secondaryButtonStyle = {
+  padding: '13px 22px',
+  borderRadius: '10px',
+  border: '1px solid var(--accent)',
+  background: 'transparent',
+  color: 'var(--accent)',
+  fontWeight: 600,
+  fontSize: '0.95rem',
+} as const;
+
+function formatEntry(e: { streak: number; score: number }) {
+  return `${e.streak} 連勝 · ${e.score} 分`;
+}
+
 export default function StreakPage() {
   const reduce = useReducedMotion();
+  const songIndex = useSongIndex();
   const [controller, setController] = useState<AudioController | null>(null);
   const [status, setStatus] = useState<AudioPlaybackStatus>('idle');
   const [playTick, setPlayTick] = useState(0);
 
   const [phase, setPhase] = useState<Phase>('loading');
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [songs, setSongs] = useState<Song[]>([]);
-  const [artists, setArtists] = useState<Artist[]>([]);
-
-  const [queue, setQueue] = useState<Song[]>([]);
-  const [qi, setQi] = useState(0);
-  const [stage, setStage] = useState(0);
-  const [wrong, setWrong] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState('');
+  const [token, setToken] = useState<string | null>(null);
+  const [question, setQuestion] = useState<StreakQuestion | null>(null);
+  const [answer, setAnswer] = useState<StreakAnswer | null>(null);
   const [outcome, setOutcome] = useState<'correct' | 'failed' | null>(null);
   const [lastGain, setLastGain] = useState(0);
   const [streak, setStreak] = useState(0);
   const [score, setScore] = useState(0);
   const [best, setBest] = useState(0);
-  const [newBest, setNewBest] = useState(false);
-  const [starting, setStarting] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [shakeKey, setShakeKey] = useState(0);
   const [covers, setCovers] = useState<Record<string, string | null>>({});
 
+  const [results, setResults] = useState<StreakSubmitResponse | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [introLeaderboard, setIntroLeaderboard] = useState<StreakLeaderboardEntry[] | null>(null);
+
   const [input, setInput] = useState('');
   const [pickedId, setPickedId] = useState<string | null>(null);
-  const [focused, setFocused] = useState(false);
-  const [hi, setHi] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const busyRef = useRef(false);
 
-  const artistName = useMemo(() => {
-    const map = new Map(artists.map((a) => [a.id, a.name]));
-    return (id: string) => map.get(id) ?? '';
-  }, [artists]);
-
-  // 外部播放器（全域共用實例）與題庫載入
+  // 外部播放器（全域共用實例）與本機紀錄
   useEffect(() => {
     const c = getGlobalAudioController();
     c.setOnStatusChange(setStatus);
@@ -98,52 +131,20 @@ export default function StreakPage() {
     try {
       const saved = Number(localStorage.getItem(STREAK_BEST_STORAGE_KEY));
       if (Number.isFinite(saved) && saved > 0) setBest(saved);
+      const name = localStorage.getItem(PLAYER_NAME_STORAGE_KEY);
+      if (name) setDisplayName(name);
     } catch {
-      // 隱私模式下讀不到就當作 0
+      // 隱私模式下讀不到就維持預設
     }
-    let cancelled = false;
-    Promise.all([songRepository.getAll(), songRepository.getAllArtists()]).then(
-      ([s, a]) => {
-        if (cancelled) return;
-        setSongs(s);
-        setArtists(a);
-        setPhase('intro');
-      },
-      () => {
-        if (!cancelled) setLoadError('題庫載入失敗，請重新整理頁面');
-      }
-    );
+    setPhase('intro');
     return () => {
-      cancelled = true;
       c.setOnStatusChange(undefined);
       c.stop();
     };
   }, []);
 
-  const current = phase === 'playing' || phase === 'revealed' ? queue[qi] : undefined;
-
-  const playStage = useCallback(
-    (song: Song, stageIndex: number) => {
-      if (!controller) return;
-      const question = { renderType: 'audio-intro' as const };
-      const target = resolvePlaybackTarget(song, question);
-      if (!target) return;
-      setPlayTick((t) => t + 1);
-      // 主要來源（YouTube）失敗時自動改用 Apple／Deezer 試聽
-      const fb = resolvePlaybackFallback(song, question);
-      controller.play(
-        target.source,
-        target.idOrUrl,
-        0,
-        STREAK_STAGES_SEC[stageIndex],
-        fb ? { ...fb, durationSec: STREAK_STAGES_SEC[stageIndex] } : null
-      );
-    },
-    [controller]
-  );
-
-  // 公布答案時抓封面（沿用單機模式的封面查詢）
-  const revealedId = phase === 'revealed' ? current?.id : undefined;
+  // 公布答案時抓封面（沿用單機模式的封面查詢，答案公布後才知道 songId）
+  const revealedId = phase === 'revealed' ? answer?.songId : undefined;
   useEffect(() => {
     if (!revealedId || revealedId in covers) return;
     let cancelled = false;
@@ -158,236 +159,423 @@ export default function StreakPage() {
     };
   }, [revealedId, covers]);
 
-  const suggestions = useMemo(() => {
-    const q = normalize(input);
-    if (!q || pickedId) return [];
-    return songs
-      .filter((s) => normalize(s.title).includes(q) || normalize(artistName(s.artistId)).includes(q))
-      .slice(0, 6);
-  }, [input, pickedId, songs, artistName]);
+  function playPlayback(pb: StreakPlayback) {
+    if (!controller) return;
+    setPlayTick((t) => t + 1);
+    controller.play(
+      pb.source,
+      pb.idOrUrl,
+      pb.startSec,
+      pb.durationSec > 0 ? pb.durationSec : undefined,
+      pb.fallback
+    );
+  }
 
   function resetQuestionState() {
-    setStage(0);
-    setWrong([]);
     setInput('');
     setPickedId(null);
-    setHi(0);
+    setAnswer(null);
     setOutcome(null);
   }
 
+  // 伺服器請求的共用外殼：同一時間只處理一個請求，避免快速連點送出重複請求
+  async function guarded<T>(fn: () => Promise<T>): Promise<T | null> {
+    if (busyRef.current) return null;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      return await fn();
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
   async function handleStart() {
-    if (!controller || starting) return;
-    const pool = songs.filter(isPlayable);
-    if (pool.length === 0) {
-      setLoadError('目前題庫沒有可播放的歌曲');
+    if (!controller || busyRef.current) return;
+    const name = displayName.trim();
+    if (!name) {
+      setError('請先輸入暱稱，成績會用這個名字上榜');
       return;
     }
-    setLoadError(null);
-    setStarting(true);
-    // 開始鍵是真正的使用者手勢，先解鎖播放器再開始第一段
+    try {
+      localStorage.setItem(PLAYER_NAME_STORAGE_KEY, name);
+    } catch {
+      // 存不了就只用這一次
+    }
+    setError(null);
+    setPhase('starting');
+    // 開始鍵是真正的使用者手勢，先解鎖播放器；之後每一段都由玩家自己按唱盤播放
     await controller.unlock();
-    setStarting(false);
-    const q = shuffle(pool);
-    setQueue(q);
-    setQi(0);
+    const result = await guarded(() => streakRepository.start());
+    if (!result || !result.ok || !result.data) {
+      setError(result?.error ?? '開始挑戰失敗');
+      setPhase('intro');
+      return;
+    }
+    setToken(result.data.token);
+    setQuestion(result.data.question);
     setStreak(0);
     setScore(0);
-    setNewBest(false);
+    setResults(null);
+    setSubmitError(null);
     resetQuestionState();
     setPhase('playing');
-    playStage(q[0], 0);
     setTimeout(() => inputRef.current?.focus(), 50);
   }
 
-  function reveal(result: 'correct' | 'failed', gain: number) {
+  function showAnswer(a: StreakAnswer, result: 'correct' | 'failed', gain: number) {
+    controller?.stop();
+    setAnswer(a);
     setOutcome(result);
     setLastGain(gain);
     setPhase('revealed');
-    // 公布後把這首歌播出來（YouTube 播到結束、Apple/Deezer 播完試聽片段）
-    if (controller && current) {
-      const question = { renderType: 'audio-intro' as const };
-      const target = resolvePlaybackTarget(current, question);
-      if (target) {
-        setPlayTick((t) => t + 1);
-        controller.play(target.source, target.idOrUrl, 0, undefined, resolvePlaybackFallback(current, question));
-      }
+  }
+
+  function recordBest(finalStreak: number) {
+    if (finalStreak <= best) return;
+    setBest(finalStreak);
+    try {
+      localStorage.setItem(STREAK_BEST_STORAGE_KEY, String(finalStreak));
+    } catch {
+      // 存不了就只在本次顯示
     }
   }
 
-  function advanceStage() {
-    if (!current || stage >= LAST_STAGE) return;
-    const next = stage + 1;
-    setStage(next);
-    playStage(current, next);
-  }
-
-  function handleGuess(e?: React.FormEvent) {
+  async function handleGuess(e?: React.FormEvent) {
     e?.preventDefault();
-    if (!current || phase !== 'playing') return;
+    if (!token || !question || phase !== 'playing') return;
     const text = input.trim();
     if (!text) return;
-    const picked = pickedId ? songs.find((s) => s.id === pickedId) : undefined;
-    const correct =
-      pickedId === current.id ||
-      isAnswerCorrect(picked?.title ?? text, current.title, current.aliases);
-    if (correct) {
-      const gain = streakPointsForStage(stage);
-      setStreak((n) => n + 1);
-      setScore((n) => n + gain);
-      reveal('correct', gain);
+    // 沒有從清單選取時，歌名完全相符就直接帶 songId；否則送自由文字讓伺服器比對
+    let songId = pickedId;
+    if (!songId) {
+      const exact = songIndex.filter((s) => normalize(s.title) === normalize(text));
+      if (exact.length === 1) songId = exact[0].id;
+    }
+    const result = await guarded(() => streakRepository.guess(token, songId ? { songId } : { text }));
+    if (!result) return;
+    if (!result.ok || !result.data) {
+      setError(result.error ?? '判定失敗');
       return;
     }
-    setWrong((w) => [...w, picked ? picked.title : text]);
-    setInput('');
-    setPickedId(null);
-    setShakeKey((k) => k + 1);
-    if (stage >= LAST_STAGE) {
-      reveal('failed', 0);
-    } else {
-      advanceStage();
+    setError(null);
+    const r = result.data;
+    setStreak(r.streak);
+    setScore(r.score);
+    if (r.result === 'correct' && r.answer) {
+      showAnswer(r.answer, 'correct', r.gain ?? 0);
+      return;
+    }
+    if (r.result === 'failed' && r.answer) {
+      recordBest(r.streak);
+      showAnswer(r.answer, 'failed', 0);
+      return;
+    }
+    if (r.question) {
+      // 猜錯：解鎖下一段，停止目前播放，由玩家自己決定何時播放
+      controller?.stop();
+      setQuestion(r.question);
+      setInput('');
+      setPickedId(null);
+      setShakeKey((k) => k + 1);
+      inputRef.current?.focus();
     }
   }
 
-  function handleGiveUp() {
-    if (phase !== 'playing') return;
-    reveal('failed', 0);
-  }
-
-  function finishRun() {
+  async function handleMore() {
+    if (!token || !question || phase !== 'playing' || question.stage >= LAST_STAGE) return;
+    const result = await guarded(() => streakRepository.skipStage(token));
+    if (!result) return;
+    if (!result.ok || !result.data) {
+      setError(result.error ?? '操作失敗');
+      return;
+    }
+    setError(null);
     controller?.stop();
-    if (streak > best) {
-      setBest(streak);
-      setNewBest(true);
-      try {
-        localStorage.setItem(STREAK_BEST_STORAGE_KEY, String(streak));
-      } catch {
-        // 存不了就只在本次顯示
-      }
-    }
-    setPhase('over');
+    setQuestion(result.data);
   }
 
-  function handleNext() {
-    const nextIndex = qi + 1;
-    if (nextIndex >= queue.length) {
-      finishRun();
+  async function handleGiveUp() {
+    if (!token || phase !== 'playing') return;
+    const result = await guarded(() => streakRepository.giveUp(token));
+    if (!result) return;
+    if (!result.ok || !result.data) {
+      setError(result.error ?? '操作失敗');
       return;
     }
-    setQi(nextIndex);
+    recordBest(result.data.streak);
+    setStreak(result.data.streak);
+    setScore(result.data.score);
+    showAnswer(result.data.answer, 'failed', 0);
+  }
+
+  async function handleNext() {
+    if (!token || phase !== 'revealed' || outcome !== 'correct') return;
+    const result = await guarded(() => streakRepository.next(token));
+    if (!result) return;
+    if (!result.ok || !result.data) {
+      setError(result.error ?? '操作失敗');
+      return;
+    }
+    controller?.stop();
+    const r = result.data;
+    if (r.over || !r.question) {
+      // 題庫全部猜完，直接結算
+      recordBest(r.streak);
+      await submitScore(r.streak);
+      return;
+    }
+    setError(null);
     resetQuestionState();
+    setQuestion(r.question);
     setPhase('playing');
-    playStage(queue[nextIndex], 0);
     setTimeout(() => inputRef.current?.focus(), 50);
   }
 
-  function pickSuggestion(song: Song) {
-    setInput(song.title);
-    setPickedId(song.id);
-    setHi(0);
-    inputRef.current?.focus();
+  async function handleEndRun() {
+    if (!token || phase !== 'revealed' || outcome !== 'correct') return;
+    const result = await guarded(() => streakRepository.end(token));
+    if (!result) return;
+    if (!result.ok || !result.data) {
+      setError(result.error ?? '操作失敗');
+      return;
+    }
+    recordBest(result.data.streak);
+    await submitScore(result.data.streak);
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (suggestions.length === 0) return;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setHi((h) => (h + 1) % suggestions.length);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setHi((h) => (h - 1 + suggestions.length) % suggestions.length);
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      pickSuggestion(suggestions[hi] ?? suggestions[0]);
-    } else if (e.key === 'Escape') {
-      setFocused(false);
+  async function submitScore(finalStreak: number = streak) {
+    if (!token) return;
+    controller?.stop();
+    setPhase('submitting');
+    setSubmitError(null);
+    if (finalStreak <= 0) {
+      // 一首都沒答對不上榜，直接顯示結果
+      setResults({ streak: 0, score: 0, rank: 0, totalRuns: 0, scoreId: '', leaderboard: [] });
+      setPhase('results');
+      return;
     }
+    const result = await streakRepository.submit(token, displayName.trim());
+    if (!result.ok || !result.data) {
+      setSubmitError(result.error ?? '送出成績失敗');
+      return;
+    }
+    setResults(result.data);
+    setPhase('results');
+  }
+
+  async function loadIntroLeaderboard() {
+    if (introLeaderboard !== null) {
+      setIntroLeaderboard(null);
+      return;
+    }
+    const result = await streakRepository.getLeaderboard();
+    if (result.ok && result.data) setIntroLeaderboard(result.data);
+  }
+
+  function handleRetry() {
+    setPhase('intro');
+    setResults(null);
+    setToken(null);
+    setQuestion(null);
+    resetQuestionState();
+    setError(null);
+    setIntroLeaderboard(null);
   }
 
   function handleStageButton() {
-    if (!controller || !current) return;
+    if (!controller || !question) return;
     if (status === 'playing') {
       controller.pause();
     } else if (status === 'paused') {
       controller.resume();
     } else {
-      playStage(current, stage);
+      playPlayback(question.playback);
     }
   }
 
+  function handleReplayReveal() {
+    if (!controller || !answer?.reveal) return;
+    if (status === 'playing') controller.pause();
+    else if (status === 'paused') controller.resume();
+    else playPlayback(answer.reveal);
+  }
+
   const spinning = status === 'playing';
+  const stage = question?.stage ?? 0;
+  const wrong = question?.wrong ?? [];
 
   // ------------------------------------------------------------------ 畫面
   if (phase === 'loading') {
     return (
-      <PageShell title="無限連勝" subtitle="準備題庫中…">
-        {loadError ? <p style={{ color: 'var(--error)' }}>{loadError}</p> : <div className="loading-disc" aria-hidden="true" />}
+      <PageShell title="無限連勝" subtitle="準備中…">
+        <div className="loading-disc" aria-hidden="true" />
       </PageShell>
     );
   }
 
-  if (phase === 'intro') {
+  if (phase === 'intro' || phase === 'starting') {
     return (
-      <PageShell title="無限連勝" subtitle="只聽 1 秒，認得出幾首？一路連勝，直到猜錯為止。" width={480}>
-        <ol className="streak-rules">
-          <li>
-            <b>1 → 16 秒</b>
-            <span>每首歌從 {STREAK_STAGES_SEC[0]} 秒開始，猜錯或按「多聽」就解鎖下一段：{STREAK_STAGES_SEC.join('、')} 秒。</span>
-          </li>
-          <li>
-            <b>越早猜中越高分</b>
-            <span>第 1 段答對 {streakPointsForStage(0)} 分，每晚一段少 1 分，最後一段 1 分。</span>
-          </li>
-          <li>
-            <b>連勝不斷線</b>
-            <span>6 段都沒猜中或放棄公布答案，連勝就結束。最佳紀錄存在這台裝置上。</span>
-          </li>
-        </ol>
+      <PageShell
+        title="無限連勝"
+        subtitle="隨機片段，只聽 1 秒認得出幾首？一路連勝，直到猜錯為止。"
+        width={420}
+      >
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.1, ease: 'easeOut' }}
+          style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' }}
+        >
+          <ol className="streak-rules">
+            <li>
+              <b>1 → 16 秒</b>
+              <span>
+                每首歌從隨機片段開始，猜錯或按「多聽」就解鎖下一段：{STREAK_STAGES_SEC.join('、')} 秒。每一段都要自己按唱盤播放。
+              </span>
+            </li>
+            <li>
+              <b>越早猜中越高分</b>
+              <span>
+                第 1 段答對 {streakPointsForStage(0)} 分，每晚一段少 1 分，最後一段 1 分。
+              </span>
+            </li>
+            <li>
+              <b>連勝不斷線</b>
+              <span>6 段都沒猜中或放棄公布答案，挑戰結束，成績依連勝首數與總分上榜。</span>
+            </li>
+          </ol>
 
-        <div className="streak-best">
-          <span>目前最佳連勝</span>
-          <b>{best}</b>
-        </div>
-
-        {loadError && <p style={{ color: 'var(--error)', fontSize: '0.88rem' }}>{loadError}</p>}
-        <button type="button" onClick={handleStart} disabled={starting} className="btn btn-primary btn-block">
-          {starting ? '準備中…' : '開始挑戰'}
-        </button>
-      </PageShell>
-    );
-  }
-
-  if (phase === 'over') {
-    return (
-      <PageShell title="挑戰結束" subtitle={newBest ? '新的最佳紀錄' : undefined} backLabel="首頁">
-        <div className="streak-result">
-          <div className="streak-result-main">
-            <span>連勝</span>
-            <b>{streak}</b>
-            <span>首</span>
+          <div className="streak-best">
+            <span>這台裝置的最佳連勝</span>
+            <b>{best}</b>
           </div>
-          <dl>
-            <div>
-              <dt>總分</dt>
-              <dd>{score}</dd>
-            </div>
-            <div>
-              <dt>最佳連勝</dt>
-              <dd>{Math.max(best, streak)}</dd>
-            </div>
-          </dl>
+
+          <input
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="輸入暱稱"
+            maxLength={20}
+            style={inputStyle}
+          />
+          {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem', textAlign: 'center' }}>{error}</p>}
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={handleStart}
+            disabled={phase === 'starting'}
+            style={buttonStyle}
+          >
+            {phase === 'starting' ? '準備中…' : '開始挑戰'}
+          </motion.button>
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={loadIntroLeaderboard}
+            style={{ ...secondaryButtonStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+          >
+            {introLeaderboard !== null ? '收合排行榜' : '查看目前排行榜'}
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 12 12"
+              fill="none"
+              style={{
+                transform: introLeaderboard !== null ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 0.2s ease',
+              }}
+            >
+              <path d="M2.5 4.5 6 8l3.5-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </motion.button>
+          {introLeaderboard !== null && <LeaderboardList entries={introLeaderboard} formatValue={formatEntry} />}
+        </motion.div>
+      </PageShell>
+    );
+  }
+
+  if (phase === 'submitting') {
+    return (
+      <PageShell title="結算中" width={420} showBack={false}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', padding: '24px 0' }}>
+          {submitError ? (
+            <>
+              <p style={{ color: 'var(--error)', fontSize: '0.9rem', textAlign: 'center' }}>{submitError}</p>
+              <button onClick={() => submitScore()} style={buttonStyle}>
+                重新送出
+              </button>
+            </>
+          ) : (
+            <p style={{ color: 'var(--ink-dim)' }}>送出成績中…</p>
+          )}
         </div>
-        <button type="button" onClick={() => setPhase('intro')} className="btn btn-primary btn-block">
-          再挑戰一次
-        </button>
-        <Link href="/" className="btn btn-ghost btn-block" style={{ textAlign: 'center' }}>
-          回到首頁
-        </Link>
+      </PageShell>
+    );
+  }
+
+  if (phase === 'results' && results) {
+    const ranked = results.rank > 0;
+    return (
+      <PageShell title="挑戰結束" width={420}>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3 }}
+          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '24px', width: '100%' }}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.85 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5, ease: [0.34, 1.56, 0.64, 1] }}
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}
+          >
+            <p style={{ color: 'var(--ink-dim)', fontSize: '0.9rem' }}>你的成績</p>
+            <p
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: '2.2rem',
+                fontWeight: 700,
+                color: 'var(--accent)',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {streak} 連勝
+            </p>
+            <p style={{ color: 'var(--ink-dim)', fontSize: '0.95rem' }}>總分 {score}</p>
+            {ranked ? (
+              <p style={{ fontSize: '1.1rem' }}>
+                全站第 <strong>{results.rank}</strong> 名（共 {results.totalRuns} 次挑戰）
+              </p>
+            ) : (
+              <p style={{ color: 'var(--ink-dim)', fontSize: '0.9rem' }}>至少答對一首才能上榜</p>
+            )}
+          </motion.div>
+
+          {ranked && (
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.2 }}
+              style={{ width: '100%' }}
+            >
+              <p style={{ color: 'var(--ink-dim)', fontSize: '0.85rem', marginBottom: '8px' }}>排行榜 Top 100</p>
+              <LeaderboardList entries={results.leaderboard} highlightId={results.scoreId} formatValue={formatEntry} />
+            </motion.div>
+          )}
+
+          <motion.button whileTap={{ scale: 0.97 }} onClick={handleRetry} style={buttonStyle}>
+            再試一次
+          </motion.button>
+          <Link href="/" className="btn btn-ghost" style={{ textAlign: 'center' }}>
+            回到首頁
+          </Link>
+        </motion.div>
       </PageShell>
     );
   }
 
   // playing / revealed
-  const revealed = phase === 'revealed' && current;
+  const revealed = phase === 'revealed' && answer;
+  const hasStarted = status !== 'idle';
   return (
     <PageShell title="無限連勝" backLabel="結束" width={480}>
       <div className="streak-stats" aria-live="polite">
@@ -424,39 +612,55 @@ export default function StreakPage() {
         })}
       </div>
 
-      <div className="stage" style={{ alignSelf: 'center' }}>
-        <StageDisc bare={Boolean(revealed)} status={spinning ? 'playing' : status === 'loading' ? 'loading' : status === 'error' ? 'error' : 'idle'}>
-          {revealed && current ? (
+      <div className="stage">
+        <StageDisc bare status={spinning ? 'playing' : status === 'loading' ? 'loading' : status === 'error' ? 'error' : 'idle'}>
+          {revealed ? (
             <AnswerSticker
-              key={current.id}
-              title={current.title}
-              artist={artistName(current.artistId)}
-              coverUrl={covers[current.id] ?? null}
+              key={answer.songId}
+              title={answer.title}
+              artist={answer.artist}
+              coverUrl={covers[answer.songId] ?? null}
             />
           ) : (
             <button
               type="button"
-              className="stage-sticker is-button"
               onClick={handleStageButton}
-              aria-label={spinning ? '暫停' : '播放這一段'}
+              className="stage-sticker is-button"
+              aria-label={spinning ? '暫停' : hasStarted && status !== 'finished' && status !== 'error' ? '繼續播放' : '播放這一段'}
+              disabled={!controller || !question}
             >
               {spinning ? <PauseIcon /> : <PlayIcon />}
             </button>
           )}
         </StageDisc>
+
+        <p className="stage-status" data-state={status} aria-live="polite">
+          {revealed ? '答案公布' : STATUS_LABEL[status]}
+        </p>
       </div>
 
-      {revealed && current ? (
+      {revealed ? (
         <div className="streak-reveal">
           <p className={`streak-verdict ${outcome === 'correct' ? 'is-ok' : 'is-bad'}`}>
             {outcome === 'correct' ? `答對了　+${lastGain} 分` : '沒猜中，連勝結束'}
           </p>
-          {outcome === 'correct' ? (
-            <button type="button" onClick={handleNext} className="btn btn-primary btn-block" autoFocus>
-              下一首
+          {answer.reveal && (
+            <button type="button" onClick={handleReplayReveal} className="btn btn-ghost btn-sm">
+              {spinning ? '暫停' : status === 'paused' ? '繼續播放' : '聽這首歌'}
             </button>
+          )}
+          {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{error}</p>}
+          {outcome === 'correct' ? (
+            <>
+              <button type="button" onClick={handleNext} disabled={busy} className="btn btn-primary btn-block" autoFocus>
+                下一首
+              </button>
+              <button type="button" onClick={handleEndRun} disabled={busy} className="btn-text">
+                結束挑戰並結算
+              </button>
+            </>
           ) : (
-            <button type="button" onClick={finishRun} className="btn btn-primary btn-block" autoFocus>
+            <button type="button" onClick={() => submitScore()} className="btn btn-primary btn-block" autoFocus>
               查看成績
             </button>
           )}
@@ -483,64 +687,38 @@ export default function StreakPage() {
           <form onSubmit={handleGuess} className="streak-form">
             <motion.div
               key={shakeKey}
-              className="streak-input-wrap"
+              className="streak-input-shake"
               animate={shakeKey > 0 && !reduce ? { x: [0, -8, 8, -5, 5, 0] } : undefined}
               transition={{ duration: 0.35 }}
             >
-              <input
-                ref={inputRef}
+              <SongSearchInput
                 value={input}
-                onChange={(e) => {
-                  setInput(e.target.value);
-                  setPickedId(null);
-                  setHi(0);
+                pickedId={pickedId}
+                onChange={(v, id) => {
+                  setInput(v);
+                  setPickedId(id);
                 }}
-                onFocus={() => setFocused(true)}
-                onBlur={() => setTimeout(() => setFocused(false), 120)}
-                onKeyDown={handleKeyDown}
-                placeholder="輸入歌名或歌手…"
-                className="field"
-                role="combobox"
-                aria-expanded={focused && suggestions.length > 0}
-                aria-controls="streak-suggest"
-                aria-autocomplete="list"
-                autoComplete="off"
-                enterKeyHint="go"
+                songs={songIndex}
+                inputRef={inputRef}
+                placeholder="輸入歌名或歌手關鍵字…"
+                listId="streak-suggest"
               />
-              {focused && suggestions.length > 0 && (
-                <ul id="streak-suggest" className="streak-suggest" role="listbox">
-                  {suggestions.map((s, i) => (
-                    <li
-                      key={s.id}
-                      role="option"
-                      aria-selected={i === hi}
-                      className={i === hi ? 'is-hi' : undefined}
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        pickSuggestion(s);
-                      }}
-                    >
-                      <span>{s.title}</span>
-                      <small>{artistName(s.artistId)}</small>
-                    </li>
-                  ))}
-                </ul>
-              )}
             </motion.div>
-            <button type="submit" className="btn btn-primary" disabled={!input.trim()}>
+            <button type="submit" className="btn btn-primary" disabled={!input.trim() || busy}>
               猜
             </button>
           </form>
+          {error && <p style={{ color: 'var(--error)', fontSize: '0.85rem', textAlign: 'center' }}>{error}</p>}
 
           <div className="streak-actions">
             {stage < LAST_STAGE ? (
-              <button type="button" onClick={advanceStage} className="btn btn-ghost">
+              <button type="button" onClick={handleMore} disabled={busy} className="btn btn-ghost">
                 多聽 {STREAK_STAGES_SEC[stage + 1] - STREAK_STAGES_SEC[stage]} 秒（放棄這段）
               </button>
             ) : (
               <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>已是最後一段</span>
             )}
-            <button type="button" onClick={handleGiveUp} className="btn-text">
+            <button type="button" onClick={handleGiveUp} disabled={busy} className="btn-text">
               直接公布答案
             </button>
           </div>

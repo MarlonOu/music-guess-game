@@ -19,6 +19,8 @@ import { RankBadge, PlayerIdentity, playerDotColor } from '../../../../component
 import { ArtistFilter } from '../../../../components/filter/ArtistFilter';
 import { ThemeFilter } from '../../../../components/filter/ThemeFilter';
 import { AnswerSticker } from '../../../../components/game/AnswerSticker';
+import { SongSearchInput } from '../../../../components/game/SongSearchInput';
+import { useSongIndex } from '../../../../lib/client/useSongIndex';
 import { StageDisc } from '../../../../components/game/StageDisc';
 import { SELECTABLE_GAME_MODES } from '../../../../lib/constants/gameMode';
 
@@ -258,7 +260,10 @@ export default function OnlineRoomPage() {
                 純聊天用途，但在畫面寸土寸金的手機上多一塊沒有實際功能的區塊反而是干擾，
                 乾脆整個不顯示，畫面更乾淨。打字搶答模式維持不變（聊天室本身就是搶答的管道）。 */}
             {hasChat && (
-              <ChatBox joinCode={joinCode} playerId={playerId} messages={messages} onMessageSent={handleMessageSent} answerMode={room.answerMode} />
+              <ChatBox joinCode={joinCode} playerId={playerId} messages={messages} onMessageSent={handleMessageSent}
+                answerMode={room.answerMode}
+                answering={room.status === 'playing' && room.answerMode === 'text' && !room.revealed}
+              />
             )}
 
             <button onClick={handleLeaveClick} className="btn-text room-leave">
@@ -1340,14 +1345,19 @@ function ChatBox({
   messages,
   onMessageSent,
   answerMode,
+  answering,
 }: {
   joinCode: string;
   playerId: string;
   messages: RoomMessage[];
   onMessageSent: (message: RoomMessage) => void;
   answerMode: AnswerMode;
+  /** 目前是否正在打字搶答（遊戲進行中、答案尚未公布）：此時輸入框會顯示歌名／歌手搜尋建議 */
+  answering: boolean;
 }) {
   const [text, setText] = useState('');
+  const [pickedId, setPickedId] = useState<string | null>(null);
+  const songIndex = useSongIndex(answerMode === 'text');
   const [sending, setSending] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -1364,6 +1374,7 @@ function ChatBox({
     setSending(false);
     if (result.ok) {
       setText('');
+      setPickedId(null);
       // 送出成功立刻顯示在畫面上，不用等下一次輪詢——這就是先前「送出後有時會延遲才顯示」的主因
       if (result.data) onMessageSent(result.data);
     }
@@ -1431,13 +1442,22 @@ function ChatBox({
         ))}
       </div>
       <form onSubmit={handleSend} style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="打字聊天／搶答歌名"
-          className="field"
-          style={{ flex: 1, minWidth: 0 }}
-        />
+        {/* 打字搶答進行中：輸入歌名或歌手關鍵字會即時列出符合的歌曲，點選或按 Enter 帶入歌名，
+            再按「送出」搶答；其餘時間（準備室、答案公布後、選擇題模式）維持純聊天輸入框。 */}
+        <div className="chat-input-wrap">
+          <SongSearchInput
+            value={text}
+            pickedId={pickedId}
+            onChange={(v, id) => {
+              setText(v);
+              setPickedId(id);
+            }}
+            songs={songIndex}
+            suggest={answering}
+            placeholder={answering ? '輸入歌名或歌手關鍵字搶答' : '打字聊天'}
+            listId="chat-suggest"
+          />
+        </div>
         <button type="submit" disabled={sending} className="btn btn-primary" style={{ flexShrink: 0 }}>
           送出
         </button>

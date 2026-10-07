@@ -203,3 +203,20 @@ model SpeedrunScore {
   @@index([totalTimeMs])
   @@map("speedrun_scores")
 }
+
+/// 無限連勝模式（單機、隨機片段、1→16 秒逐段解鎖）的成績紀錄，用來組成排行榜。
+/// 進行中的挑戰狀態（目前題目、第幾段、答錯紀錄）存在伺服器記憶體
+/// （見 lib/server/streakSession.ts），答案從頭到尾不會傳給客戶端；
+/// 只有「挑戰結束、成績確定」那一刻才寫進這張表。排名依連勝首數、總分由高到低。
+model StreakScore {
+  id          String   @id @default(uuid())
+  displayName String   @map("display_name")
+  /// 連續答對的首數
+  streak      Int
+  /// 總分（越早猜中越高分，見 lib/constants/streak.ts）
+  score       Int
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([streak, score])
+  @@map("streak_scores")
+}

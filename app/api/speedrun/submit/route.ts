@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../../../lib/db';
 import { finalizeSpeedrunSession } from '../../../../lib/server/speedrunSession';
+import { allowRequest, getClientIp } from '../../../../lib/server/rateLimit';
+import { sanitizeDisplayName } from '../../../../lib/server/sanitizeName';
 
 const LEADERBOARD_SIZE = 100;
-const DISPLAY_NAME_MAX_LENGTH = 20;
 
 // POST /api/speedrun/submit → 挑戰完成後交出成績，寫入排行榜，回傳這次的名次與前 100 名榜單。
 // 成績（totalTimeMs）完全由伺服器依 session 記錄的開始/完成時間戳算出（見
@@ -12,9 +13,13 @@ const DISPLAY_NAME_MAX_LENGTH = 20;
 // 同一場挑戰沒辦法重複送出成績。
 export async function POST(request: NextRequest) {
   try {
+    if (!allowRequest(`speedrun-submit:${getClientIp(request)}`, 10, 60_000)) {
+      return NextResponse.json({ error: '操作太頻繁，請稍後再試' }, { status: 429 });
+    }
     const body = await request.json();
-    const { token, displayName } = body;
-    if (!token || !displayName || typeof displayName !== 'string' || displayName.trim().length === 0) {
+    const { token } = body;
+    const displayName = sanitizeDisplayName(body.displayName);
+    if (!token || typeof token !== 'string' || !displayName) {
       return NextResponse.json({ error: '缺少必要欄位' }, { status: 400 });
     }
 
@@ -26,7 +31,7 @@ export async function POST(request: NextRequest) {
     const score = await prisma.speedrunScore.create({
       data: {
         id: crypto.randomUUID(),
-        displayName: displayName.trim().slice(0, DISPLAY_NAME_MAX_LENGTH),
+        displayName,
         totalTimeMs: finalized.totalTimeMs,
       },
     });

@@ -2017,13 +2017,24 @@ body::before {
   align-items: stretch;
 }
 
-.streak-input-wrap {
+.chat-input-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.streak-input-shake {
+  flex: 1;
+  min-width: 0;
+}
+
+.song-search-wrap {
   position: relative;
   flex: 1;
   min-width: 0;
 }
 
-.streak-input-wrap .field {
+.song-search-wrap .field {
   width: 100%;
 }
 
@@ -2032,7 +2043,7 @@ body::before {
   min-width: 64px;
 }
 
-.streak-suggest {
+.song-search-list {
   position: absolute;
   left: 0;
   right: 0;
@@ -2048,7 +2059,7 @@ body::before {
   box-shadow: 0 -14px 36px -12px rgba(0, 0, 0, 0.7);
 }
 
-.streak-suggest li {
+.song-search-list li {
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -2058,13 +2069,13 @@ body::before {
   font-size: 0.92rem;
 }
 
-.streak-suggest li small {
+.song-search-list li small {
   color: var(--ink-dim);
   font-size: 0.76rem;
 }
 
-.streak-suggest li.is-hi,
-.streak-suggest li:hover {
+.song-search-list li.is-hi,
+.song-search-list li:hover {
   background: var(--groove);
 }
 

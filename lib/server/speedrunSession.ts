@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { SPEEDRUN_TRANSITION_SEC, SPEEDRUN_AUDIO_WAIT_CAP_MS } from '../constants/speedrun';
+import {
+  SPEEDRUN_TRANSITION_SEC,
+  SPEEDRUN_AUDIO_WAIT_CAP_MS,
+  SPEEDRUN_MIN_QUESTION_MS,
+  SPEEDRUN_LOCKOUT_TOLERANCE_MS,
+} from '../constants/speedrun';
+import { WRONG_ANSWER_LOCKOUT_MS } from '../constants/choiceMode';
 
 /**
  * 速通模式（單機、隨機片段猜歌＋選擇題搶答，10 題計時）進行中的挑戰狀態。
@@ -9,7 +15,8 @@ import { SPEEDRUN_TRANSITION_SEC, SPEEDRUN_AUDIO_WAIT_CAP_MS } from '../constant
  * 影響範圍很小）。只有「挑戰完成、成績確定下來」的那一刻，才真正寫進 SpeedrunScore 資料表
  * （見 app/api/speedrun/submit/route.ts）。
  *
- * 核心設計：完成時間（totalTimeMs）由伺服器依這裡記錄的 startedAt／finishedAt 時間戳自己算出，
+ * 核心設計：完成時間（totalTimeMs）由伺服器依各題「送出／答對」的時間戳自己算出（單題計分耗時，
+ * 見 checkSpeedrunAnswer），
  * 不採信客戶端自己回報的「完成時間」——否則玩家只要竄改前端請求就能偽造任意成績上榜。
  * 客戶端畫面上顯示的碼表，只是給玩家看的即時體驗，不是最終判定成績的依據。
  *
@@ -44,7 +51,7 @@ import { SPEEDRUN_TRANSITION_SEC, SPEEDRUN_AUDIO_WAIT_CAP_MS } from '../constant
 interface SpeedrunSession {
   /** 這場挑戰的 10 首歌，依出題順序排列；songIds[i] 是第 i 題（0-based）的正確答案 */
   songIds: string[];
-  /** 建立 session 當下的伺服器時間戳（毫秒），碼表從這一刻起算 */
+  /** 建立 session 當下的伺服器時間戳（毫秒），只用來判斷逾時清除 */
   startedAt: number;
   /** 玩家已經答對到第幾題（下一題應該回答第 currentIndex 題）；等於 songIds.length 代表全部答對完成 */
   currentIndex: number;
@@ -52,22 +59,24 @@ interface SpeedrunSession {
   finishedAt: number | null;
   /** 目前這一題是不是已經回報過「等了多久」，避免同一題重複回報、重複扣除 */
   audioWaitReportedForIndex: number | null;
-  /** 累積目前為止所有題目的「等待音樂播放」扣除量（每題已經套用過上限） */
-  totalAudioWaitMs: number;
+  /** 目前這一題被伺服器送出（上一題答對、或挑戰開始）的時間戳，單題耗時由此起算 */
+  questionServedAt: number;
+  /** 目前這一題客戶端回報的等待毫秒數（已套用上限），答對時才會結算扣除 */
+  currentWaitMs: number;
+  /** 已答對各題的計分耗時加總（每題都已扣掉等待時間、並套用單題下限） */
+  scoredMs: number;
+  /** 目前這一題最近一次答錯的時間戳；null 代表這題還沒答錯過。用來在伺服器端強制答錯鎖定。 */
+  lastWrongAt: number | null;
   /**
    * 挑戰完成的那一刻，就把最終成績算好、凍結存在這裡；finalizeSpeedrunSession() 之後
-   * 只讀取這個凍結的數字，不會重新計算一次。這是修正一個實際發生過的落差：如果
-   * finalizeSpeedrunSession() 是「用 finishedAt／totalAudioWaitMs 等欄位重新算一次」，
-   * 而不是「直接讀已經算好的結果」，中間萬一有任何一個延遲送達的
-   * reportAudioWait 請求剛好在這個空檔被處理到、動了 totalAudioWaitMs，
-   * 兩次算出來的 totalTimeMs 就會對不上——玩家在答對最後一題的當下看到（並被存起來）
-   * 的成績，跟稍後送出上榜的成績會不一致。凍結成一個值之後，不管中間發生什麼，
-   * 最終送出的一定是「答對那一刻」就已經確定下來的同一個數字。
+   * 只讀取這個凍結的數字，不會重新計算一次，確保玩家看到的成績與送出上榜的成績一致。
    */
   finalScoreMs: number | null;
 }
 
-const sessions = new Map<string, SpeedrunSession>();
+// 以 globalThis 保存，避免各 route bundle 各自持有一份獨立的 Map 導致 start／check 對不上。
+const globalForSessions = globalThis as unknown as { __speedrunSessions?: Map<string, SpeedrunSession> };
+const sessions = (globalForSessions.__speedrunSessions ??= new Map<string, SpeedrunSession>());
 
 // 挑戰開始後這麼久還沒完成，就視為玩家中途放棄了，清掉避免記憶體隨著時間一直累積
 // （伺服器沒有重啟過、又一直有人開新挑戰卻沒玩完的極端情況）。
@@ -78,15 +87,6 @@ function cleanupExpiredSessions(): void {
   for (const [token, session] of sessions) {
     if (now - session.startedAt > SESSION_TTL_MS) sessions.delete(token);
   }
-}
-
-/**
- * 把「起訖時間戳的原始差值」換算成「扣掉緩衝畫面與音訊等待時間後」的實際計分毫秒數。
- * totalDeadTimeMs 是所有「死時間」（緩衝畫面＋等待音樂播放，見上方型別定義與
- * reportAudioWait 的說明）的加總，每一筆都已經在 reportAudioWait 裡套用過上限。
- */
-function toScoredMs(rawMs: number, totalDeadTimeMs: number): number {
-  return Math.max(0, rawMs - totalDeadTimeMs);
 }
 
 /** 開始一場新的挑戰，回傳供客戶端後續請求使用的 token */
@@ -100,7 +100,10 @@ export function createSpeedrunSession(songIds: string[]): { token: string } {
     currentIndex: 0,
     finishedAt: null,
     audioWaitReportedForIndex: null,
-    totalAudioWaitMs: 0,
+    questionServedAt: now,
+    currentWaitMs: 0,
+    scoredMs: 0,
+    lastWrongAt: null,
     finalScoreMs: null,
   });
   return { token };
@@ -128,46 +131,63 @@ export function reportAudioWait(token: string, questionIndex: number, waitMs: nu
   const capMs = questionIndex === 0 ? SPEEDRUN_AUDIO_WAIT_CAP_MS : SPEEDRUN_TRANSITION_SEC * 1000 + SPEEDRUN_AUDIO_WAIT_CAP_MS;
   const safeWaitMs = Number.isFinite(waitMs) ? waitMs : 0;
   const cappedWaitMs = Math.max(0, Math.min(safeWaitMs, capMs));
-  session.totalAudioWaitMs += cappedWaitMs;
+  session.currentWaitMs = cappedWaitMs;
   session.audioWaitReportedForIndex = questionIndex;
 }
+
+export type SpeedrunCheckResult =
+  | { correct: boolean; finished: boolean; totalTimeMs: number | null; locked?: false }
+  | { correct: false; finished: false; totalTimeMs: null; locked: true; retryAfterMs: number };
 
 /**
  * 判定第 questionIndex 題選的 songId 對不對，答對就推進進度。
  *
  * 回傳 null 代表 token 無效（挑戰不存在或已逾時），或 questionIndex 不是「目前應該回答的
  * 那一題」（例如重複送出同一題、或跳題送出，順序防呆，避免用亂送請求的方式繞過正常流程）。
+ *
+ * 防作弊重點：
+ * (1) 答錯鎖定由伺服器強制執行：答錯後在鎖定時間內再送出的請求一律回傳 locked，不做判定。
+ *     原本鎖定只存在前端，腳本可以無視鎖定在幾十毫秒內把四個選項全部試過一輪。
+ * (2) 計分以「單題」為單位結算：單題耗時 = 這題被送出到答對的伺服器時間差，扣掉客戶端回報的
+ *     等待時間（上限且不得超過該題實際經過時間），再套用單題下限 SPEEDRUN_MIN_QUESTION_MS。
+ *     沒有下限的話，回報誇大的等待時間就能把成績扣到 0。
  */
-export function checkSpeedrunAnswer(
-  token: string,
-  questionIndex: number,
-  songId: string
-): { correct: boolean; finished: boolean; totalTimeMs: number | null } | null {
+export function checkSpeedrunAnswer(token: string, questionIndex: number, songId: string): SpeedrunCheckResult | null {
   const session = sessions.get(token);
   if (!session) return null;
   if (questionIndex !== session.currentIndex) return null;
 
+  const now = Date.now();
+  if (session.lastWrongAt !== null) {
+    const lockMs = WRONG_ANSWER_LOCKOUT_MS - SPEEDRUN_LOCKOUT_TOLERANCE_MS;
+    const sinceWrong = now - session.lastWrongAt;
+    if (sinceWrong < lockMs) {
+      return { correct: false, finished: false, totalTimeMs: null, locked: true, retryAfterMs: lockMs - sinceWrong };
+    }
+  }
+
   const correct = session.songIds[questionIndex] === songId;
   if (!correct) {
+    session.lastWrongAt = now;
     return { correct: false, finished: false, totalTimeMs: null };
   }
 
+  const elapsed = Math.max(0, now - session.questionServedAt);
+  const deductible = Math.max(0, elapsed - SPEEDRUN_MIN_QUESTION_MS);
+  const effective = Math.max(SPEEDRUN_MIN_QUESTION_MS, elapsed - Math.min(session.currentWaitMs, deductible));
+  session.scoredMs += effective;
+
   session.currentIndex += 1;
+  session.lastWrongAt = null;
   const finished = session.currentIndex >= session.songIds.length;
   if (finished && session.finishedAt === null) {
-    session.finishedAt = Date.now();
-    // 就是在這裡凍結最終成績（見上方型別定義裡 finalScoreMs 欄位的完整說明）：這是修正
-    // 一個實際發生過的落差——玩家答對最後一題當下看到的成績，跟稍後 submit() 送出上榜的
-    // 成績差了將近一秒。根因是如果不在這裡凍結，finalizeSpeedrunSession() 事後會用
-    // session.totalAudioWaitMs 重新算一次，而這個欄位在「答對最後一題」到「玩家送出成績」
-    // 這中間，仍然可能被一個延遲送達的 reportAudioWait 請求動到，兩次算出來的數字就會
-    // 對不上。在這裡把答對那一刻就已經確定下來的數字凍結住，之後 finalizeSpeedrunSession()
-    // 只讀這個凍結值，不管中間發生什麼都不會再變動。
-    session.finalScoreMs = toScoredMs(session.finishedAt - session.startedAt, session.totalAudioWaitMs);
+    session.finishedAt = now;
+    // 在答對最後一題的這一刻就凍結最終成績，之後 finalizeSpeedrunSession() 只讀這個值。
+    session.finalScoreMs = session.scoredMs;
   } else if (!finished) {
-    // 換到下一題了，重置「這一題是否已回報過等待時間」的狀態，讓 reportAudioWait
-    // 能正確採信下一題的回報。不需要再維護一個「假設的起算時間點」——等待多久完全由
-    // 客戶端自己量測、直接回報，見上方型別定義的完整說明。
+    // 換到下一題：重置這題的起算時間與等待回報狀態。
+    session.questionServedAt = now;
+    session.currentWaitMs = 0;
     session.audioWaitReportedForIndex = null;
   }
   return {
