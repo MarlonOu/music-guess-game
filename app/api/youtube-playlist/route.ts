@@ -195,7 +195,8 @@ export async function GET(request: NextRequest) {
     const results: PlaylistSongResult[] = items.map((item) => ({
       videoId: item.videoId,
       title: localizedTitleById.get(item.videoId) ?? item.title,
-      channelTitle: channelNameById.get(item.channelId) ?? item.channelTitle,
+      // YouTube 自動產生的藝人頻道名稱帶有「 - Topic」後綴，不是歌手名稱本身，匯入時要去掉
+      channelTitle: (channelNameById.get(item.channelId) ?? item.channelTitle).replace(/\s*[-–—]\s*topic$/i, '').trim(),
       thumbnailUrl: item.thumbnailUrl,
       durationSec: durationById.get(item.videoId) ?? 0,
       embeddable: embeddableById.get(item.videoId) ?? true,

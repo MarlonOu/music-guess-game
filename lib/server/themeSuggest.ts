@@ -58,45 +58,66 @@ export function cleanTitle(raw: string): string {
     .trim();
 }
 
+/** 去掉 YouTube 自動產生的頻道名稱後綴（"David Tao - Topic"、"JJLinVEVO"、"某某 官方頻道"），還原成歌手名稱 */
+export function cleanArtist(raw: string): string {
+  return raw
+    .replace(/\s*[-–—]\s*topic$/i, '')
+    .replace(/\s*vevo$/i, '')
+    .replace(/\s*(official\s*(channel|artist\s*channel)?|官方頻道|官方channel)$/i, '')
+    .trim();
+}
+
 function normalize(s: string): string {
   return s.toLowerCase().replace(/[\s　·・\-_.,，。]/g, '');
 }
 
-async function lookupFacts(item: SuggestItem): Promise<Facts | null> {
+async function lookupFacts(rawItem: SuggestItem): Promise<Facts | null> {
+  const item = { ...rawItem, artist: cleanArtist(rawItem.artist) };
   const title = cleanTitle(item.title);
   const cacheKey = `${normalize(item.artist)}|${normalize(title)}`;
   if (factsCache.has(cacheKey)) return factsCache.get(cacheKey) ?? null;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ITUNES_TIMEOUT_MS);
-  try {
-    const term = encodeURIComponent(`${item.artist} ${title}`.trim());
-    const res = await fetch(`https://itunes.apple.com/search?term=${term}&country=TW&media=music&entity=song&limit=5`, {
-      signal: controller.signal,
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as {
-      results?: { trackName?: string; artistName?: string; primaryGenreName?: string; releaseDate?: string }[];
-    };
-    const wantArtist = normalize(item.artist);
-    const wantTitle = normalize(title);
-    // 歌手與歌名都要「互相包含」才算命中，避免查到同名但不同人的歌而給出錯誤年份
-    const hit = (data.results ?? []).find((r) => {
+  const wantArtist = normalize(item.artist);
+  const wantTitle = normalize(title);
+  type Track = { trackName?: string; artistName?: string; primaryGenreName?: string; releaseDate?: string };
+
+  async function search(term: string, limit: number): Promise<Track[]> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ITUNES_TIMEOUT_MS);
+    try {
+      const res = await fetch(
+        `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&country=TW&media=music&entity=song&limit=${limit}`,
+        { signal: controller.signal }
+      );
+      if (!res.ok) return [];
+      const data = (await res.json()) as { results?: Track[] };
+      return data.results ?? [];
+    } catch {
+      return [];
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // 歌手與歌名都要「互相包含」才算命中，避免查到同名但不同人的歌而給出錯誤年份；
+  // iTunes 的歌手欄位常是「陶喆 David Tao」這種中英並列，所以用包含而非相等
+  const pick = (tracks: Track[]) =>
+    tracks.find((r) => {
       const a = normalize(r.artistName ?? '');
       const t = normalize(r.trackName ?? '');
-      const artistOk = !wantArtist || a.includes(wantArtist) || wantArtist.includes(a);
+      const artistOk = !wantArtist || (a && (a.includes(wantArtist) || wantArtist.includes(a)));
       const titleOk = t && wantTitle && (wantTitle.includes(t) || t.includes(wantTitle));
       return artistOk && titleOk;
     });
-    const year = hit?.releaseDate ? new Date(hit.releaseDate).getUTCFullYear() : undefined;
-    const facts: Facts | null = hit ? { year: Number.isFinite(year) ? year : undefined, genre: hit.primaryGenreName } : null;
-    factsCache.set(cacheKey, facts);
-    return facts;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
+
+  // 先用「歌手 + 歌名」，查不到再只用歌名撈較多筆自行比對歌手（歌手名稱寫法不一致時常有效）
+  let hit = pick(await search(`${item.artist} ${title}`.trim(), 5));
+  if (!hit && title) hit = pick(await search(title, 25));
+  const year = hit?.releaseDate ? new Date(hit.releaseDate).getUTCFullYear() : undefined;
+  const facts: Facts | null = hit ? { year: Number.isFinite(year) ? year : undefined, genre: hit.primaryGenreName } : null;
+  // 網路錯誤與「真的查不到」無法區分，不快取 null，下次仍可重試
+  if (facts) factsCache.set(cacheKey, facts);
+  return facts;
 }
 
 async function lookupAllFacts(items: SuggestItem[]): Promise<Map<string, Facts | null>> {
@@ -172,7 +193,7 @@ function buildPrompt(items: SuggestItem[], facts: Map<string, Facts | null>, the
     themes: themes.map((t) => ({ id: t.id, name: t.name, description: t.description })),
     songs: items.map((i) => {
       const f = facts.get(i.key);
-      return { key: i.key, title: cleanTitle(i.title), artist: i.artist, releaseYear: f?.year ?? null, genre: f?.genre ?? null };
+      return { key: i.key, title: cleanTitle(i.title), artist: cleanArtist(i.artist), releaseYear: f?.year ?? null, genre: f?.genre ?? null };
     }),
   });
 }
@@ -184,7 +205,9 @@ const SYSTEM_PROMPT = `你是華語與國際流行音樂的資料標註員。使
 1. 只能使用 themes 裡出現過的 id，不可自創主題或 id。
 2. 依據歌名、歌手、releaseYear、genre 判斷；releaseYear 與 genre 是查證過的事實，優先採信。
    歌手性別、團體、語言、曲風、情境等，依你對該歌手與歌曲的確切知識判斷。
-3. 沒有把握就不要選，寧可留空 themeIds 也不要亂猜。一首歌可以符合多個主題，也可以沒有任何主題。
+3. 即使沒有 releaseYear／genre，只要你認得這位歌手或這首歌，就依你的知識判斷（發行年代、語言、曲風、
+   歌手性別、是否為經典／KTV 常見曲目等），有七成以上把握就可以選；完全不認識這位歌手與這首歌時才留空。
+   一首歌可以符合多個主題，也可以沒有任何主題。artist 若帶有「- Topic」「VEVO」等頻道後綴請自行忽略。
 4. reason 用 20 字以內說明主要依據，例如「2004 年・男歌手」。
 5. 只輸出 JSON 陣列，不要任何其他文字：[{"key":"...","themeIds":["..."],"reason":"..."}]`;
 
@@ -247,11 +270,17 @@ export async function suggestThemes(items: SuggestItem[], themes: SuggestTheme[]
   if (process.env.ANTHROPIC_API_KEY) {
     const results = new Map<string, SuggestResult>();
     let aiFailed = false;
+    let unparsedBatches = 0;
     for (let i = 0; i < items.length; i += AI_BATCH_SIZE) {
       const batch = items.slice(i, i + AI_BATCH_SIZE);
       try {
         const text = await callClaude(buildPrompt(batch, facts, themes));
-        for (const r of parseModelOutput(text, batch, themes)) results.set(r.key, r);
+        const parsed = parseModelOutput(text, batch, themes);
+        if (parsed.length === 0) {
+          unparsedBatches += 1;
+          console.error('[themeSuggest] 無法解析模型回覆：', text.slice(0, 500));
+        }
+        for (const r of parsed) results.set(r.key, r);
       } catch (err) {
         aiFailed = true;
         console.error('[themeSuggest] Claude 呼叫失敗：', err);
@@ -261,8 +290,9 @@ export async function suggestThemes(items: SuggestItem[], themes: SuggestTheme[]
     for (const item of items) {
       if (!results.has(item.key)) results.set(item.key, ruleSuggest(item, facts.get(item.key) ?? null, themes));
     }
+    if (unparsedBatches > 0) warnings.push('AI 回覆格式無法解析，已改用規則（年份／曲風）補上，詳見伺服器日誌');
     if (aiFailed) warnings.push('部分歌曲 AI 判斷失敗，已改用規則（年份／曲風）補上');
-    return { results: items.map((i) => results.get(i.key)!), mode: aiFailed ? 'rules' : 'ai', factsFound, warnings };
+    return { results: items.map((i) => results.get(i.key)!), mode: aiFailed || unparsedBatches === Math.ceil(items.length / AI_BATCH_SIZE) ? 'rules' : 'ai', factsFound, warnings };
   }
 
   warnings.push('伺服器未設定 ANTHROPIC_API_KEY，僅用年份／曲風規則判斷（無法判斷歌手性別、情境等語意類主題）');
