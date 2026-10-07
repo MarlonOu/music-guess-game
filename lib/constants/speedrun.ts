@@ -20,9 +20,9 @@ export const SPEEDRUN_AUDIO_WAIT_CAP_MS = 5000;
 /**
  * 單題計分耗時的下限（毫秒）。伺服器結算每一題時，扣完客戶端回報的等待時間之後，
  * 單題成績不會低於這個值。用意：就算有人偽造等待時間回報、或用腳本秒答，成績也有一個
- * 真人不可能突破的底線（10 題至少 15 秒），無法刷出 0 秒之類的假成績。
+ * 真人不可能突破的底線（10 題至少 8 秒），無法刷出 0 秒之類的假成績。
  */
-export const SPEEDRUN_MIN_QUESTION_MS = 1500;
+export const SPEEDRUN_MIN_QUESTION_MS = 800;
 
 /**
  * 伺服器強制答錯鎖定時，容許網路抖動的誤差（毫秒）。客戶端鎖定 WRONG_ANSWER_LOCKOUT_MS，

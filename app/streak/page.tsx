@@ -443,7 +443,7 @@ export default function StreakPage() {
             <li>
               <b>越早猜中越高分</b>
               <span>
-                第 1 段答對 {streakPointsForStage(0)} 分，每晚一段少 1 分，最後一段 1 分。
+                各段答對依序得 {STREAK_STAGES_SEC.map((_, i) => streakPointsForStage(i)).join('、')} 分，越早猜中分數越高。
               </span>
             </li>
             <li>

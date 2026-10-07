@@ -173,8 +173,11 @@ export function checkSpeedrunAnswer(token: string, questionIndex: number, songId
   }
 
   const elapsed = Math.max(0, now - session.questionServedAt);
-  const deductible = Math.max(0, elapsed - SPEEDRUN_MIN_QUESTION_MS);
-  const effective = Math.max(SPEEDRUN_MIN_QUESTION_MS, elapsed - Math.min(session.currentWaitMs, deductible));
+  // 等待時間最多只能扣到「這題實際經過的時間」，再套用單題下限。
+  // 注意：扣除量不能先替下限預留空間（先前寫成 elapsed - 下限），那樣每一題只要答得快、
+  // 緩衝畫面與音訊等待佔了大部分經過時間，就會被多算數百毫秒到一兩秒，累積起來結算成績
+  // 就會比玩家在畫面上看到的碼表多出將近 2 秒。
+  const effective = Math.max(SPEEDRUN_MIN_QUESTION_MS, elapsed - Math.min(session.currentWaitMs, elapsed));
   session.scoredMs += effective;
 
   session.currentIndex += 1;
