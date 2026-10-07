@@ -45,7 +45,7 @@ interface Facts {
 
 const ITUNES_TIMEOUT_MS = 5000;
 const AI_BATCH_SIZE = 20;
-const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
+const DEFAULT_MODEL = 'claude-sonnet-5-5';
 
 const factsCache = new Map<string, Facts | null>();
 
@@ -188,28 +188,56 @@ function ruleSuggest(item: SuggestItem, facts: Facts | null, themes: SuggestThem
 
 // ---------------------------------------------------------------- Claude
 
+/** 年代類主題（「2000年代」「90年代」「千禧」）對應的年代起點；不是年代主題回傳 null */
+function themeDecade(theme: SuggestTheme): number | null {
+  const m = theme.name.match(/(?:(19|20)(\d)0|(\d)0)\s*年代/);
+  if (m) {
+    if (m[1]) return Number(`${m[1]}${m[2]}0`);
+    const short = Number(m[3]) * 10;
+    return short >= 50 ? 1900 + short : 2000 + short;
+  }
+  if (/千禧|2000s/i.test(theme.name)) return 2000;
+  return null;
+}
+
 function buildPrompt(items: SuggestItem[], facts: Map<string, Facts | null>, themes: SuggestTheme[]): string {
   return JSON.stringify({
     themes: themes.map((t) => ({ id: t.id, name: t.name, description: t.description })),
     songs: items.map((i) => {
       const f = facts.get(i.key);
-      return { key: i.key, title: cleanTitle(i.title), artist: cleanArtist(i.artist), releaseYear: f?.year ?? null, genre: f?.genre ?? null };
+      return {
+        key: i.key,
+        title: cleanTitle(i.title),
+        artist: cleanArtist(i.artist),
+        verifiedReleaseYear: f?.year ?? null,
+        verifiedGenre: f?.genre ?? null,
+      };
     }),
   });
 }
 
-const SYSTEM_PROMPT = `你是華語與國際流行音樂的資料標註員。使用者會給你一份「主題清單」(themes) 與一批歌曲 (songs)，
-請判斷每首歌適合哪些主題。
+const SYSTEM_PROMPT = `你是熟悉華語、日韓與西洋流行音樂的資深音樂資料編輯。使用者會給你「主題清單」(themes) 與一批歌曲 (songs)，
+請判斷每首歌「確實」屬於哪些主題。寧可少選，也不要為了湊數而選。
 
-規則：
-1. 只能使用 themes 裡出現過的 id，不可自創主題或 id。
-2. 依據歌名、歌手、releaseYear、genre 判斷；releaseYear 與 genre 是查證過的事實，優先採信。
-   歌手性別、團體、語言、曲風、情境等，依你對該歌手與歌曲的確切知識判斷。
-3. 即使沒有 releaseYear／genre，只要你認得這位歌手或這首歌，就依你的知識判斷（發行年代、語言、曲風、
-   歌手性別、是否為經典／KTV 常見曲目等），有七成以上把握就可以選；完全不認識這位歌手與這首歌時才留空。
-   一首歌可以符合多個主題，也可以沒有任何主題。artist 若帶有「- Topic」「VEVO」等頻道後綴請自行忽略。
-4. reason 用 20 字以內說明主要依據，例如「2004 年・男歌手」。
-5. 只輸出 JSON 陣列，不要任何其他文字：[{"key":"...","themeIds":["..."],"reason":"..."}]`;
+【每首歌的作業流程】
+1. recognized：你是否真的認得這首歌（歌手＋歌名都對得上你的記憶）？認不得就填 false，themes 留空，不要憑歌手名字猜。
+2. year：這首歌首次發行的西元年份。verifiedReleaseYear 不是 null 時直接採用（已查證）；否則依你的記憶填寫，不確定填 null。
+3. 逐一檢查主題，只選有具體依據的。每個選中的主題都要附 why（15 字內的具體事實，例如「2007 年專輯《ＸＸ》主打」
+   「男歌手、獨唱」），不可寫「經典情歌」「常見曲目」這類空泛敘述。
+4. confidence：0 到 1，代表你對「這首歌屬於這個主題」的把握；低於 0.7 就不要選。
+
+【主題分兩類，標準不同】
+- 客觀可查證：年代（依 year 的十年區間，且只能選一個年代主題）、歌手性別／團體／獨唱、語言、曲風。依事實判斷即可。
+- 主觀評價：KTV 必唱、經典必聽、抖音神曲、深夜 EMO、告白甜歌、聚會合唱、通勤歌單等。必須有具體佐證才能選
+  （例如拿過金曲獎／長年榜單前段／廣為人知的 KTV 熱門曲／確實是短影音爆紅曲，歌詞情境確實吻合），並且 confidence 要 ≥ 0.8。
+  沒有明確佐證的主觀主題一律不選；同一首歌最多選 2 個主觀主題。
+- 一首歌最多選 5 個主題。
+
+【規則】
+- 只能使用 themes 裡的 id，不可自創。主題的 description 是管理者對該主題的定義，以它為準。
+- artist 若帶有「- Topic」「VEVO」「官方頻道」等頻道後綴請忽略。
+- 只輸出 JSON 陣列，不要任何其他文字：
+[{"key":"...","recognized":true,"year":2007,"themes":[{"id":"...","why":"...","confidence":0.9}]}]`;
 
 async function callClaude(prompt: string): Promise<string> {
   const base = process.env.ANTHROPIC_BASE_URL?.replace(/\/$/, '') || 'https://api.anthropic.com';
@@ -222,12 +250,12 @@ async function callClaude(prompt: string): Promise<string> {
     },
     body: JSON.stringify({
       model: process.env.ANTHROPIC_MODEL || DEFAULT_MODEL,
-      max_tokens: 4096,
+      max_tokens: 8192,
       temperature: 0,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: prompt }],
     }),
-    signal: AbortSignal.timeout(45_000),
+    signal: AbortSignal.timeout(90_000),
   });
   if (!res.ok) {
     throw new Error(`Anthropic API ${res.status}`);
@@ -236,8 +264,18 @@ async function callClaude(prompt: string): Promise<string> {
   return (data.content ?? []).map((c) => c.text ?? '').join('');
 }
 
-/** 從模型回覆中取出 JSON 陣列並過濾成合法結果（id 必須存在於主題清單、key 必須是請求過的） */
-export function parseModelOutput(text: string, items: SuggestItem[], themes: SuggestTheme[]): SuggestResult[] {
+const MIN_CONFIDENCE = 0.7;
+const MAX_THEMES_PER_SONG = 5;
+
+interface ParsedSong {
+  key: string;
+  recognized: boolean;
+  year: number | null;
+  picks: { id: string; why: string; confidence: number }[];
+}
+
+/** 從模型回覆中取出 JSON 陣列並過濾：id 必須存在於主題清單、key 必須是請求過的、信心不足的主題丟掉 */
+export function parseModelOutput(text: string, items: SuggestItem[], themes: SuggestTheme[]): ParsedSong[] {
   const start = text.indexOf('[');
   const end = text.lastIndexOf(']');
   if (start < 0 || end <= start) return [];
@@ -250,15 +288,50 @@ export function parseModelOutput(text: string, items: SuggestItem[], themes: Sug
   if (!Array.isArray(parsed)) return [];
   const validThemes = new Set(themes.map((t) => t.id));
   const validKeys = new Set(items.map((i) => i.key));
-  const out: SuggestResult[] = [];
-  for (const row of parsed as { key?: unknown; themeIds?: unknown; reason?: unknown }[]) {
+  const out: ParsedSong[] = [];
+  for (const row of parsed as { key?: unknown; recognized?: unknown; year?: unknown; themes?: unknown }[]) {
     if (typeof row?.key !== 'string' || !validKeys.has(row.key)) continue;
-    const ids = Array.isArray(row.themeIds)
-      ? Array.from(new Set((row.themeIds as unknown[]).filter((x): x is string => typeof x === 'string' && validThemes.has(x))))
-      : [];
-    out.push({ key: row.key, themeIds: ids, reason: typeof row.reason === 'string' ? row.reason.slice(0, 40) : '' });
+    const recognized = row.recognized !== false;
+    const picks: ParsedSong['picks'] = [];
+    if (recognized && Array.isArray(row.themes)) {
+      for (const t of row.themes as { id?: unknown; why?: unknown; confidence?: unknown }[]) {
+        if (typeof t?.id !== 'string' || !validThemes.has(t.id)) continue;
+        const confidence = typeof t.confidence === 'number' ? t.confidence : 0;
+        if (confidence < MIN_CONFIDENCE) continue;
+        picks.push({ id: t.id, why: typeof t.why === 'string' ? t.why.trim().slice(0, 40) : '', confidence });
+      }
+    }
+    picks.sort((a, b) => b.confidence - a.confidence);
+    const year = typeof row.year === 'number' && row.year >= 1900 && row.year <= 2100 ? Math.round(row.year) : null;
+    out.push({ key: row.key, recognized, year, picks: picks.slice(0, MAX_THEMES_PER_SONG) });
   }
   return out;
+}
+
+/**
+ * 把模型選擇與可查證的事實整合成最終結果：
+ * - 年代主題只由年份決定（查證到的年份優先，否則採模型在「認得這首歌」時給的年份），模型選的年代一律捨棄重算，
+ *   避免「2007 年的歌被標成 2000 年代＋2010 年代」或憑印象標錯年代。
+ * - 依據文字逐主題列出（「2000年代：2007 年發行（iTunes）；華語流行：…」），不再是一句籠統的總評。
+ */
+function reconcile(song: ParsedSong, fact: Facts | null, themes: SuggestTheme[]): SuggestResult {
+  const byId = new Map(themes.map((t) => [t.id, t]));
+  const parts: { id: string; why: string }[] = [];
+  const year = fact?.year ?? (song.recognized ? song.year : null);
+  if (year) {
+    const decadeThemes = themes.filter((t) => themeMatchesDecade(t, year));
+    for (const t of decadeThemes) parts.push({ id: t.id, why: fact?.year ? `${year} 年發行（iTunes）` : `約 ${year} 年（模型推估）` });
+  }
+  for (const pick of song.picks) {
+    const theme = byId.get(pick.id);
+    if (!theme || themeDecade(theme) !== null) continue; // 年代主題已由年份決定
+    parts.push({ id: pick.id, why: pick.why });
+  }
+  const unique = Array.from(new Map(parts.map((p) => [p.id, p])).values());
+  const reason = !song.recognized && unique.length === 0
+    ? '模型不認得這首歌，且查不到年份'
+    : unique.map((p) => `${byId.get(p.id)?.name ?? ''}${p.why ? `：${p.why}` : ''}`).join('；');
+  return { key: song.key, themeIds: unique.map((p) => p.id), reason: reason.slice(0, 400) };
 }
 
 export async function suggestThemes(items: SuggestItem[], themes: SuggestTheme[]): Promise<SuggestResponse> {
@@ -280,7 +353,7 @@ export async function suggestThemes(items: SuggestItem[], themes: SuggestTheme[]
           unparsedBatches += 1;
           console.error('[themeSuggest] 無法解析模型回覆：', text.slice(0, 500));
         }
-        for (const r of parsed) results.set(r.key, r);
+        for (const r of parsed) results.set(r.key, reconcile(r, facts.get(r.key) ?? null, themes));
       } catch (err) {
         aiFailed = true;
         console.error('[themeSuggest] Claude 呼叫失敗：', err);
