@@ -2717,6 +2717,14 @@ function SourceMatchAccordion({
                   <button
                     type="button"
                     style={editButtonStyle}
+                    title="勾選所有有候選來源的項目，包含低信心（套用前請確認已試聽）"
+                    onClick={() => setItems((prev) => prev.map((it) => (it.candidate ? { ...it, apply: true } : it)))}
+                  >
+                    全選（含低信心）
+                  </button>
+                  <button
+                    type="button"
+                    style={editButtonStyle}
                     onClick={() => setItems((prev) => prev.map((it) => (it.candidate ? { ...it, apply: it.status === 'refreshed' || it.confidence === 'high' } : it)))}
                   >
                     只選高信心
