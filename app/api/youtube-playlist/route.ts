@@ -36,6 +36,25 @@ function extractPlaylistId(input: string): string | null {
   return null;
 }
 
+// 顯示語言：YouTube 網站依觀看者語言顯示影片／頻道的「在地化」標題，但 playlistItems.list 回傳的
+// snippet.title 永遠是上傳者設定的預設語言（常常是英文），所以網站上看到中文、匯入後卻變英文。
+// 改由 videos.list／channels.list 以 hl 取得在地化版本，找不到才退回預設標題。
+const DISPLAY_LANGUAGE = 'zh-TW';
+const LOCALIZATION_KEYS = ['zh-TW', 'zh-Hant', 'zh-HK', 'zh'];
+
+function pickLocalized(
+  localizations: Record<string, { title?: string }> | undefined,
+  hlTitle: string | undefined
+): string | undefined {
+  // 有明確的繁中在地化資料時優先採用；hl 回傳的 snippet.localized 若沒有對應語言會回到預設語言，
+  // 因此只當第二順位
+  for (const key of LOCALIZATION_KEYS) {
+    const t = localizations?.[key]?.title?.trim();
+    if (t) return t;
+  }
+  return hlTitle?.trim() || undefined;
+}
+
 /** 解析 YouTube API 回傳的 ISO 8601 時長格式（例如 PT4M13S）為總秒數 */
 function parseIso8601Duration(iso: string): number {
   const match = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso);
@@ -74,6 +93,7 @@ export async function GET(request: NextRequest) {
       title: string;
       channelTitle: string;
       thumbnailUrl: string;
+      channelId: string;
     };
     const items: PlaylistItem[] = [];
     let pageToken: string | undefined;
@@ -109,6 +129,7 @@ export async function GET(request: NextRequest) {
           // videoOwnerChannelTitle 是影片本身上傳者的頻道名稱；若缺席（極少數情況）退回播放清單擁有者的頻道名稱
           channelTitle: item.snippet?.videoOwnerChannelTitle ?? item.snippet?.channelTitle ?? '',
           thumbnailUrl: item.snippet?.thumbnails?.default?.url ?? '',
+          channelId: item.snippet?.videoOwnerChannelId ?? '',
         });
       }
       pageToken = data.nextPageToken;
@@ -120,10 +141,12 @@ export async function GET(request: NextRequest) {
     const durationById = new Map<string, number>();
     const embeddableById = new Map<string, boolean>();
     const unavailableById = new Map<string, boolean>();
+    const localizedTitleById = new Map<string, string>();
     for (let i = 0; i < items.length; i += PAGE_SIZE) {
       const batch = items.slice(i, i + PAGE_SIZE);
       const videosUrl = new URL('https://www.googleapis.com/youtube/v3/videos');
-      videosUrl.searchParams.set('part', 'contentDetails,status');
+      videosUrl.searchParams.set('part', 'contentDetails,status,snippet,localizations');
+      videosUrl.searchParams.set('hl', DISPLAY_LANGUAGE);
       videosUrl.searchParams.set('id', batch.map((b) => b.videoId).join(','));
       videosUrl.searchParams.set('key', apiKey);
 
@@ -138,6 +161,8 @@ export async function GET(request: NextRequest) {
         returnedIds.add(v.id);
         durationById.set(v.id, parseIso8601Duration(v.contentDetails?.duration ?? ''));
         embeddableById.set(v.id, v.status?.embeddable ?? true);
+        const localized = pickLocalized(v.localizations, v.snippet?.localized?.title);
+        if (localized) localizedTitleById.set(v.id, localized);
       }
       // videos.list 對已刪除／私人影片不會回傳對應項目（不是回傳錯誤，是該筆直接消失於結果中），
       // 沒在 returnedIds 裡出現的，視為不可用（對應 playlistItems.list 那邊看到的 "Private video" 之類項目）
@@ -146,10 +171,31 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // 頻道名稱同樣取繁體中文在地化名稱（例如頻道在英文介面叫 "JVR Music"，中文介面叫「杰威爾音樂」）
+    const channelNameById = new Map<string, string>();
+    const channelIds = Array.from(new Set(items.map((i) => i.channelId).filter(Boolean)));
+    for (let i = 0; i < channelIds.length; i += PAGE_SIZE) {
+      const channelsUrl = new URL('https://www.googleapis.com/youtube/v3/channels');
+      channelsUrl.searchParams.set('part', 'snippet,localizations');
+      channelsUrl.searchParams.set('hl', DISPLAY_LANGUAGE);
+      channelsUrl.searchParams.set('id', channelIds.slice(i, i + PAGE_SIZE).join(','));
+      channelsUrl.searchParams.set('key', apiKey);
+      const channelsRes = await fetch(channelsUrl);
+      if (!channelsRes.ok) {
+        console.error('[GET /api/youtube-playlist] channels.list 查詢在地化名稱失敗：', channelsRes.status);
+        continue; // 查不到就沿用播放清單回傳的原始頻道名稱
+      }
+      const channelsData = await channelsRes.json();
+      for (const c of channelsData.items ?? []) {
+        const name = pickLocalized(c.localizations, c.snippet?.localized?.title);
+        if (name) channelNameById.set(c.id, name);
+      }
+    }
+
     const results: PlaylistSongResult[] = items.map((item) => ({
       videoId: item.videoId,
-      title: item.title,
-      channelTitle: item.channelTitle,
+      title: localizedTitleById.get(item.videoId) ?? item.title,
+      channelTitle: channelNameById.get(item.channelId) ?? item.channelTitle,
       thumbnailUrl: item.thumbnailUrl,
       durationSec: durationById.get(item.videoId) ?? 0,
       embeddable: embeddableById.get(item.videoId) ?? true,
