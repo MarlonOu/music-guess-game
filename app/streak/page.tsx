@@ -6,11 +6,10 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { PageShell } from '../../components/layout/PageShell';
 import { StageDisc } from '../../components/game/StageDisc';
 import { AnswerSticker } from '../../components/game/AnswerSticker';
-import { ArtistFilter } from '../../components/filter/ArtistFilter';
 import { songRepository } from '../../lib/repository/songRepository';
 import { getGlobalAudioController } from '../../lib/audio/globalAudioController';
 import type { AudioController, AudioPlaybackStatus } from '../../lib/audio/audioController';
-import { resolvePlaybackTarget } from '../../lib/audio/resolvePlaybackTarget';
+import { resolvePlaybackTarget, resolvePlaybackFallback } from '../../lib/audio/resolvePlaybackTarget';
 import { isAnswerCorrect } from '../../lib/engine/answerUtils';
 import { STREAK_STAGES_SEC, STREAK_BEST_STORAGE_KEY, streakPointsForStage } from '../../lib/constants/streak';
 import type { Song } from '../../lib/types/song';
@@ -63,7 +62,6 @@ export default function StreakPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [songs, setSongs] = useState<Song[]>([]);
   const [artists, setArtists] = useState<Artist[]>([]);
-  const [artistIds, setArtistIds] = useState<string[]>([]);
 
   const [queue, setQueue] = useState<Song[]>([]);
   const [qi, setQi] = useState(0);
@@ -127,10 +125,19 @@ export default function StreakPage() {
   const playStage = useCallback(
     (song: Song, stageIndex: number) => {
       if (!controller) return;
-      const target = resolvePlaybackTarget(song, { renderType: 'audio-intro' });
+      const question = { renderType: 'audio-intro' as const };
+      const target = resolvePlaybackTarget(song, question);
       if (!target) return;
       setPlayTick((t) => t + 1);
-      controller.play(target.source, target.idOrUrl, 0, STREAK_STAGES_SEC[stageIndex]);
+      // 主要來源（YouTube）失敗時自動改用 Apple／Deezer 試聽
+      const fb = resolvePlaybackFallback(song, question);
+      controller.play(
+        target.source,
+        target.idOrUrl,
+        0,
+        STREAK_STAGES_SEC[stageIndex],
+        fb ? { ...fb, durationSec: STREAK_STAGES_SEC[stageIndex] } : null
+      );
     },
     [controller]
   );
@@ -170,9 +177,9 @@ export default function StreakPage() {
 
   async function handleStart() {
     if (!controller || starting) return;
-    const pool = songs.filter((s) => (artistIds.length === 0 || artistIds.includes(s.artistId)) && isPlayable(s));
+    const pool = songs.filter(isPlayable);
     if (pool.length === 0) {
-      setLoadError('目前篩選條件下沒有可播放的歌曲');
+      setLoadError('目前題庫沒有可播放的歌曲');
       return;
     }
     setLoadError(null);
@@ -198,10 +205,11 @@ export default function StreakPage() {
     setPhase('revealed');
     // 公布後把這首歌播出來（YouTube 播到結束、Apple/Deezer 播完試聽片段）
     if (controller && current) {
-      const target = resolvePlaybackTarget(current, { renderType: 'audio-intro' });
+      const question = { renderType: 'audio-intro' as const };
+      const target = resolvePlaybackTarget(current, question);
       if (target) {
         setPlayTick((t) => t + 1);
-        controller.play(target.source, target.idOrUrl, 0);
+        controller.play(target.source, target.idOrUrl, 0, undefined, resolvePlaybackFallback(current, question));
       }
     }
   }
@@ -339,15 +347,6 @@ export default function StreakPage() {
           <span>目前最佳連勝</span>
           <b>{best}</b>
         </div>
-
-        <section style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <span style={{ color: 'var(--ink-dim)', fontSize: '0.85rem' }}>題庫篩選（不勾選 = 使用全部題庫）</span>
-          <ArtistFilter
-            artists={artists}
-            selectedIds={artistIds}
-            onToggle={(id) => setArtistIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))}
-          />
-        </section>
 
         {loadError && <p style={{ color: 'var(--error)', fontSize: '0.88rem' }}>{loadError}</p>}
         <button type="button" onClick={handleStart} disabled={starting} className="btn btn-primary btn-block">

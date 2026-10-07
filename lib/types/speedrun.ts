@@ -1,4 +1,4 @@
-import type { AudioSource } from '../audio/audioController';
+import type { AudioSource, PlayFallback } from '../audio/audioController';
 
 export interface SpeedrunChoice {
   songId: string;
@@ -11,6 +11,8 @@ export interface SpeedrunQuestion {
   playbackId: string | null;
   startSec: number;
   durationSec?: number;
+  /** 主要來源失敗時的備援來源（例如 Apple 試聽失敗改用 YouTube），沒有第二來源時為 null */
+  fallback?: PlayFallback | null;
   choices: SpeedrunChoice[];
 }
 

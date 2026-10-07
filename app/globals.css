@@ -865,6 +865,75 @@ body::before {
   }
 }
 
+.home-legal {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--groove);
+  color: var(--ink-dim);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.home-legal-line {
+  text-wrap: pretty;
+}
+
+.home-legal-more summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  cursor: pointer;
+  list-style: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--groove);
+  transition: color 0.15s ease;
+}
+
+.home-legal-more summary::-webkit-details-marker {
+  display: none;
+}
+
+.home-legal-more summary::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 0.2s ease;
+}
+
+.home-legal-more[open] summary::after {
+  transform: rotate(-135deg);
+}
+
+.home-legal-more summary:hover {
+  color: var(--ink);
+}
+
+.home-legal-more ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 0 4px;
+}
+
+.home-legal-more li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.home-legal-more li b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
 /* ============ 狀態頁（404／錯誤／載入） ============ */
 .status-screen {
   flex: 1;

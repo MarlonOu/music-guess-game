@@ -52,36 +52,50 @@ interface PlayableQuestion {
  * 回傳 null 代表這首歌在這個模式下找不到可用的來源（理論上不該發生於 RANDOM_CLIP，因為
  * 三種來源至少會有一種；INTRO 模式下如果這首歌完全沒有任何來源才會發生）。
  */
-export function resolvePlaybackTarget(song: PlayableSong, question: PlayableQuestion): PlaybackTarget | null {
-  if (question.renderType === 'text-lyric') return null;
+export function resolvePlaybackTargets(song: PlayableSong, question: PlayableQuestion): PlaybackTarget[] {
+  if (question.renderType === 'text-lyric') return [];
 
   const nativeAudioUrl = song.appleMusicPreviewUrl || song.deezerPreviewUrl;
   const nativeSource: AudioSource | null = song.appleMusicPreviewUrl ? 'apple' : song.deezerPreviewUrl ? 'deezer' : null;
+  const targets: PlaybackTarget[] = [];
 
   if (question.renderType === 'audio-intro') {
     if (song.youtubeVideoId) {
-      return { source: 'youtube', idOrUrl: song.youtubeVideoId, startSec: 0, durationSec: question.introEndSec };
+      targets.push({ source: 'youtube', idOrUrl: song.youtubeVideoId, startSec: 0, durationSec: question.introEndSec });
     }
-    // 沒有 YouTube 來源時的退路：至少讓這首歌還能播放，即使播出來的不是真正的前奏
+    // 沒有 YouTube 來源（或 YouTube 播放失敗時）的退路：至少讓這首歌還能播放，即使播出來的不是真正的前奏
     if (nativeAudioUrl && nativeSource) {
-      return { source: nativeSource, idOrUrl: nativeAudioUrl, startSec: 0, durationSec: question.introEndSec };
+      targets.push({ source: nativeSource, idOrUrl: nativeAudioUrl, startSec: 0, durationSec: question.introEndSec });
     }
-    return null;
+    return targets;
   }
 
   // RANDOM_CLIP（audio-clip）：Apple Music／Deezer 真正發揮優勢的地方
   if (nativeAudioUrl && nativeSource) {
-    return { source: nativeSource, idOrUrl: nativeAudioUrl, startSec: 0, durationSec: question.clipDurationSec };
+    targets.push({ source: nativeSource, idOrUrl: nativeAudioUrl, startSec: 0, durationSec: question.clipDurationSec });
   }
-
   if (song.youtubeVideoId) {
-    return {
+    targets.push({
       source: 'youtube',
       idOrUrl: song.youtubeVideoId,
       startSec: question.clipStartSec ?? 0,
       durationSec: question.clipDurationSec,
-    };
+    });
   }
+  return targets;
+}
 
-  return null;
+/** 優先序最高的播放目標；回傳 null 代表這首歌在這個模式下沒有任何可用來源。 */
+export function resolvePlaybackTarget(song: PlayableSong, question: PlayableQuestion): PlaybackTarget | null {
+  return resolvePlaybackTargets(song, question)[0] ?? null;
+}
+
+/**
+ * 備援目標：主要來源播放失敗時改用的另一個來源（優先序第二名，且來源類型不同）。
+ * 典型情境：YouTube 影片被作者下架或關閉嵌入，但這首歌還有 Apple／Deezer 試聽可以播。
+ */
+export function resolvePlaybackFallback(song: PlayableSong, question: PlayableQuestion): PlaybackTarget | null {
+  const targets = resolvePlaybackTargets(song, question);
+  if (targets.length < 2) return null;
+  return targets.find((t) => t.source !== targets[0].source) ?? null;
 }

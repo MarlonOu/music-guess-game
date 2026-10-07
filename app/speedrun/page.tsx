@@ -169,7 +169,7 @@ export default function SpeedrunPage() {
     const controller = audioControllerRef.current;
     const q = questions[questionIndex];
     if (!controller || !q || !q.source || !q.playbackId) return;
-    controller.play(q.source, q.playbackId, q.startSec, q.durationSec);
+    controller.play(q.source, q.playbackId, q.startSec, q.durationSec, q.fallback);
   }, [phase, questionIndex, questions]);
 
   // 讓 questionIndexRef／tokenRef 隨時鏡像最新的 state，供 resolveAudioWait 這種可能
@@ -358,7 +358,8 @@ export default function SpeedrunPage() {
           firstQuestion.source,
           firstQuestion.playbackId,
           firstQuestion.startSec,
-          firstQuestion.durationSec
+          firstQuestion.durationSec,
+          firstQuestion.fallback
         );
       }
       setPhase('playing');

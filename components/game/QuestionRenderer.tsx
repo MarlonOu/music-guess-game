@@ -5,7 +5,7 @@ import type { QuestionPayload } from '../../lib/types/question';
 import type { Song } from '../../lib/types/song';
 import type { AudioController, AudioPlaybackStatus } from '../../lib/audio/audioController';
 import { AnswerSticker } from './AnswerSticker';
-import { resolvePlaybackTarget } from '../../lib/audio/resolvePlaybackTarget';
+import { resolvePlaybackTarget, resolvePlaybackFallback } from '../../lib/audio/resolvePlaybackTarget';
 
 interface QuestionRendererProps {
   question: QuestionPayload;
@@ -57,6 +57,7 @@ export function QuestionRenderer({ question, song, controller, reveal }: Questio
   }, [controller]);
 
   const playbackTarget = resolvePlaybackTarget(song, question);
+  const fallbackTarget = resolvePlaybackFallback(song, question);
 
   async function handlePlayPause() {
     if (!controller || !playbackTarget) return;
@@ -68,12 +69,12 @@ export function QuestionRenderer({ question, song, controller, reveal }: Questio
       controller.resume();
       return;
     }
-    await controller.play(playbackTarget.source, playbackTarget.idOrUrl, playbackTarget.startSec, playbackTarget.durationSec);
+    await controller.play(playbackTarget.source, playbackTarget.idOrUrl, playbackTarget.startSec, playbackTarget.durationSec, fallbackTarget);
   }
 
   function handleRestart() {
     if (!controller || !playbackTarget) return;
-    controller.play(playbackTarget.source, playbackTarget.idOrUrl, playbackTarget.startSec, playbackTarget.durationSec);
+    controller.play(playbackTarget.source, playbackTarget.idOrUrl, playbackTarget.startSec, playbackTarget.durationSec, fallbackTarget);
   }
 
   if (question.renderType === 'text-lyric') {

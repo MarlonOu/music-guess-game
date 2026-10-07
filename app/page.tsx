@@ -132,6 +132,46 @@ export default function Home() {
               資料庫管理
             </Link>
           </motion.div>
+
+          <motion.footer
+            className="home-legal"
+            initial={prefersReducedMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={prefersReducedMotion ? { duration: 0.01 } : { duration: 0.5, delay: 1.7 }}
+          >
+            <p className="home-legal-line">
+              歌曲、封面與商標之著作權屬原權利人所有。本站不儲存、不提供下載任何音檔。
+            </p>
+            <details className="home-legal-more">
+              <summary>著作權與使用說明</summary>
+              <ul>
+                <li>
+                  <b>音源</b>
+                  <span>
+                    試聽片段由 Apple Music、Deezer 提供，部分歌曲透過 YouTube 官方嵌入播放器播放。本站只連結並播放這些平台公開提供的內容，不轉載、不重製、不散布音檔。
+                  </span>
+                </li>
+                <li>
+                  <b>著作權</b>
+                  <span>
+                    歌曲、歌詞、專輯封面與相關商標，其著作權及相關權利皆屬原創作者、詞曲著作權人、唱片公司與各平台所有。本站與 Apple、Deezer、YouTube 及任何歌手、唱片公司皆無隸屬或合作關係。
+                  </span>
+                </li>
+                <li>
+                  <b>用途</b>
+                  <span>
+                    本站為個人學習與娛樂性質的非營利專案，僅供合理使用範圍內的猜歌遊戲。若您是權利人並認為有不當使用，請聯絡站長，確認後會盡速移除相關內容。
+                  </span>
+                </li>
+                <li>
+                  <b>個人資料</b>
+                  <span>
+                    不需註冊。線上房間與速通排行榜僅保存您自訂的暱稱與成績；最佳連勝等紀錄只儲存在您的裝置上。
+                  </span>
+                </li>
+              </ul>
+            </details>
+          </motion.footer>
         </div>
       </div>
     </main>

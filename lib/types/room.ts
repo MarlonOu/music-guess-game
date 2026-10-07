@@ -58,6 +58,8 @@ export interface RoomState {
    */
   currentSongSource: 'youtube' | 'apple' | 'deezer' | null;
   currentSongPlaybackId: string | null;
+  /** 主要來源播放失敗時的備援來源（startSec 為相對於該來源的起點），沒有第二來源時為 null */
+  currentSongFallback: { source: 'youtube' | 'apple' | 'deezer'; playbackId: string; startSec: number } | null;
   /**
    * 目前這題答案歌手名稱；跟 currentQuestion.correctTitle 一樣，revealed 為 false 時會被伺服器端遮蔽為 null，
    * 避免透過輪詢 API 提前偷看到答案。

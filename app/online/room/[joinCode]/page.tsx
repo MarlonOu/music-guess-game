@@ -1068,16 +1068,19 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
       // elapsedSec：晚進這一題的玩家（例如中途重新整理頁面）從目前應該播到的秒數接續播放，
       // 而不是從頭開始，盡量跟其他玩家同步；沒有上限時長，會一路播到歌曲本身結束為止。
       const elapsedSec = Math.max(0, -msLeft / 1000);
-      if (room.currentSongSource === 'apple') {
-        // Apple 試聽片段一律從片段開頭起算（已知限制見 lib/audio/resolvePlaybackTarget.ts），
+      // 備援來源：主要來源失敗（例如 YouTube 影片被作者下架）時自動改用，起點同樣加上 elapsedSec 對齊進度
+      const fb = room.currentSongFallback;
+      const fallbackArg = fb ? { source: fb.source, idOrUrl: fb.playbackId, startSec: fb.startSec + elapsedSec } : null;
+      if (room.currentSongSource === 'apple' || room.currentSongSource === 'deezer') {
+        // Apple／Deezer 試聽片段一律從片段開頭起算（已知限制見 lib/audio/resolvePlaybackTarget.ts），
         // 晚進的玩家用 elapsedSec 直接當作片段內的秒數接續播放，不套用 clipStartSec
         // （那是相對於完整歌曲算的，對只有 30 秒的試聽片段沒有意義）。
-        audioController.play('apple', room.currentSongPlaybackId, elapsedSec);
+        audioController.play(room.currentSongSource, room.currentSongPlaybackId, elapsedSec, undefined, fallbackArg);
       } else if (room.currentQuestion.renderType === 'audio-intro') {
-        audioController.play('youtube', room.currentSongPlaybackId, elapsedSec);
+        audioController.play('youtube', room.currentSongPlaybackId, elapsedSec, undefined, fallbackArg);
       } else if (room.currentQuestion.renderType === 'audio-clip') {
         const clipStart = room.currentQuestion.clipStartSec ?? 0;
-        audioController.play('youtube', room.currentSongPlaybackId, clipStart + elapsedSec);
+        audioController.play('youtube', room.currentSongPlaybackId, clipStart + elapsedSec, undefined, fallbackArg);
       }
     };
 

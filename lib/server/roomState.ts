@@ -4,7 +4,7 @@ import type { QuestionPayload } from '../types/question';
 import type { GameMode } from '../types/match';
 import { FIXED_INTRO_DURATION_SEC } from '../engine/modes/introMode';
 import { DEFAULT_CLIP_DURATION_SEC } from '../engine/modes/randomClipMode';
-import { resolvePlaybackTarget } from '../audio/resolvePlaybackTarget';
+import { resolvePlaybackTarget, resolvePlaybackFallback } from '../audio/resolvePlaybackTarget';
 import { CHOICES_PER_ROUND } from './choiceMode';
 import { peekSongCoverUrl } from './songCover';
 
@@ -67,6 +67,7 @@ export async function loadRoomState(joinCode: string): Promise<RoomState | null>
   let currentQuestion: QuestionPayload | null = null;
   let currentSongSource: 'youtube' | 'apple' | 'deezer' | null = null;
   let currentSongPlaybackId: string | null = null;
+  let currentSongFallback: RoomState['currentSongFallback'] = null;
   let currentSongArtist: string | null = null;
   let currentSongThemeLabels: string[] = [];
   let currentChoices: RoomState['currentChoices'] = [];
@@ -89,6 +90,8 @@ export async function loadRoomState(joinCode: string): Promise<RoomState | null>
       const target = resolvePlaybackTarget(song, question);
       currentSongSource = target?.source ?? null;
       currentSongPlaybackId = target?.idOrUrl ?? null;
+      const fb = resolvePlaybackFallback(song, question);
+      currentSongFallback = fb ? { source: fb.source, playbackId: fb.idOrUrl, startSec: fb.startSec } : null;
       // 只有這場房間本來就是「依主題篩選」時才需要小標顯示，且只列出該首歌「符合本場篩選」的主題
       // （一首歌可能同時屬於多個主題，但只有房主選定的那些才跟這場比賽相關）。
       const matchedThemeNames =
@@ -148,6 +151,7 @@ export async function loadRoomState(joinCode: string): Promise<RoomState | null>
     currentChoices,
     currentSongSource,
     currentSongPlaybackId,
+    currentSongFallback,
     currentSongArtist,
     currentSongThemeLabels,
     revealed: room.revealed,

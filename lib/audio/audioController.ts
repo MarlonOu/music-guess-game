@@ -19,6 +19,14 @@ export type AudioPlaybackStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'f
  */
 export type AudioSource = 'apple' | 'deezer' | 'youtube';
 
+/** 主要來源播放失敗（影片被下架、嵌入被關閉、試聽網址過期…）時改用的備援來源。 */
+export interface PlayFallback {
+  source: AudioSource;
+  idOrUrl: string;
+  startSec: number;
+  durationSec?: number;
+}
+
 // YouTube IFrame Player API 為第三方全域腳本注入的型別，官方未提供正式型別套件對應此版本，
 // 故以最小必要介面自行宣告，避免引入未經審核的第三方型別定義。
 interface YouTubePlayer {
@@ -665,7 +673,7 @@ export class AudioController {
    * 邊界條件：來源無效、播放器初始化失敗、或逾時未開始播放時，
    * loadState 設為 'error'，呼叫端需檢查此狀態並顯示對應 UI（不拋出例外中斷遊戲流程）。
    */
-  async play(source: AudioSource, idOrUrl: string, startSec: number, durationSec?: number): Promise<void> {
+  async play(source: AudioSource, idOrUrl: string, startSec: number, durationSec?: number, fallback?: PlayFallback | null): Promise<void> {
     this.clearStopHandle();
     this.loadState = 'loading';
     this.setStatus('loading');
@@ -676,11 +684,16 @@ export class AudioController {
     if (this.activeSource && this.activeSource !== source) this.pauseActiveSource();
     this.activeSource = source;
 
-    if (source === 'youtube') {
-      await this.playYoutube(idOrUrl, startSec, durationSec);
-      return;
+    const ok =
+      source === 'youtube'
+        ? await this.playYoutube(idOrUrl, startSec, durationSec)
+        : await this.playNativeAudio(idOrUrl, startSec, durationSec);
+    // 主要來源失敗且有備援時自動改用備援（例如 YouTube 影片被作者下架，但同一首歌有 Apple 試聽），
+    // 備援本身不再帶備援，避免無限遞迴。
+    if (!ok && fallback) {
+      console.warn(`[AudioController] ${source} 來源播放失敗，改用備援來源 ${fallback.source}`);
+      await this.play(fallback.source, fallback.idOrUrl, fallback.startSec, fallback.durationSec);
     }
-    await this.playNativeAudio(idOrUrl, startSec, durationSec);
   }
 
   /**
@@ -688,7 +701,7 @@ export class AudioController {
    * 才 resolve／視為失敗，不像先前版本呼叫完 API 就假設成功 —— 否則影片本身的錯誤
    * （例如嵌入權限關閉）會在呼叫已經回傳「成功」之後才非同步發生，被靜默吃掉。
    */
-  private async playYoutube(videoId: string, startSec: number, durationSec?: number): Promise<void> {
+  private async playYoutube(videoId: string, startSec: number, durationSec?: number): Promise<boolean> {
     try {
       const player = await this.ensurePlayer();
 
@@ -724,6 +737,7 @@ export class AudioController {
       this.armStopTimer();
       this.setStatus('playing');
       this.updateMediaSession('playing');
+      return true;
     } catch (err) {
       console.error('[AudioController] playYoutube() 失敗：', err);
       this.loadState = 'error';
@@ -734,6 +748,7 @@ export class AudioController {
       // 上一次成功播放的那首歌，玩家在控制中心按下播放，聽到的會是上一題的音樂，
       // 讓人誤以為「這首放得出來，只是介面卡住」，實際上這一題根本沒有真的在播放任何東西。
       this.updateMediaSession('none');
+      return false;
     }
   }
 
@@ -742,7 +757,7 @@ export class AudioController {
    * 不用透過 postMessage 跟 iframe 溝通，直接操作原生 <audio> 元素的標準 API 即可。
    * 兩個來源的試聽網址性質完全一樣（都是直接可播放的音檔網址），共用同一套邏輯。
    */
-  private async playNativeAudio(previewUrl: string, startSec: number, durationSec?: number): Promise<void> {
+  private async playNativeAudio(previewUrl: string, startSec: number, durationSec?: number): Promise<boolean> {
     try {
       const audio = this.ensureAudioElement();
       if (audio.src !== previewUrl) {
@@ -772,6 +787,7 @@ export class AudioController {
       this.armStopTimer();
       this.setStatus('playing');
       this.updateMediaSession('playing');
+      return true;
     } catch (err) {
       console.error('[AudioController] playNativeAudio() 失敗：', err);
       this.loadState = 'error';
@@ -780,6 +796,7 @@ export class AudioController {
       // 同上（見 playYoutube() 的說明），播放失敗要清掉 Media Session，避免控制中心
       // 繼續顯示上一次成功播放的歌曲，誤導玩家。
       this.updateMediaSession('none');
+      return false;
     }
   }
 

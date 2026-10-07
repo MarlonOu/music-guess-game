@@ -3,7 +3,7 @@ import { prisma } from '../../../../lib/db';
 import { createSpeedrunSession } from '../../../../lib/server/speedrunSession';
 import { buildChoiceSongIds, CHOICES_PER_ROUND } from '../../../../lib/server/choiceMode';
 import { getRandomClipStart, DEFAULT_CLIP_DURATION_SEC } from '../../../../lib/engine/modes/randomClipMode';
-import { resolvePlaybackTarget } from '../../../../lib/audio/resolvePlaybackTarget';
+import { resolvePlaybackTarget, resolvePlaybackFallback } from '../../../../lib/audio/resolvePlaybackTarget';
 import type { SpeedrunQuestion } from '../../../../lib/types/speedrun';
 
 const QUESTION_COUNT = 10;
@@ -47,7 +47,9 @@ export async function POST() {
       const effectiveDuration = song.durationSec > 0 ? song.durationSec : DEFAULT_CLIP_DURATION_SEC;
       const clipDurationSec = Math.min(DEFAULT_CLIP_DURATION_SEC, effectiveDuration);
       const clipStartSec = getRandomClipStart(effectiveDuration, clipDurationSec);
-      const target = resolvePlaybackTarget(song, { renderType: 'audio-clip', clipStartSec, clipDurationSec });
+      const clipQuestion = { renderType: 'audio-clip' as const, clipStartSec, clipDurationSec };
+      const target = resolvePlaybackTarget(song, clipQuestion);
+      const fallbackTarget = resolvePlaybackFallback(song, clipQuestion);
 
       const roundChoiceIds = choiceSongIds
         .slice(i * CHOICES_PER_ROUND, (i + 1) * CHOICES_PER_ROUND)
@@ -63,6 +65,14 @@ export async function POST() {
         playbackId: target?.idOrUrl ?? null,
         startSec: target?.startSec ?? 0,
         durationSec: target?.durationSec,
+        fallback: fallbackTarget
+          ? {
+              source: fallbackTarget.source,
+              idOrUrl: fallbackTarget.idOrUrl,
+              startSec: fallbackTarget.startSec,
+              durationSec: fallbackTarget.durationSec,
+            }
+          : null,
         choices,
       };
     });
