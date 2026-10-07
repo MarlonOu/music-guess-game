@@ -1931,37 +1931,53 @@ function YouTubePlaylistImportAccordion({
     setSuggestNote(null);
     setError(null);
     try {
-      const res = await fetch('/api/themes/suggest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: targets.map((r) => ({ key: r.videoId, title: r.songTitle.trim() || r.title, artist: r.artistName.trim() || r.channelTitle })),
-          themes: themes.map((t) => ({ id: t.id, name: t.name, description: t.description ?? '' })),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error ?? '自動判斷主題失敗');
-        return;
+      // 分批送出（每批 8 首）：每首歌要查年份、維基百科、新聞再交給模型，整批一次送很容易超過
+      // Cloudflare Tunnel 約 100 秒的回應上限；分批也讓畫面可以顯示進度，每批結果立即套用到列上。
+      const CHUNK = 8;
+      const themePayload = themes.map((t) => ({ id: t.id, name: t.name, description: t.description ?? '' }));
+      let withTheme = 0;
+      let factsFound = 0;
+      let evidenceFound = 0;
+      let mode: 'ai' | 'rules' = 'ai';
+      const warnings = new Set<string>();
+      for (let i = 0; i < targets.length; i += CHUNK) {
+        setSuggestNote(`判斷中… ${Math.min(i, targets.length)} / ${targets.length}`);
+        const chunk = targets.slice(i, i + CHUNK);
+        const res = await fetch('/api/themes/suggest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items: chunk.map((r) => ({ key: r.videoId, title: r.songTitle.trim() || r.title, artist: r.artistName.trim() || r.channelTitle })),
+            themes: themePayload,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error ?? '自動判斷主題失敗');
+          break;
+        }
+        const byKey = new Map<string, { themeIds: string[]; reason: string }>(
+          (data.results as { key: string; themeIds: string[]; reason: string }[]).map((r) => [r.key, r])
+        );
+        withTheme += chunk.filter((r) => (byKey.get(r.videoId)?.themeIds.length ?? 0) > 0).length;
+        factsFound += data.factsFound ?? 0;
+        evidenceFound += data.evidenceFound ?? 0;
+        if (data.mode === 'rules') mode = 'rules';
+        for (const w of (data.warnings ?? []) as string[]) warnings.add(w);
+        setRows((prev) =>
+          prev.map((row) => {
+            const hit = byKey.get(row.videoId);
+            if (!hit) return row;
+            return {
+              ...row,
+              themeIds: Array.from(new Set([...row.themeIds, ...hit.themeIds])),
+              themeReason: hit.themeIds.length > 0 ? hit.reason : hit.reason || '沒有把握，請手動選擇',
+            };
+          })
+        );
       }
-      const byKey = new Map<string, { themeIds: string[]; reason: string }>(
-        (data.results as { key: string; themeIds: string[]; reason: string }[]).map((r) => [r.key, r])
-      );
-      const withTheme = targets.filter((r) => (byKey.get(r.videoId)?.themeIds.length ?? 0) > 0).length;
-      setRows((prev) =>
-        prev.map((row) => {
-          const hit = byKey.get(row.videoId);
-          if (!hit) return row;
-          return {
-            ...row,
-            themeIds: Array.from(new Set([...row.themeIds, ...hit.themeIds])),
-            themeReason: hit.themeIds.length > 0 ? hit.reason : '沒有把握，請手動選擇',
-          };
-        })
-      );
-      const warnings: string[] = data.warnings ?? [];
       setSuggestNote(
-        `${data.mode === 'ai' ? 'AI' : '規則'}判斷完成：${targets.length} 首中有 ${withTheme} 首找到建議主題（查到年份／曲風 ${data.factsFound} 首）。請檢查後再匯入。${warnings.length > 0 ? ' ' + warnings.join('；') : ''}`
+        `${mode === 'ai' ? 'AI' : '規則'}判斷完成：${targets.length} 首中有 ${withTheme} 首找到建議主題（查到年份／曲風 ${factsFound} 首、維基／新聞佐證 ${evidenceFound} 首）。請檢查後再匯入。${warnings.size > 0 ? ' ' + Array.from(warnings).join('；') : ''}`
       );
     } catch {
       setError('自動判斷主題失敗，請檢查網路後再試');
