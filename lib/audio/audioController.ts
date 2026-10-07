@@ -25,6 +25,8 @@ export interface PlayFallback {
   idOrUrl: string;
   startSec: number;
   durationSec?: number;
+  /** 這個備援也失敗時再改用的下一個來源（依序嘗試，沒有就不再重試） */
+  next?: PlayFallback | null;
 }
 
 // YouTube IFrame Player API 為第三方全域腳本注入的型別，官方未提供正式型別套件對應此版本，
@@ -689,10 +691,10 @@ export class AudioController {
         ? await this.playYoutube(idOrUrl, startSec, durationSec)
         : await this.playNativeAudio(idOrUrl, startSec, durationSec);
     // 主要來源失敗且有備援時自動改用備援（例如 YouTube 影片被作者下架，但同一首歌有 Apple 試聽），
-    // 備援本身不再帶備援，避免無限遞迴。
+    // 備援可以再帶下一個備援（fallback.next，依序嘗試）；鏈是有限長度、不會互相指回，不會無限遞迴。
     if (!ok && fallback) {
       console.warn(`[AudioController] ${source} 來源播放失敗，改用備援來源 ${fallback.source}`);
-      await this.play(fallback.source, fallback.idOrUrl, fallback.startSec, fallback.durationSec);
+      await this.play(fallback.source, fallback.idOrUrl, fallback.startSec, fallback.durationSec, fallback.next ?? null);
     }
   }
 
@@ -771,9 +773,12 @@ export class AudioController {
         await new Promise<void>((resolve) => {
           const onLoaded = () => {
             audio.removeEventListener('loadedmetadata', onLoaded);
+            audio.removeEventListener('error', onLoaded);
             resolve();
           };
           audio.addEventListener('loadedmetadata', onLoaded);
+          // 來源載入失敗（網址過期、格式不支援）時不必等滿逾時，立刻往下走讓備援來源接手
+          audio.addEventListener('error', onLoaded);
           // 保險逾時：萬一 loadedmetadata 因為某些瀏覽器怪癖沒觸發，別讓整個 play() 卡死
           setTimeout(resolve, 2000);
         });

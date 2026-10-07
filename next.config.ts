@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // 內附 ffmpeg 執行檔的套件不能被打包進 server bundle，需維持成執行期 require（無限連勝的伺服器端音訊裁切會用到）
+  serverExternalPackages: ['@ffmpeg-installer/ffmpeg'],
   /* config options here */
   // Next.js 15.3+ 預設僅允許 localhost 存取開發伺服器的 _next 靜態資源與 HMR WebSocket，
   // 透過區網 IP（例如手機、其他裝置、VM 對外 IP）連線會被回傳 403 並擋掉 HMR。

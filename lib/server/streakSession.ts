@@ -1,8 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { isAnswerCorrect } from '../engine/answerUtils';
 import { getRandomClipStart, DEFAULT_CLIP_DURATION_SEC } from '../engine/modes/randomClipMode';
-import { resolvePlaybackTargets, type PlaybackTarget } from '../audio/resolvePlaybackTarget';
-import { STREAK_STAGES_SEC, STREAK_CLIP_SEC, STREAK_MIN_GUESS_MS, streakPointsForStage } from '../constants/streak';
+import type { PlayFallback } from '../audio/audioController';
+import {
+  STREAK_STAGES_SEC,
+  STREAK_CLIP_SEC,
+  STREAK_MIN_GUESS_MS,
+  STREAK_PREVIEW_LEN_SEC,
+  streakPointsForStage,
+} from '../constants/streak';
 import type { StreakAnswer, StreakPlayback, StreakQuestion } from '../types/streak';
 
 /**
@@ -29,7 +35,10 @@ export interface StreakPoolSong {
 
 interface CurrentQuestion {
   song: StreakPoolSong;
+  /** YouTube 用的片段起點（相對於整首歌） */
   clipStartSec: number;
+  /** Apple／Deezer 試聽片段內的起點（試聽只有 30 秒，另外隨機挑） */
+  nativeStartSec: number;
   stage: number;
   /** 目前這一段被送出（題目開始、猜錯或按多聽解鎖新一段）的伺服器時間戳 */
   stageServedAt: number;
@@ -38,6 +47,7 @@ interface CurrentQuestion {
 }
 
 interface StreakSession {
+  token: string;
   pool: StreakPoolSong[];
   poolById: Map<string, StreakPoolSong>;
   used: Set<string>;
@@ -60,42 +70,98 @@ function cleanupExpired(): void {
   }
 }
 
-function clipQuestionFor(song: StreakPoolSong, clipStartSec: number) {
-  return { renderType: 'audio-clip' as const, clipStartSec, clipDurationSec: STREAK_CLIP_SEC };
+type StreakSourceKey = 'apple' | 'deezer' | 'youtube';
+
+/** 這首歌可用的來源，依優先序 Apple → Deezer → YouTube。 */
+function sourceOrder(song: StreakPoolSong): StreakSourceKey[] {
+  const keys: StreakSourceKey[] = [];
+  if (song.appleMusicPreviewUrl) keys.push('apple');
+  if (song.deezerPreviewUrl) keys.push('deezer');
+  if (song.youtubeVideoId) keys.push('youtube');
+  return keys;
 }
 
-/** 這首歌在無限連勝（隨機片段）下是否有可播放來源 */
-export function isStreakPlayable(song: Pick<StreakPoolSong, 'youtubeVideoId' | 'appleMusicPreviewUrl' | 'deezerPreviewUrl'>): boolean {
-  return resolvePlaybackTargets(song, { renderType: 'audio-clip', clipStartSec: 0, clipDurationSec: STREAK_CLIP_SEC }).length > 0;
+/** 這首歌在無限連勝下是否有可播放來源 */
+export function isStreakPlayable(
+  song: Pick<StreakPoolSong, 'youtubeVideoId' | 'appleMusicPreviewUrl' | 'deezerPreviewUrl'>
+): boolean {
+  return Boolean(song.appleMusicPreviewUrl || song.deezerPreviewUrl || song.youtubeVideoId);
 }
 
-function toPlayback(
-  targets: PlaybackTarget[],
-  durationSec: number | undefined
+/**
+ * 組出一段的播放資訊，備援鏈依序為 Apple → Deezer → YouTube。
+ * - 題目進行中：Apple／Deezer 一律走伺服器裁切（/api/streak/audio），客戶端只拿得到
+ *   已解鎖長度的音訊檔，看不到原始試聽網址。YouTube 無法由伺服器限制長度（IFrame 播放器
+ *   由客戶端控制），只作為最後備援。
+ * - 公布答案後（reveal = true）：沒有保密需要，直接給原始來源，播整首／整段試聽。
+ */
+function buildPlayback(
+  session: StreakSession,
+  cur: CurrentQuestion,
+  opts: { reveal: boolean }
 ): StreakPlayback | null {
-  const primary = targets[0];
-  if (!primary) return null;
-  const fb = targets.find((t) => t.source !== primary.source) ?? null;
+  const durationSec = opts.reveal ? undefined : STREAK_STAGES_SEC[cur.stage];
+  const chain: PlayFallback[] = sourceOrder(cur.song).map((k) => {
+    if (k === 'youtube') {
+      return { source: 'youtube' as const, idOrUrl: cur.song.youtubeVideoId!, startSec: cur.clipStartSec, durationSec };
+    }
+    const directUrl = k === 'apple' ? cur.song.appleMusicPreviewUrl! : cur.song.deezerPreviewUrl!;
+    if (opts.reveal) return { source: k, idOrUrl: directUrl, startSec: 0, durationSec: undefined };
+    const q = `t=${session.token}&q=${session.streak + 1}&k=${k}&s=${cur.stage}`;
+    return { source: k, idOrUrl: `/api/streak/audio?${q}`, startSec: 0, durationSec };
+  });
+  if (chain.length === 0) return null;
+  // 串成鏈：每個備援帶著下一個備援
+  for (let i = 0; i < chain.length - 1; i++) chain[i].next = chain[i + 1];
+  const [primary, ...rest] = chain;
   return {
     source: primary.source,
     idOrUrl: primary.idOrUrl,
     startSec: primary.startSec,
     durationSec: durationSec ?? 0,
-    fallback: fb ? { source: fb.source, idOrUrl: fb.idOrUrl, startSec: fb.startSec, durationSec } : null,
+    fallback: rest.length > 0 ? rest[0] : null,
   };
 }
 
 function buildQuestion(session: StreakSession): StreakQuestion {
   const cur = session.current!;
-  const targets = resolvePlaybackTargets(cur.song, clipQuestionFor(cur.song, cur.clipStartSec));
-  const playback = toPlayback(targets, STREAK_STAGES_SEC[cur.stage])!;
+  const playback = buildPlayback(session, cur, { reveal: false })!;
   return { number: session.streak + 1, stage: cur.stage, wrong: [...cur.wrong], playback };
 }
 
-function buildAnswer(cur: CurrentQuestion): StreakAnswer {
-  const targets = resolvePlaybackTargets(cur.song, clipQuestionFor(cur.song, cur.clipStartSec));
-  const reveal = toPlayback(targets, undefined);
-  return { songId: cur.song.id, title: cur.song.title, artist: cur.song.artistName, reveal };
+function buildAnswer(session: StreakSession, cur: CurrentQuestion): StreakAnswer {
+  return {
+    songId: cur.song.id,
+    title: cur.song.title,
+    artist: cur.song.artistName,
+    reveal: buildPlayback(session, cur, { reveal: true }),
+  };
+}
+
+/**
+ * 供 /api/streak/audio 使用：驗證請求確實對應「目前進行中題目的目前這一段」，
+ * 回傳要裁切的原始試聽網址與起訖秒數。過期的段落、已公布答案的題目、不存在的來源一律回傳 null。
+ */
+export function getStreakClipRequest(
+  token: string,
+  questionNumber: number,
+  source: string,
+  stage: number
+): { cacheKey: string; url: string; startSec: number; durationSec: number } | null {
+  const session = sessions.get(token);
+  if (!session || session.over || !session.current || session.current.resolved !== 'open') return null;
+  const cur = session.current;
+  if (questionNumber !== session.streak + 1 || stage !== cur.stage) return null;
+  const url =
+    source === 'apple' ? cur.song.appleMusicPreviewUrl : source === 'deezer' ? cur.song.deezerPreviewUrl : null;
+  if (!url) return null;
+  const durationSec = STREAK_STAGES_SEC[cur.stage];
+  return {
+    cacheKey: `${cur.song.id}:${source}:${cur.nativeStartSec}:${durationSec}`,
+    url,
+    startSec: cur.nativeStartSec,
+    durationSec,
+  };
 }
 
 function pickNext(session: StreakSession): boolean {
@@ -111,6 +177,7 @@ function pickNext(session: StreakSession): boolean {
   session.current = {
     song,
     clipStartSec: getRandomClipStart(effective, clipDuration),
+    nativeStartSec: Math.floor(Math.random() * (Math.max(0, STREAK_PREVIEW_LEN_SEC - STREAK_CLIP_SEC) + 1)),
     stage: 0,
     stageServedAt: Date.now(),
     wrong: [],
@@ -123,7 +190,9 @@ export function createStreakSession(pool: StreakPoolSong[]): { token: string; qu
   cleanupExpired();
   const playable = pool.filter(isStreakPlayable);
   if (playable.length === 0) return null;
+  const token = randomUUID();
   const session: StreakSession = {
+    token,
     pool: playable,
     poolById: new Map(playable.map((s) => [s.id, s])),
     used: new Set(),
@@ -134,7 +203,6 @@ export function createStreakSession(pool: StreakPoolSong[]): { token: string; qu
     over: false,
   };
   pickNext(session);
-  const token = randomUUID();
   sessions.set(token, session);
   return { token, question: buildQuestion(session) };
 }
@@ -187,14 +255,14 @@ export function guessStreak(token: string, input: GuessInput): StreakGuessResult
     session.streak += 1;
     session.score += gain;
     cur.resolved = 'correct';
-    return { result: 'correct', answer: buildAnswer(cur), gain, streak: session.streak, score: session.score, over: false };
+    return { result: 'correct', answer: buildAnswer(session, cur), gain, streak: session.streak, score: session.score, over: false };
   }
 
   cur.wrong.push(guessLabel);
   if (cur.stage >= STREAK_STAGES_SEC.length - 1) {
     cur.resolved = 'failed';
     session.over = true;
-    return { result: 'failed', answer: buildAnswer(cur), gain: 0, streak: session.streak, score: session.score, over: true, guessLabel };
+    return { result: 'failed', answer: buildAnswer(session, cur), gain: 0, streak: session.streak, score: session.score, over: true, guessLabel };
   }
   cur.stage += 1;
   cur.stageServedAt = Date.now();
@@ -218,7 +286,7 @@ export function giveUpStreak(token: string): { answer: StreakAnswer; streak: num
   if (!session || session.over || !session.current || session.current.resolved !== 'open') return null;
   session.current.resolved = 'failed';
   session.over = true;
-  return { answer: buildAnswer(session.current), streak: session.streak, score: session.score };
+  return { answer: buildAnswer(session, session.current), streak: session.streak, score: session.score };
 }
 
 /** 答對後進入下一首。題庫全部猜完時挑戰結束（over = true）。 */

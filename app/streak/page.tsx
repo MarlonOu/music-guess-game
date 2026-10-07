@@ -14,6 +14,7 @@ import { streakRepository } from '../../lib/repository/streakRepository';
 import { useSongIndex } from '../../lib/client/useSongIndex';
 import {
   STREAK_STAGES_SEC,
+  STREAK_CLIP_SEC,
   STREAK_BEST_STORAGE_KEY,
   PLAYER_NAME_STORAGE_KEY,
   streakPointsForStage,
@@ -230,6 +231,8 @@ export default function StreakPage() {
     setOutcome(result);
     setLastGain(gain);
     setPhase('revealed');
+    // 公布答案後自動播放這首歌（猜測、放棄都是玩家剛剛的操作，瀏覽器允許出聲）
+    if (a.reveal) playPlayback(a.reveal);
   }
 
   function recordBest(finalStreak: number) {
@@ -419,7 +422,7 @@ export default function StreakPage() {
     return (
       <PageShell
         title="無限連勝"
-        subtitle="隨機片段，只聽 1 秒認得出幾首？一路連勝，直到猜錯為止。"
+        subtitle={`隨機片段，最多只聽 ${STREAK_CLIP_SEC} 秒認得出幾首？一路連勝，直到猜錯為止。`}
         width={420}
       >
         <motion.div
@@ -430,7 +433,9 @@ export default function StreakPage() {
         >
           <ol className="streak-rules">
             <li>
-              <b>1 → 16 秒</b>
+              <b>
+                {STREAK_STAGES_SEC[0]} → {STREAK_CLIP_SEC} 秒
+              </b>
               <span>
                 每首歌從隨機片段開始，猜錯或按「多聽」就解鎖下一段：{STREAK_STAGES_SEC.join('、')} 秒。每一段都要自己按唱盤播放。
               </span>
