@@ -220,6 +220,8 @@ export class AudioController {
   /** 最近一次嘗試播放的 videoId，僅供錯誤訊息 log 使用 */
   private lastVideoId: string | null = null;
   /** 目前這次 play() 呼叫等待「真正開始播放」或「出錯」的 pending callback */
+  /** 每次 play()／stop() 遞增；非同步流程（載入中途）醒來時比對，發現已過期就不得再動播放器狀態 */
+  private playGen = 0;
   private pendingPlayResult: { resolve: () => void; reject: (err: Error) => void } | null = null;
 
   /**
@@ -441,9 +443,14 @@ export class AudioController {
   }
 
   private handleStateChange(event: YouTubeOnStateChangeEvent): void {
-    if (window.YT && event.data === window.YT.PlayerState.PLAYING && this.pendingPlayResult) {
-      this.pendingPlayResult.resolve();
-      this.pendingPlayResult = null;
+    if (window.YT && event.data === window.YT.PlayerState.PLAYING) {
+      if (this.pendingPlayResult) {
+        this.pendingPlayResult.resolve();
+        this.pendingPlayResult = null;
+      } else if (!this.playing && this.loadState !== 'idle' && this.status !== 'paused') {
+        // 沒有任何進行中的播放卻收到 PLAYING：是被取代／停止的上一首載入完成，立刻停掉
+        this.safeCallPlayer('pauseVideo');
+      }
     }
   }
 
@@ -676,20 +683,26 @@ export class AudioController {
    * loadState 設為 'error'，呼叫端需檢查此狀態並顯示對應 UI（不拋出例外中斷遊戲流程）。
    */
   async play(source: AudioSource, idOrUrl: string, startSec: number, durationSec?: number, fallback?: PlayFallback | null): Promise<void> {
+    const gen = ++this.playGen;
     this.clearStopHandle();
     this.loadState = 'loading';
     this.setStatus('loading');
     this.lastVideoId = idOrUrl;
     this.pendingPlayResult = null;
+    this.playing = false;
 
-    // 換來源播放時，把另一邊可能還在播的東西停掉，避免兩邊同時出聲
-    if (this.activeSource && this.activeSource !== source) this.pauseActiveSource();
+    // 開始新的播放前，兩邊來源一律先停掉：上一個 play() 可能還在載入中（例如快速切題時，
+    // 上一題公布答案的整首播放尚未開始），單靠 activeSource 只會停到其中一邊，
+    // 載入完成後上一題的歌會從背後冒出來
+    this.haltAllSources();
     this.activeSource = source;
 
     const ok =
       source === 'youtube'
-        ? await this.playYoutube(idOrUrl, startSec, durationSec)
-        : await this.playNativeAudio(idOrUrl, startSec, durationSec);
+        ? await this.playYoutube(idOrUrl, startSec, durationSec, gen)
+        : await this.playNativeAudio(idOrUrl, startSec, durationSec, gen);
+    // 等待期間已被 stop() 或新的 play() 取代：這次結果作廢，不觸發備援也不改狀態
+    if (gen !== this.playGen) return;
     // 主要來源失敗且有備援時自動改用備援（例如 YouTube 影片被作者下架，但同一首歌有 Apple 試聽），
     // 備援可以再帶下一個備援（fallback.next，依序嘗試）；鏈是有限長度、不會互相指回，不會無限遞迴。
     if (!ok && fallback) {
@@ -703,9 +716,10 @@ export class AudioController {
    * 才 resolve／視為失敗，不像先前版本呼叫完 API 就假設成功 —— 否則影片本身的錯誤
    * （例如嵌入權限關閉）會在呼叫已經回傳「成功」之後才非同步發生，被靜默吃掉。
    */
-  private async playYoutube(videoId: string, startSec: number, durationSec?: number): Promise<boolean> {
+  private async playYoutube(videoId: string, startSec: number, durationSec: number | undefined, gen: number): Promise<boolean> {
     try {
       const player = await this.ensurePlayer();
+      if (gen !== this.playGen) return true;
 
       await new Promise<void>((resolve, reject) => {
         const timeoutHandle = setTimeout(() => {
@@ -733,6 +747,11 @@ export class AudioController {
         player.playVideo();
       });
 
+      if (gen !== this.playGen) {
+        // 已被取代：載入完成的是過期的影片，立刻停掉，不能出聲
+        this.safeCallPlayer('pauseVideo');
+        return true;
+      }
       this.loadState = 'ready';
       this.playing = true;
       this.remainingMs = durationSec !== undefined ? durationSec * 1000 : null;
@@ -741,6 +760,7 @@ export class AudioController {
       this.updateMediaSession('playing');
       return true;
     } catch (err) {
+      if (gen !== this.playGen) return true;
       console.error('[AudioController] playYoutube() 失敗：', err);
       this.loadState = 'error';
       this.playing = false;
@@ -759,7 +779,7 @@ export class AudioController {
    * 不用透過 postMessage 跟 iframe 溝通，直接操作原生 <audio> 元素的標準 API 即可。
    * 兩個來源的試聽網址性質完全一樣（都是直接可播放的音檔網址），共用同一套邏輯。
    */
-  private async playNativeAudio(previewUrl: string, startSec: number, durationSec?: number): Promise<boolean> {
+  private async playNativeAudio(previewUrl: string, startSec: number, durationSec: number | undefined, gen: number): Promise<boolean> {
     try {
       const audio = this.ensureAudioElement();
       if (audio.src !== previewUrl) {
@@ -783,9 +803,11 @@ export class AudioController {
           setTimeout(resolve, 2000);
         });
       }
+      if (gen !== this.playGen) return true;
       audio.currentTime = startSec;
       await audio.play();
 
+      if (gen !== this.playGen) return true;
       this.loadState = 'ready';
       this.playing = true;
       this.remainingMs = durationSec !== undefined ? durationSec * 1000 : null;
@@ -794,6 +816,7 @@ export class AudioController {
       this.updateMediaSession('playing');
       return true;
     } catch (err) {
+      if (gen !== this.playGen) return true;
       console.error('[AudioController] playNativeAudio() 失敗：', err);
       this.loadState = 'error';
       this.playing = false;
@@ -841,10 +864,18 @@ export class AudioController {
     this.updateMediaSession('playing');
   }
 
+  /** 兩種來源都暫停（不依賴 activeSource，載入中的來源也一併處理） */
+  private haltAllSources(): void {
+    this.audioEl?.pause();
+    this.safeCallPlayer('pauseVideo');
+  }
+
   /** 完全停止並清除進度（下次需重新呼叫 play() 從頭開始） */
   stop(): void {
+    this.playGen += 1; // 讓載入中的 play() 作廢
+    this.pendingPlayResult = null;
     this.clearStopHandle();
-    this.pauseActiveSource();
+    this.haltAllSources();
     this.playing = false;
     this.remainingMs = null;
     this.segmentStartedAt = null;
