@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Song } from '../../lib/types/song';
 import type { Artist, ArtistGender, Theme } from '../../lib/types/theme';
+import { SubmissionReviewAccordion } from './SubmissionReviewAccordion';
 import { songRepository, type ImportSummary } from '../../lib/repository/songRepository';
 import { SONG_CSV_COLUMNS, ALIAS_LIST_SEPARATOR } from '../../lib/csv/songCsv';
 import {
@@ -3426,6 +3427,8 @@ function SongSection({
       <ImportExportBar onImported={onChanged} onError={onError} onNotice={onNotice} />
 
       <div ref={formAnchorRef} style={{ scrollMarginTop: '16px' }} />
+
+      <SubmissionReviewAccordion themes={themes} onChanged={onChanged} onError={onError} onNotice={onNotice} />
 
       <YouTubeSearchAccordion onPick={setPrefill} />
 

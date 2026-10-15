@@ -220,3 +220,35 @@ model StreakScore {
   @@index([streak, score])
   @@map("streak_scores")
 }
+
+/// 玩家投稿的題目（YouTube 影片）。投稿時只存影片資訊與玩家建議的歌名／歌手，不會直接進題庫；
+/// 管理者在 /admin 的「投稿審核」區塊檢視後，通過才會建立 Song（songId 記錄建立出的歌曲），
+/// 退回則保留紀錄與原因，同一支影片之後再投稿時可以直接提示「已被退回」。
+model SongSubmission {
+  id             String    @id @default(uuid())
+  youtubeVideoId String    @map("youtube_video_id")
+  /// YouTube 原始影片標題（審核時對照用）
+  videoTitle     String    @map("video_title")
+  channelTitle   String    @map("channel_title")
+  thumbnailUrl   String    @map("thumbnail_url")
+  durationSec    Int       @map("duration_sec")
+  /// 投稿者填寫（或系統建議後確認）的歌名與歌手
+  title          String
+  artistName     String    @map("artist_name")
+  /// 投稿者補充說明（選填），例如「這是現場版」「這首是翻唱」
+  note           String    @default("")
+  submitterName  String    @map("submitter_name")
+  /// pending：待審核；approved：已加入題庫；rejected：已退回
+  status         String    @default("pending")
+  /// 送出當下偵測到的相似歌曲提示（'title'：歌名相同但歌手不同），審核時顯示
+  warning        String    @default("")
+  reviewNote     String    @default("") @map("review_note")
+  /// 通過後建立的歌曲 id
+  songId         String?   @map("song_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  reviewedAt     DateTime? @map("reviewed_at")
+
+  @@index([status, createdAt])
+  @@index([youtubeVideoId])
+  @@map("song_submissions")
+}

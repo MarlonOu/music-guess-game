@@ -128,9 +128,14 @@ export default function Home() {
             animate={{ opacity: 1 }}
             transition={prefersReducedMotion ? { duration: 0.01 } : { duration: 0.5, delay: 1.5 }}
           >
-            <Link href="/admin" prefetch={false} className="home-admin">
-              資料庫管理
-            </Link>
+            <div className="home-links">
+              <Link href="/submit" className="home-admin home-submit">
+                投稿題目
+              </Link>
+              <Link href="/admin" prefetch={false} className="home-admin">
+                資料庫管理
+              </Link>
+            </div>
           </motion.div>
 
           <motion.footer

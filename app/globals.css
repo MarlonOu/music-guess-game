@@ -832,6 +832,24 @@ body::before {
   color: var(--ink);
 }
 
+/* 首頁底部的次要連結列：投稿題目（玩家用）與資料庫管理（站長用） */
+.home-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 12px;
+}
+
+.home-submit {
+  color: var(--accent);
+}
+
+.home-submit:hover {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 @media (min-width: 640px) and (min-aspect-ratio: 5/4) {
   .home-inner {
     max-width: 1120px;
@@ -859,8 +877,8 @@ body::before {
     color: var(--ink);
   }
 
-  .home-admin {
-    align-self: flex-start;
+  .home-links {
+    justify-content: flex-start;
     margin-left: -12px;
   }
 }
