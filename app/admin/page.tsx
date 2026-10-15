@@ -6,7 +6,9 @@ import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Song } from '../../lib/types/song';
 import type { Artist, ArtistGender, Theme } from '../../lib/types/theme';
-import { SubmissionReviewAccordion } from './SubmissionReviewAccordion';
+import { ManualSourceSearch, PLATFORM_LABEL, type MatchPlatform, type SourceCandidateView } from './ManualSourceSearch';
+import { SubmissionSection } from './SubmissionSection';
+import { buttonStyle, dangerButtonStyle, editButtonStyle, formatDuration, inputStyle, sectionStyle } from './adminShared';
 import { songRepository, type ImportSummary } from '../../lib/repository/songRepository';
 import { SONG_CSV_COLUMNS, ALIAS_LIST_SEPARATOR } from '../../lib/csv/songCsv';
 import {
@@ -140,6 +142,8 @@ export default function AdminPage() {
         )}
       </AnimatePresence>
 
+      <SubmissionSection songs={songs} artists={artists} themes={themes} onChanged={reload} onError={setError} onNotice={flashNotice} />
+
       <SongSection
         songs={songs}
         artists={artists}
@@ -158,68 +162,21 @@ export default function AdminPage() {
   );
 }
 
-const sectionStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '16px',
-  width: '100%',
-  maxWidth: '720px',
-  padding: '20px',
-  borderRadius: '14px',
-  border: '1px solid var(--groove)',
-  background: 'var(--bg-raised)',
-};
 
 // 這四個共用樣式常數對齊全站統一的按鈕／輸入框系統（見 app/globals.css 最下方的說明），
 // 保留成 JS 常數（而不是直接改成 className）是因為底下有 50 多處呼叫端會用
 // style={{ ...editButtonStyle, 額外的排版覆寫 }} 這種寫法疊加個別的 flex/寬度調整，
 // 直接改動每一處風險較高；改成從這幾個常數集中定義視覺樣式，效果等同全站統一，
 // 同時把「按鈕排版微調」跟「按鈕視覺風格」兩件事分開，各自的呼叫端不用逐一修改。
-const inputStyle: React.CSSProperties = {
-  padding: '12px 16px',
-  borderRadius: '10px',
-  border: '1px solid var(--groove)',
-  background: 'var(--bg-raised)',
-  color: 'var(--ink)',
-  fontFamily: 'var(--font-body)',
-  fontSize: '1rem',
-};
 
 // 對應 .btn-primary：畫面裡最主要的動作（新增歌手／歌曲、送出表單）
-const buttonStyle: React.CSSProperties = {
-  padding: '12px 22px',
-  borderRadius: '10px',
-  border: '1px solid var(--accent)',
-  background: 'var(--accent)',
-  color: 'var(--accent-ink)',
-  fontWeight: 600,
-  fontSize: '0.95rem',
-};
 
 // 對應 .btn-danger .btn-sm：破壞性操作（刪除），紅色描邊、不用實心填滿避免視覺恐慌
-const dangerButtonStyle: React.CSSProperties = {
-  padding: '8px 14px',
-  borderRadius: '8px',
-  border: '1px solid var(--error)',
-  background: 'transparent',
-  color: 'var(--error)',
-  fontSize: '0.85rem',
-  fontWeight: 500,
-};
 
 // 對應 .btn-ghost .btn-sm：中性的次要操作（編輯、搜尋、試聽、匯入匯出、全選）；
 // 這裡也是清單裡各種「切換選中狀態」按鈕的基底樣式，呼叫端會另外 spread 疊加
 // borderColor／color 依選中狀態切換（例如試聽來源切換、搶答方式切換），
 // 疊加時使用的顏色也統一對齊 var(--accent) 表示選中、var(--groove)／var(--ink-dim) 表示未選中。
-const editButtonStyle: React.CSSProperties = {
-  padding: '8px 14px',
-  borderRadius: '8px',
-  border: '1px solid var(--groove)',
-  background: 'transparent',
-  color: 'var(--ink)',
-  fontSize: '0.85rem',
-  fontWeight: 500,
-};
 
 /**
  * 刪除動作的確認按鈕——原本三個刪除動作（歌手／歌曲／主題）都是點了就立刻送出刪除請求，
@@ -1160,12 +1117,6 @@ function ThemeSection({
   );
 }
 
-function formatDuration(sec: number): string {
-  if (!sec) return '';
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
 
 interface YouTubePrefill {
   videoId: string;
@@ -2405,16 +2356,7 @@ function YouTubePlaylistImportAccordion({
 // 把 scripts/fetch-apple-previews.mjs、scripts/fetch-deezer-previews.mjs 的功能搬進管理頁面：
 // 逐首呼叫 /api/songs/match-sources（伺服器端統一節流並查詢外部 API），結果先列出來讓管理者
 // 試聽核對，勾選後才寫入——自動比對可能選到翻唱／Live／精選輯版本，不能無人審核就覆蓋。
-type MatchPlatform = 'apple' | 'deezer';
 type MatchMode = 'fill' | 'refresh';
-
-interface SourceCandidateView {
-  trackId: string;
-  trackName: string;
-  artistName: string;
-  previewUrl: string;
-  durationSec: number;
-}
 
 interface SourceMatchItem {
   key: string;
@@ -2434,138 +2376,7 @@ interface SourceMatchItem {
   manual?: boolean;
 }
 
-const PLATFORM_LABEL: Record<MatchPlatform, string> = { apple: 'Apple Music', deezer: 'Deezer' };
 const PLATFORM_INTERVAL_SEC: Record<MatchPlatform, number> = { apple: 3, deezer: 2 };
-
-/** 單列的手動來源搜尋：用歌名＋歌手（可改關鍵字）搜尋平台，試聽後點「關連這個來源」指定給該列 */
-function ManualSourceSearch({
-  platform,
-  defaultQuery,
-  country,
-  targetDurationSec,
-  rowLabel,
-  onPick,
-  onClose,
-}: {
-  platform: MatchPlatform;
-  defaultQuery: string;
-  country: string;
-  targetDurationSec: number;
-  rowLabel: string;
-  onPick: (candidate: SourceCandidateView) => void;
-  onClose: () => void;
-}) {
-  const [query, setQuery] = useState(defaultQuery);
-  const [results, setResults] = useState<SourceCandidateView[] | null>(null);
-  const [searching, setSearching] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [playing, setPlaying] = useState<string | null>(null);
-  const requestId = useRef(0);
-
-  async function search() {
-    const q = query.trim();
-    if (!q || searching) return;
-    const id = ++requestId.current;
-    setSearching(true);
-    setError(null);
-    setPlaying(null);
-    try {
-      const url =
-        platform === 'apple'
-          ? `/api/apple-music-search?q=${encodeURIComponent(q)}&country=${encodeURIComponent(country)}`
-          : `/api/deezer-search?q=${encodeURIComponent(q)}`;
-      const res = await fetch(url);
-      const data = await res.json().catch(() => ({}));
-      if (id !== requestId.current) return;
-      if (!res.ok) {
-        setError(data.error ?? `搜尋失敗（HTTP ${res.status}）`);
-        setResults(null);
-      } else {
-        setResults(Array.isArray(data.results) ? data.results : []);
-      }
-    } catch {
-      if (id === requestId.current) {
-        setError('網路錯誤，請稍後再試');
-        setResults(null);
-      }
-    } finally {
-      if (id === requestId.current) setSearching(false);
-    }
-  }
-
-  return (
-    <div
-      role="group"
-      aria-label={`手動搜尋 ${PLATFORM_LABEL[platform]} 來源：${rowLabel}`}
-      style={{ marginLeft: '21px', padding: '10px', borderRadius: '8px', border: '1px solid var(--groove)', background: 'var(--bg)', display: 'flex', flexDirection: 'column', gap: '8px' }}
-    >
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          search();
-        }}
-        style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}
-      >
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          aria-label={`${PLATFORM_LABEL[platform]} 搜尋關鍵字`}
-          placeholder="歌名 歌手"
-          style={{ ...inputStyle, flex: '1 1 200px', minHeight: '40px' }}
-        />
-        <button type="submit" disabled={searching || !query.trim()} style={{ ...buttonStyle, padding: '8px 14px', fontSize: '0.85rem', minHeight: '40px' }}>
-          {searching ? '搜尋中…' : '搜尋'}
-        </button>
-        <button type="button" onClick={onClose} style={{ ...editButtonStyle, minHeight: '40px' }}>
-          關閉
-        </button>
-      </form>
-      <div role="status" aria-live="polite" style={{ fontSize: '0.78rem', color: error ? 'var(--error)' : 'var(--ink-dim)' }}>
-        {error ?? (results ? (results.length === 0 ? '沒有搜尋結果，請換個關鍵字（例如只輸入歌名，或改用英文名稱）' : `找到 ${results.length} 筆，試聽確認後點「關連這個來源」`) : '')}
-      </div>
-      {results && results.length > 0 && (
-        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '260px', overflowY: 'auto', overscrollBehavior: 'contain' }}>
-          {results.map((r) => {
-            const diff = targetDurationSec > 0 && r.durationSec > 0 ? Math.abs(r.durationSec - targetDurationSec) : null;
-            const key = r.trackId;
-            return (
-              <li key={key} style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--groove)' }}>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '0.82rem', flex: '1 1 160px', minWidth: 0, overflowWrap: 'anywhere' }}>
-                    「{r.trackName}」－{r.artistName}
-                    {r.durationSec > 0 && `・${formatDuration(r.durationSec)}`}
-                    {diff !== null && (
-                      <span style={{ color: diff > 15 ? 'var(--accent)' : 'var(--success)' }}>
-                        {`（與題庫差 ${diff} 秒）`}
-                      </span>
-                    )}
-                  </span>
-                  <button
-                    type="button"
-                    style={{ ...editButtonStyle, minHeight: '36px' }}
-                    aria-pressed={playing === key}
-                    onClick={() => setPlaying((k) => (k === key ? null : key))}
-                  >
-                    {playing === key ? '收起試聽' : '試聽'}
-                  </button>
-                  <button
-                    type="button"
-                    style={{ ...buttonStyle, padding: '6px 12px', fontSize: '0.8rem', minHeight: '36px' }}
-                    onClick={() => onPick(r)}
-                  >
-                    關連這個來源
-                  </button>
-                </div>
-                {playing === key && <audio controls autoPlay src={r.previewUrl} style={{ height: '32px', maxWidth: '100%' }} />}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
-  );
-}
 
 function SourceMatchAccordion({
   songs,
@@ -3427,8 +3238,6 @@ function SongSection({
       <ImportExportBar onImported={onChanged} onError={onError} onNotice={onNotice} />
 
       <div ref={formAnchorRef} style={{ scrollMarginTop: '16px' }} />
-
-      <SubmissionReviewAccordion themes={themes} onChanged={onChanged} onError={onError} onNotice={onNotice} />
 
       <YouTubeSearchAccordion onPick={setPrefill} />
 

@@ -8,8 +8,28 @@ function clean(v: unknown, max: number): string {
   return typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '';
 }
 
+interface SourceFields {
+  trackId: string | null;
+  previewUrl: string | null;
+  verified: boolean;
+  skip: boolean;
+}
+
+/** 解析審核時帶來的 Apple Music／Deezer 來源；只接受 https 網址，其他一律忽略 */
+function parseSource(v: unknown): SourceFields {
+  const empty: SourceFields = { trackId: null, previewUrl: null, verified: false, skip: false };
+  if (!v || typeof v !== 'object') return empty;
+  const o = v as Record<string, unknown>;
+  const previewUrl = typeof o.previewUrl === 'string' && /^https:\/\//.test(o.previewUrl) ? o.previewUrl.slice(0, 2000) : null;
+  if (!previewUrl) return { ...empty, skip: o.skip === true };
+  const trackId = typeof o.trackId === 'string' && o.trackId.trim() ? o.trackId.trim().slice(0, 64) : null;
+  return { trackId, previewUrl, verified: o.verified === true, skip: false };
+}
+
 // PATCH /api/admin/submissions/:id（受 proxy.ts 保護）
-//   { action: 'approve', title, artistName, aliases?, themeIds? } → 建立歌曲並標記通過
+//   { action: 'approve', title, artistName, aliases?, themeIds?, apple?, deezer? } → 建立歌曲並標記通過
+//     apple／deezer：{ trackId, previewUrl, verified } 審核時比對並核對過的 Apple Music／Deezer 來源，
+//     或 { skip: true } 代表已確認該平台找不到
 //   { action: 'reject', reviewNote? }                              → 退回
 //   { action: 'reopen' }                                           → 退回改回待審核
 export async function PATCH(request: NextRequest, { params }: Params) {
@@ -70,6 +90,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         await prisma.artist.create({ data: { id: artistId, name: artistName, gender: 'UNKNOWN' } });
       }
 
+      const apple = parseSource(body.apple);
+      const deezer = parseSource(body.deezer);
+
       const songId = crypto.randomUUID();
       await prisma.$transaction([
         prisma.song.create({
@@ -78,6 +101,14 @@ export async function PATCH(request: NextRequest, { params }: Params) {
             title,
             artistId,
             youtubeVideoId: sub.youtubeVideoId,
+            appleMusicTrackId: apple.trackId,
+            appleMusicPreviewUrl: apple.previewUrl,
+            appleMusicVerified: apple.verified,
+            appleMusicSkip: apple.skip,
+            deezerTrackId: deezer.trackId,
+            deezerPreviewUrl: deezer.previewUrl,
+            deezerVerified: deezer.verified,
+            deezerSkip: deezer.skip,
             durationSec: sub.durationSec,
             lyrics: '',
             aliases,
