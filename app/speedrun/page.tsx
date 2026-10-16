@@ -503,6 +503,7 @@ export default function SpeedrunPage() {
 
   return (
     <PageShell
+      centerHeader
       title="速通挑戰"
       subtitle={
         phase === 'intro'

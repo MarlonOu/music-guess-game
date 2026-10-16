@@ -2194,29 +2194,42 @@ body::before {
 /* ───────── 回報問題（全站浮動入口＋對話框）───────── */
 .report-fab {
   position: fixed;
-  top: calc(env(safe-area-inset-top, 0px) + 10px);
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
   right: calc(env(safe-area-inset-right, 0px) + 10px);
   z-index: 60;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 44px;
-  min-width: 44px;
-  padding: 0 12px;
   justify-content: center;
+  gap: 4px;
+  min-height: 30px;
+  min-width: 30px;
+  padding: 0 9px;
   border-radius: 999px;
   border: 1px solid var(--groove);
   background: color-mix(in srgb, var(--bg-raised) 88%, transparent);
   backdrop-filter: blur(8px);
   color: var(--ink-dim);
-  font-size: 0.85rem;
+  font-size: 0.72rem;
   cursor: pointer;
   transition: color 0.15s ease, border-color 0.15s ease;
+}
+/* 視覺縮小後仍保留 44px 的觸控範圍 */
+.report-fab::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
 }
 .report-fab:hover,
 .report-fab:focus-visible { color: var(--ink); border-color: var(--ink-dim); }
 .report-fab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-@media (max-width: 480px) { .report-fab-label { display: none; } }
+@media (max-width: 480px) { .report-fab-label { display: none; } .report-fab { padding: 0; } }
+
+/* 遊玩頁頂部列：右側文字讓出浮動回報按鈕的位置 */
+.play-top > :last-child { padding-right: 64px; }
+@media (max-width: 480px) { .play-top > :last-child { padding-right: 40px; } }
+
+.report-row > div { min-width: 0; }
+.report-form .field { width: 100%; min-width: 0; box-sizing: border-box; }
 
 .report-overlay {
   position: fixed;

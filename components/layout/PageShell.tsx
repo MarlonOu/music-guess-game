@@ -10,6 +10,8 @@ interface PageShellProps {
   backLabel?: string;
   width?: number;
   showBack?: boolean;
+  /** 標題與副標題水平置中 */
+  centerHeader?: boolean;
   children: React.ReactNode;
 }
 
@@ -23,6 +25,7 @@ export function PageShell({
   backLabel = '首頁',
   width = 480,
   showBack = true,
+  centerHeader = false,
   children,
 }: PageShellProps) {
   const reduce = useReducedMotion();
@@ -49,7 +52,7 @@ export function PageShell({
           )}
         </nav>
 
-        <motion.header {...rise(0)} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <motion.header {...rise(0)} style={{ display: 'flex', flexDirection: 'column', gap: '8px', ...(centerHeader ? { textAlign: 'center' as const } : {}) }}>
           <h1
             style={{
               fontFamily: 'var(--font-display)',

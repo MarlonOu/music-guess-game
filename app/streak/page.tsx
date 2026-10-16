@@ -418,7 +418,7 @@ export default function StreakPage() {
   // ------------------------------------------------------------------ 畫面
   if (phase === 'loading') {
     return (
-      <PageShell title="無限連勝" subtitle="準備中…">
+      <PageShell centerHeader title="無限連勝" subtitle="準備中…">
         <div className="loading-disc" aria-hidden="true" />
       </PageShell>
     );
@@ -426,7 +426,7 @@ export default function StreakPage() {
 
   if (phase === 'intro' || phase === 'starting') {
     return (
-      <PageShell
+      <PageShell centerHeader
         title="無限連勝"
         subtitle={`隨機片段，最多只聽 ${STREAK_CLIP_SEC} 秒認得出幾首？一路連勝，直到猜錯為止。`}
         width={420}
@@ -506,7 +506,7 @@ export default function StreakPage() {
 
   if (phase === 'submitting') {
     return (
-      <PageShell title="結算中" width={420} showBack={false}>
+      <PageShell centerHeader title="結算中" width={420} showBack={false}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', padding: '24px 0' }}>
           {submitError ? (
             <>
@@ -526,7 +526,7 @@ export default function StreakPage() {
   if (phase === 'results' && results) {
     const ranked = results.rank > 0;
     return (
-      <PageShell title="挑戰結束" width={420}>
+      <PageShell centerHeader title="挑戰結束" width={420}>
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -588,7 +588,7 @@ export default function StreakPage() {
   const revealed = phase === 'revealed' && answer;
   const hasStarted = status !== 'idle';
   return (
-    <PageShell title="無限連勝" backLabel="結束" width={480}>
+    <PageShell centerHeader title="無限連勝" backLabel="結束" width={480}>
       <div className="streak-stats" aria-live="polite">
         <div>
           <span>連勝</span>
