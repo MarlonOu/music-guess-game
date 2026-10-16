@@ -1,3 +1,5 @@
+import { logEvent, redactUrl } from '../client/clientLog';
+
 export type AudioLoadState = 'idle' | 'loading' | 'ready' | 'error';
 
 /**
@@ -248,6 +250,9 @@ export class AudioController {
   }
 
   private setStatus(status: AudioPlaybackStatus): void {
+    if (status !== this.status) {
+      logEvent('audio', `播放狀態 ${this.status} → ${status}`, { source: this.activeSource ?? '' }, status === 'error' ? 'e' : undefined);
+    }
     this.status = status;
     this.onStatusChange?.(status);
   }
@@ -435,6 +440,7 @@ export class AudioController {
     );
     this.playing = false;
     this.loadState = 'error';
+    logEvent('audio', `YouTube 播放器錯誤 ${event.data}：${meaning}`, { videoId: this.lastVideoId ?? '' }, 'e');
     this.setStatus('error');
     if (this.pendingPlayResult) {
       this.pendingPlayResult.reject(new Error(`YouTube 影片載入失敗：${meaning}（錯誤碼 ${event.data}）`));
@@ -684,6 +690,12 @@ export class AudioController {
    */
   async play(source: AudioSource, idOrUrl: string, startSec: number, durationSec?: number, fallback?: PlayFallback | null): Promise<void> {
     const gen = ++this.playGen;
+    logEvent('audio', `開始播放 ${source}`, {
+      target: source === 'youtube' ? idOrUrl : redactUrl(idOrUrl),
+      startSec,
+      durationSec: durationSec ?? null,
+      hasFallback: Boolean(fallback),
+    });
     this.clearStopHandle();
     this.loadState = 'loading';
     this.setStatus('loading');
@@ -707,6 +719,7 @@ export class AudioController {
     // 備援可以再帶下一個備援（fallback.next，依序嘗試）；鏈是有限長度、不會互相指回，不會無限遞迴。
     if (!ok && fallback) {
       console.warn(`[AudioController] ${source} 來源播放失敗，改用備援來源 ${fallback.source}`);
+      logEvent('audio', `${source} 播放失敗，改用備援 ${fallback.source}`, undefined, 'w');
       await this.play(fallback.source, fallback.idOrUrl, fallback.startSec, fallback.durationSec, fallback.next ?? null);
     }
   }

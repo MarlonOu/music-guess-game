@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Space_Grotesk, Inter, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
+import ReportWidget from "../components/report/ReportWidget";
 
 /*
   先前版本的 globals.css 其實只是「寫了」Space Grotesk／Inter／IBM Plex Mono 這幾個
@@ -81,7 +82,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <link rel="preconnect" href="https://i.ytimg.com" />
         <link rel="dns-prefetch" href="https://www.youtube.com" />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <ReportWidget />
+      </body>
     </html>
   );
 }

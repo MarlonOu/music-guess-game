@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { motion, useReducedMotion } from 'framer-motion';
+import { PlaybackReportLink } from '../../components/report/PlaybackReportLink';
+import { logEvent } from '../../lib/client/clientLog';
 import { PageShell } from '../../components/layout/PageShell';
 import { StageDisc } from '../../components/game/StageDisc';
 import { AnswerSticker } from '../../components/game/AnswerSticker';
@@ -264,6 +266,7 @@ export default function StreakPage() {
     }
     setError(null);
     const r = result.data;
+    logEvent('game', `無限模式判定：${r.result}`, { streak: r.streak, score: r.score, stage: r.question?.stage ?? null });
     setStreak(r.streak);
     setScore(r.score);
     if (r.result === 'correct' && r.answer) {
@@ -295,6 +298,7 @@ export default function StreakPage() {
       return;
     }
     setError(null);
+    logEvent('game', '無限模式：解鎖下一段', { stage: result.data.stage });
     controller?.stop();
     setQuestion(result.data);
   }
@@ -307,6 +311,7 @@ export default function StreakPage() {
       setError(result.error ?? '操作失敗');
       return;
     }
+    logEvent('game', '無限模式：放棄本題', { streak: result.data.streak });
     recordBest(result.data.streak);
     setStreak(result.data.streak);
     setScore(result.data.score);
@@ -323,6 +328,7 @@ export default function StreakPage() {
     }
     controller?.stop();
     const r = result.data;
+    logEvent('game', r.over || !r.question ? '無限模式：題庫猜完，結算' : '無限模式：進入下一題', { streak: r.streak });
     if (r.over || !r.question) {
       // 題庫全部猜完，直接結算
       recordBest(r.streak);
@@ -642,6 +648,7 @@ export default function StreakPage() {
         <p className="stage-status" data-state={status} aria-live="polite">
           {revealed ? '答案公布' : STATUS_LABEL[status]}
         </p>
+        {status === 'error' && !revealed && <PlaybackReportLink />}
       </div>
 
       {revealed ? (

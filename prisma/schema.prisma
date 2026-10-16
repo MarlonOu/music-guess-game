@@ -252,3 +252,32 @@ model SongSubmission {
   @@index([youtubeVideoId])
   @@map("song_submissions")
 }
+
+/// 使用者從任何頁面的「回報問題」送出的錯誤回報。除了使用者描述之外，客戶端會自動附上最近的
+/// 操作與系統紀錄（點擊、換頁、API 請求結果、播放器狀態、console 錯誤等，不含輸入內容）與裝置環境，
+/// 供管理者重現問題。logs／env 為 JSON；列表查詢不取 logs（體積大），展開單筆時才讀取。
+model ErrorReport {
+  id         String    @id @default(uuid())
+  /// playback：播放問題；source：歌曲來源／版本錯誤；answer：答案判定或搜尋；ui：畫面或操作異常；other：其他
+  category   String
+  message    String
+  nickname   String    @default("")
+  /// 聯絡方式（選填，使用者自願提供）
+  contact    String    @default("")
+  /// 回報當下所在的頁面路徑
+  route      String
+  userAgent  String    @map("user_agent")
+  env        Json
+  logs       Json
+  logCount   Int       @map("log_count")
+  /// 紀錄中屬於錯誤等級的筆數，列表上用來快速判斷哪些回報有程式層面的錯誤
+  errorCount Int       @map("error_count")
+  /// open：未處理；resolved：已處理；ignored：已忽略
+  status     String    @default("open")
+  adminNote  String    @default("") @map("admin_note")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  resolvedAt DateTime? @map("resolved_at")
+
+  @@index([status, createdAt])
+  @@map("error_reports")
+}

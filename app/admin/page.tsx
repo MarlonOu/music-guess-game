@@ -8,6 +8,7 @@ import type { Song } from '../../lib/types/song';
 import type { Artist, ArtistGender, Theme } from '../../lib/types/theme';
 import { ManualSourceSearch, PLATFORM_LABEL, type MatchPlatform, type SourceCandidateView } from './ManualSourceSearch';
 import { SubmissionSection } from './SubmissionSection';
+import { ReportSection } from './ReportSection';
 import { buttonStyle, dangerButtonStyle, editButtonStyle, formatDuration, inputStyle, sectionStyle } from './adminShared';
 import { songRepository, type ImportSummary } from '../../lib/repository/songRepository';
 import { SONG_CSV_COLUMNS, ALIAS_LIST_SEPARATOR } from '../../lib/csv/songCsv';
@@ -154,6 +155,8 @@ export default function AdminPage() {
       />
       <ArtistSection artists={artists} songs={songs} onChanged={reload} onError={setError} onNotice={flashNotice} />
       <ThemeSection themes={themes} songs={songs} onChanged={reload} onError={setError} onNotice={flashNotice} />
+
+      <ReportSection onError={setError} onNotice={flashNotice} />
 
       <Link href="/" style={{ color: 'var(--ink-dim)', fontSize: '0.9rem' }}>
         返回首頁

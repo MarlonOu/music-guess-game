@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import type { QuestionPayload } from '../../lib/types/question';
 import type { Song } from '../../lib/types/song';
 import type { AudioController, AudioPlaybackStatus } from '../../lib/audio/audioController';
+import { PlaybackReportLink } from '../report/PlaybackReportLink';
 import { AnswerSticker } from './AnswerSticker';
 import { resolvePlaybackTarget, resolvePlaybackFallback } from '../../lib/audio/resolvePlaybackTarget';
 
@@ -129,6 +130,7 @@ export function QuestionRenderer({ question, song, controller, reveal }: Questio
       <p className="stage-status" data-state={status} aria-live="polite">
         {reveal ? '答案公布' : STATUS_LABEL[status]}
       </p>
+      {status === 'error' && !reveal && <PlaybackReportLink />}
 
       <div className="stage-controls">
         {reveal && (
