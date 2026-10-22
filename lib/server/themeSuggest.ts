@@ -271,14 +271,21 @@ async function callClaude(prompt: string): Promise<string> {
     body: JSON.stringify({
       model: process.env.ANTHROPIC_MODEL || DEFAULT_MODEL,
       max_tokens: 8192,
-      temperature: 0,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: prompt }],
     }),
     signal: AbortSignal.timeout(90_000),
   });
   if (!res.ok) {
-    throw new Error(`Anthropic API ${res.status}`);
+    // 帶上 API 回傳的錯誤說明（不含金鑰），讓管理頁的警告能直接看出是金鑰、模型名稱還是參數問題
+    let detail = '';
+    try {
+      const body = (await res.json()) as { error?: { type?: string; message?: string } };
+      detail = [body.error?.type, body.error?.message].filter(Boolean).join('：');
+    } catch {
+      // 回應不是 JSON：只回報狀態碼
+    }
+    throw new Error(`Anthropic API ${res.status}${detail ? `（${detail.slice(0, 200)}）` : ''}`);
   }
   const data = (await res.json()) as { content?: { type: string; text?: string }[] };
   return (data.content ?? []).map((c) => c.text ?? '').join('');
@@ -371,6 +378,7 @@ export async function suggestThemes(items: SuggestItem[], themes: SuggestTheme[]
   if (process.env.ANTHROPIC_API_KEY) {
     const results = new Map<string, SuggestResult>();
     let aiFailed = false;
+    let firstError = '';
     let unparsedBatches = 0;
     for (let i = 0; i < items.length; i += AI_BATCH_SIZE) {
       const batch = items.slice(i, i + AI_BATCH_SIZE);
@@ -384,6 +392,7 @@ export async function suggestThemes(items: SuggestItem[], themes: SuggestTheme[]
         for (const r of parsed) results.set(r.key, reconcile(r, facts.get(r.key) ?? null, themes));
       } catch (err) {
         aiFailed = true;
+        if (!firstError) firstError = err instanceof Error ? err.message : String(err);
         console.error('[themeSuggest] Claude 呼叫失敗：', err);
       }
     }
@@ -392,7 +401,7 @@ export async function suggestThemes(items: SuggestItem[], themes: SuggestTheme[]
       if (!results.has(item.key)) results.set(item.key, ruleSuggest(item, facts.get(item.key) ?? null, themes));
     }
     if (unparsedBatches > 0) warnings.push('AI 回覆格式無法解析，已改用規則（年份／曲風）補上，詳見伺服器日誌');
-    if (aiFailed) warnings.push('部分歌曲 AI 判斷失敗，已改用規則（年份／曲風）補上');
+    if (aiFailed) warnings.push(`部分歌曲 AI 判斷失敗，已改用規則（年份／曲風）補上。原因：${firstError}`);
     return { results: items.map((i) => results.get(i.key)!), mode: aiFailed || unparsedBatches === Math.ceil(items.length / AI_BATCH_SIZE) ? 'rules' : 'ai', factsFound, evidenceFound, warnings };
   }
 
