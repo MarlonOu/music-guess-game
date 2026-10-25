@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 // 純查詢用的 GET /api/songs、GET /api/artists、GET /api/themes 不擋，遊戲本身要能正常讀題庫。
 // /api/admin（投稿審核）整段需要管理者密碼；/api/submissions 是給玩家投稿用的公開入口，不在此列。
 // /api/rooms 系列不在此列——那是線上模式給一般玩家用的房間功能，不是管理功能。
-const PROTECTED_PATH_PREFIXES = ['/admin', '/api/admin', '/api/youtube-search'];
+const PROTECTED_PATH_PREFIXES = ['/admin', '/api/admin', '/api/youtube-search', '/api/streaming-playlist'];
 const PROTECTED_MUTATION_PATHS = ['/api/songs', '/api/artists', '/api/themes'];
 
 function isProtectedPath(pathname: string, method: string): boolean {
@@ -77,6 +77,7 @@ export const config = {
     '/admin/:path*',
     '/api/admin/:path*',
     '/api/youtube-search/:path*',
+    '/api/streaming-playlist/:path*',
     '/api/songs/:path*',
     '/api/artists/:path*',
     '/api/themes/:path*',

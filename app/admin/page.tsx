@@ -9,6 +9,7 @@ import type { Artist, ArtistGender, Theme } from '../../lib/types/theme';
 import { ManualSourceSearch, PLATFORM_LABEL, type MatchPlatform, type SourceCandidateView } from './ManualSourceSearch';
 import { SubmissionSection } from './SubmissionSection';
 import { ReportSection } from './ReportSection';
+import { StreamingImportAccordion } from './StreamingImportAccordion';
 import { buttonStyle, dangerButtonStyle, editButtonStyle, formatDuration, inputStyle, sectionStyle } from './adminShared';
 import { songRepository, type ImportSummary } from '../../lib/repository/songRepository';
 import { SONG_CSV_COLUMNS, ALIAS_LIST_SEPARATOR } from '../../lib/csv/songCsv';
@@ -3251,6 +3252,7 @@ function SongSection({
       <SourceMatchAccordion songs={songs} artists={artists} onChanged={onChanged} onError={onError} onNotice={onNotice} />
 
       <YouTubePlaylistImportAccordion themes={themes} existingSongs={songs} artists={artists} onImported={onChanged} onNotice={onNotice} />
+      <StreamingImportAccordion themes={themes} existingSongs={songs} artists={artists} onImported={onChanged} onNotice={onNotice} />
 
       <SongForm
         key={`${editing?.id ?? 'new'}-${artistsKey}-${themesKey}-${prefill?.videoId ?? ''}-${applePrefill?.trackId ?? ''}-${deezerPrefill?.trackId ?? ''}`}
