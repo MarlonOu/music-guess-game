@@ -10,6 +10,8 @@ import {
   type HealthScanResult,
 } from '../../lib/types/sourceHealth';
 import { buttonStyle, dangerButtonStyle, editButtonStyle } from './adminShared';
+import type { MatchPlatform, SourceCandidateView } from './ManualSourceSearch';
+import { SourceSearchPanel, type YoutubeCandidate } from './SourceSearchPanel';
 
 // ===== 來源健康檢查 =====
 // 掃描題庫裡每首歌的 YouTube／Apple Music／Deezer 來源狀態（已刪除／私人／關閉嵌入／地區封鎖／下架／
@@ -65,6 +67,8 @@ export function SourceHealthAccordion({
   const [bulkRefreshing, setBulkRefreshing] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [previewKey, setPreviewKey] = useState<string | null>(null);
+  const [searchKey, setSearchKey] = useState<string | null>(null);
+  const [country, setCountry] = useState('TW');
   const cancelRef = useRef(false);
 
   const artistNameById = useMemo(() => new Map(artists.map((a) => [a.id, a.name])), [artists]);
@@ -119,6 +123,7 @@ export function SourceHealthAccordion({
     setScanned({ youtube: null, apple: null, deezer: null });
     setVisible(PAGE_SIZE);
     setPreviewKey(null);
+    setSearchKey(null);
     setConfirmRemove(null);
     const targets = new Map(platforms.map((p) => [p, songs.filter((s) => hasSource(s, p))]));
     const total = platforms.reduce((n, p) => n + targets.get(p)!.length, 0);
@@ -199,6 +204,47 @@ export function SourceHealthAccordion({
       onNotice(action === 'refresh' ? `已刷新 ${HEALTH_PLATFORM_LABEL[f.platform]} 試聽網址` : `已移除 ${HEALTH_PLATFORM_LABEL[f.platform]} 來源`);
       onChanged();
     }
+  }
+
+  /** 搜尋後指定新來源：直接更新該首歌（Apple／Deezer 標記為已人工核對），並清除該平台的檢查結果 */
+  async function pickSource(song: Song, platform: HealthPlatform, fields: Record<string, unknown>) {
+    if (anyBusy) return;
+    setBusyKey(`${song.id}:${platform}:pick`);
+    try {
+      const res = await fetch(`/api/songs/${encodeURIComponent(song.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fields),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        onError(data.error ?? `更新來源失敗（HTTP ${res.status}）`);
+        return;
+      }
+      dropFindings(song.id, platform);
+      setSearchKey(null);
+      setPreviewKey(null);
+      onNotice(`已將 ${HEALTH_PLATFORM_LABEL[platform]} 來源更換為搜尋選取的結果`);
+      onChanged();
+    } catch {
+      onError('網路錯誤，更新來源失敗');
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  function pickYoutube(song: Song, c: YoutubeCandidate) {
+    return pickSource(song, 'youtube', { youtubeVideoId: c.videoId });
+  }
+
+  function pickCandidate(song: Song, p: MatchPlatform, c: SourceCandidateView) {
+    return pickSource(
+      song,
+      p,
+      p === 'apple'
+        ? { appleMusicTrackId: c.trackId, appleMusicPreviewUrl: c.previewUrl, appleMusicVerified: true, appleMusicSkip: false }
+        : { deezerTrackId: c.trackId, deezerPreviewUrl: c.previewUrl, deezerVerified: true, deezerSkip: false }
+    );
   }
 
   async function refreshAll() {
@@ -362,6 +408,16 @@ export function SourceHealthAccordion({
                         {p === 'all' ? '全部平台' : HEALTH_PLATFORM_LABEL[p]}
                       </button>
                     ))}
+                    <label style={{ ...smallText, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      搜尋地區
+                      <select value={country} onChange={(e) => setCountry(e.target.value)} style={{ background: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--groove)', borderRadius: '6px', padding: '6px 8px', minHeight: '36px' }}>
+                        {['TW', 'JP', 'KR', 'US', 'HK', 'GB'].map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     {refreshable.length > 0 &&
                       (bulkRefreshing ? (
                         <button
@@ -380,7 +436,11 @@ export function SourceHealthAccordion({
                       ))}
                   </div>
 
-                  <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <ul
+                    tabIndex={0}
+                    aria-label="來源問題列表"
+                    style={{ listStyle: 'none', margin: 0, padding: '0 4px 0 0', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: 'min(60vh, 560px)', overflowY: 'auto', overscrollBehavior: 'contain' }}
+                  >
                     {filtered.slice(0, visible).map((issue) => (
                       <li key={issue.song.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px 12px', borderRadius: '8px', border: `1px solid ${issue.unplayable ? 'var(--error)' : 'var(--groove)'}` }}>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -411,6 +471,15 @@ export function SourceHealthAccordion({
                                     {previewKey === key ? '收起試聽' : '試聽目前網址'}
                                   </button>
                                 )}
+                                <button
+                                  type="button"
+                                  disabled={anyBusy}
+                                  style={{ ...miniButton, ...(searchKey === key ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
+                                  aria-expanded={searchKey === key}
+                                  onClick={() => setSearchKey((k) => (k === key ? null : key))}
+                                >
+                                  {searchKey === key ? '收起搜尋' : '搜尋並更換來源'}
+                                </button>
                                 {f.fix === 'refresh' && (
                                   <button type="button" disabled={anyBusy} style={{ ...miniButton, borderColor: 'var(--accent)', color: 'var(--accent)' }} onClick={() => handleFix(f, 'refresh')}>
                                     {busyKey === `${key}:refresh` ? '刷新中…' : '刷新網址'}
@@ -433,6 +502,19 @@ export function SourceHealthAccordion({
                                   ))}
                               </div>
                               {previewKey === key && url && <audio controls autoPlay src={url} style={{ height: '32px', maxWidth: '100%' }} />}
+                              {searchKey === key && (
+                                <SourceSearchPanel
+                                  key={key}
+                                  defaultQuery={`${issue.song.title} ${artistNameById.get(issue.song.artistId) ?? ''}`.trim()}
+                                  initialPlatform={f.platform}
+                                  country={country}
+                                  rowLabel={`${artistNameById.get(issue.song.artistId) ?? ''}－${issue.song.title}`}
+                                  targetDurationSec={issue.song.durationSec > 0 ? issue.song.durationSec : 0}
+                                  onPickYoutube={(c) => pickYoutube(issue.song, c)}
+                                  onPickCandidate={(p, c) => pickCandidate(issue.song, p, c)}
+                                  onClose={() => setSearchKey(null)}
+                                />
+                              )}
                             </div>
                           );
                         })}
