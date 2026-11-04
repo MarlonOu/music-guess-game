@@ -1,13 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../../../../lib/db';
 import { loadRoomState } from '../../../../../lib/server/roomState';
+import { readJsonBody, sanitizeIdList } from '../../../../../lib/server/requestGuards';
+
+const VALID_MODES = ['INTRO', 'RANDOM_CLIP', 'LYRIC_LINE'];
 
 // PATCH /api/rooms/:joinCode/settings → 房主更新模式／歌手篩選／主題篩選（只能在 lobby 狀態下修改）
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ joinCode: string }> }) {
   const { joinCode } = await params;
   try {
-    const body = await request.json();
-    const { playerId, mode, answerMode, artistFilterIds, themeFilterIds } = body;
+    const parsed = await readJsonBody(request);
+    if (!parsed.ok) return parsed.response;
+    const { playerId, mode, answerMode } = parsed.body;
+    // 篩選清單會出現在每一次房間狀態輪詢回應裡，限制數量與長度，避免被塞入超大陣列
+    const artistFilterIds = sanitizeIdList(parsed.body.artistFilterIds);
+    const themeFilterIds = sanitizeIdList(parsed.body.themeFilterIds);
+    if (mode !== undefined && (typeof mode !== 'string' || !VALID_MODES.includes(mode))) {
+      return NextResponse.json({ error: '無效的遊戲模式' }, { status: 400 });
+    }
 
     const room = await prisma.room.findUnique({ where: { joinCode: joinCode.toUpperCase() } });
     if (!room) {
@@ -23,10 +33,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     await prisma.room.update({
       where: { id: room.id },
       data: {
-        ...(mode !== undefined ? { mode } : {}),
+        ...(typeof mode === 'string' ? { mode } : {}),
         ...(answerMode === 'text' || answerMode === 'choice' ? { answerMode } : {}),
-        ...(Array.isArray(artistFilterIds) ? { artistFilterIds } : {}),
-        ...(Array.isArray(themeFilterIds) ? { themeFilterIds } : {}),
+        ...(artistFilterIds ? { artistFilterIds } : {}),
+        ...(themeFilterIds ? { themeFilterIds } : {}),
       },
     });
 

@@ -5,3 +5,10 @@ allowBuilds:
   prisma: true
   sharp: false
   unrs-resolver: false
+
+# 已知漏洞的間接依賴，強制使用已修補的版本（皆為同一主版本內的修補，不影響相容性）
+overrides:
+  nanoid@<3.3.18: ^3.3.18
+  source-map-js@<1.2.2: ^1.2.2
+  fast-uri@>=3.0.0 <3.1.7: ^3.1.7
+  mysql2@<3.22.0: ^3.22.0

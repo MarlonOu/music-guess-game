@@ -3,6 +3,8 @@ import { prisma } from '../../../../../lib/db';
 import { isAnswerCorrect } from '../../../../../lib/engine/answerUtils';
 import { advanceRoundAfterReveal } from '../../../../../lib/server/advanceRound';
 import type { RoomMessage } from '../../../../../lib/types/room';
+import { allowRequest } from '../../../../../lib/server/rateLimit';
+import { CHAT_MESSAGE_MAX_LENGTH, rateLimitByIp, readJsonBody } from '../../../../../lib/server/requestGuards';
 
 function toMessage(row: {
   id: string;
@@ -52,11 +54,20 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 // 並排定好精確的開始時間（見 advanceRoundAfterReveal），不需要等額外的計時器或 API 呼叫。
 export async function POST(request: NextRequest, { params }: { params: Promise<{ joinCode: string }> }) {
   const { joinCode } = await params;
+  // 每個 IP 10 秒內最多 30 則（同一 IP 可能有多位玩家共用網路），每位玩家 10 秒內最多 15 則
+  const limited = rateLimitByIp(request, 'room-message', 30, 10_000);
+  if (limited) return limited;
   try {
-    const body = await request.json();
-    const { playerId, text } = body;
-    if (!playerId || !text || typeof text !== 'string' || text.trim().length === 0) {
+    const parsed = await readJsonBody(request);
+    if (!parsed.ok) return parsed.response;
+    const { playerId } = parsed.body;
+    const rawText = parsed.body.text;
+    if (typeof playerId !== 'string' || !playerId || typeof rawText !== 'string' || rawText.trim().length === 0) {
       return NextResponse.json({ error: '缺少必要欄位' }, { status: 400 });
+    }
+    const text = rawText.trim().slice(0, CHAT_MESSAGE_MAX_LENGTH);
+    if (!allowRequest(`room-message-player:${playerId}`, 15, 10_000)) {
+      return NextResponse.json({ error: '訊息送太快了，請稍等一下' }, { status: 429 });
     }
 
     const room = await prisma.room.findUnique({ where: { joinCode: joinCode.toUpperCase() } });
@@ -94,7 +105,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         roomId: room.id,
         playerId: player.id,
         displayName: player.displayName,
-        text: text.trim(),
+        text,
         isCorrectAnswer,
         roundIndex: room.status === 'playing' ? room.currentRoundIndex : null,
       },

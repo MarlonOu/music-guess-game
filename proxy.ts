@@ -4,13 +4,53 @@ import { NextRequest, NextResponse } from 'next/server';
 // 純查詢用的 GET /api/songs、GET /api/artists、GET /api/themes 不擋，遊戲本身要能正常讀題庫。
 // /api/admin（投稿審核）整段需要管理者密碼；/api/submissions 是給玩家投稿用的公開入口，不在此列。
 // /api/rooms 系列不在此列——那是線上模式給一般玩家用的房間功能，不是管理功能。
-const PROTECTED_PATH_PREFIXES = ['/admin', '/api/admin', '/api/youtube-search', '/api/streaming-playlist'];
+// youtube-playlist／apple-music-search／deezer-search 是管理頁建檔用的外部查詢（會消耗 YouTube 配額、
+// 或讓伺服器 IP 被 iTunes／Deezer 限流），songs/export 會匯出整份題庫（含答案），皆只給管理者用。
+const PROTECTED_PATH_PREFIXES = [
+  '/admin',
+  '/api/admin',
+  '/api/youtube-search',
+  '/api/youtube-playlist',
+  '/api/streaming-playlist',
+  '/api/apple-music-search',
+  '/api/deezer-search',
+  '/api/songs/export',
+];
 const PROTECTED_MUTATION_PATHS = ['/api/songs', '/api/artists', '/api/themes'];
 
 function isProtectedPath(pathname: string, method: string): boolean {
   if (PROTECTED_PATH_PREFIXES.some((p) => pathname.startsWith(p))) return true;
   if (PROTECTED_MUTATION_PATHS.some((p) => pathname.startsWith(p)) && method !== 'GET') return true;
   return false;
+}
+
+// 同一來源 IP 15 分鐘內密碼錯誤 10 次即暫時封鎖（429），避免管理密碼被暴力猜測。
+// 計數存在 proxy 這一層自己的記憶體（與 Route Handler 不共用，也不需要共用），重啟歸零。
+const FAIL_LIMIT = 10;
+const FAIL_WINDOW_MS = 15 * 60 * 1000;
+const authFailures = new Map<string, { count: number; resetAt: number }>();
+
+function clientIp(request: NextRequest): string {
+  return (
+    request.headers.get('cf-connecting-ip')?.trim() ||
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    'unknown'
+  );
+}
+
+function lockedOutSeconds(ip: string, now: number): number | null {
+  const f = authFailures.get(ip);
+  if (!f || f.resetAt <= now) return null;
+  return f.count >= FAIL_LIMIT ? Math.ceil((f.resetAt - now) / 1000) : null;
+}
+
+function recordAuthFailure(ip: string, now: number): void {
+  if (authFailures.size > 5000) {
+    for (const [k, v] of authFailures) if (v.resetAt <= now) authFailures.delete(k);
+  }
+  const f = authFailures.get(ip);
+  if (!f || f.resetAt <= now) authFailures.set(ip, { count: 1, resetAt: now + FAIL_WINDOW_MS });
+  else f.count += 1;
 }
 
 function unauthorized(): NextResponse {
@@ -38,8 +78,19 @@ export function proxy(request: NextRequest) {
     );
   }
 
+  const ip = clientIp(request);
+  const now = Date.now();
+  const retryAfter = lockedOutSeconds(ip, now);
+  if (retryAfter !== null) {
+    return new NextResponse('登入失敗次數過多，請稍後再試', {
+      status: 429,
+      headers: { 'Retry-After': String(retryAfter) },
+    });
+  }
+
   const authHeader = request.headers.get('authorization');
   if (!authHeader?.startsWith('Basic ')) {
+    // 沒帶帳密是瀏覽器第一次載入、尚未跳出輸入框，不計入失敗
     return unauthorized();
   }
 
@@ -49,6 +100,7 @@ export function proxy(request: NextRequest) {
   try {
     decoded = atob(authHeader.slice('Basic '.length));
   } catch {
+    recordAuthFailure(ip, now);
     return unauthorized();
   }
   const separatorIndex = decoded.indexOf(':');
@@ -66,9 +118,11 @@ export function proxy(request: NextRequest) {
   const passwordMatches = inputPassword === password.trim();
 
   if (!userMatches || !passwordMatches) {
+    recordAuthFailure(ip, now);
     return unauthorized();
   }
 
+  authFailures.delete(ip);
   return NextResponse.next();
 }
 
@@ -77,7 +131,10 @@ export const config = {
     '/admin/:path*',
     '/api/admin/:path*',
     '/api/youtube-search/:path*',
+    '/api/youtube-playlist/:path*',
     '/api/streaming-playlist/:path*',
+    '/api/apple-music-search/:path*',
+    '/api/deezer-search/:path*',
     '/api/songs/:path*',
     '/api/artists/:path*',
     '/api/themes/:path*',

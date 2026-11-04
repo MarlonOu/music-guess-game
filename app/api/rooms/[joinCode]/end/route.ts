@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../../../../lib/db';
 import { loadRoomState } from '../../../../../lib/server/roomState';
+import { readJsonBody } from '../../../../../lib/server/requestGuards';
 
 // POST /api/rooms/:joinCode/end → 房主提前結束比賽
 export async function POST(request: NextRequest, { params }: { params: Promise<{ joinCode: string }> }) {
   const { joinCode } = await params;
   try {
-    const body = await request.json();
+    const parsed = await readJsonBody(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     const { playerId } = body;
 
     const room = await prisma.room.findUnique({ where: { joinCode: joinCode.toUpperCase() } });

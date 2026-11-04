@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../../../../lib/db';
 import { loadRoomState } from '../../../../../lib/server/roomState';
 import { advanceRoundAfterReveal } from '../../../../../lib/server/advanceRound';
+import { readJsonBody } from '../../../../../lib/server/requestGuards';
 
 // POST /api/rooms/:joinCode/vote-skip → 任一玩家投票／收回投票「跳過這一題」。
 // 全房間玩家（含房主自己）都投了票，視為這題流局：伺服器立刻推進到下一題並排好開始時間
@@ -9,9 +10,11 @@ import { advanceRoundAfterReveal } from '../../../../../lib/server/advanceRound'
 export async function POST(request: NextRequest, { params }: { params: Promise<{ joinCode: string }> }) {
   const { joinCode } = await params;
   try {
-    const body = await request.json();
+    const parsed = await readJsonBody(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     const { playerId } = body;
-    if (!playerId) {
+    if (typeof playerId !== 'string' || !playerId) {
       return NextResponse.json({ error: '缺少必要欄位（playerId）' }, { status: 400 });
     }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../../../../lib/db';
 import { loadRoomState } from '../../../../../lib/server/roomState';
 import { advanceRoundAfterReveal } from '../../../../../lib/server/advanceRound';
+import { readJsonBody } from '../../../../../lib/server/requestGuards';
 
 // POST /api/rooms/:joinCode/answer-choice → 選擇題搶答模式（answerMode='choice'）下，
 // 玩家點選其中一個選項（songId）。答對的判定與換題機制直接複用 advanceRoundAfterReveal，
@@ -9,9 +10,11 @@ import { advanceRoundAfterReveal } from '../../../../../lib/server/advanceRound'
 export async function POST(request: NextRequest, { params }: { params: Promise<{ joinCode: string }> }) {
   const { joinCode } = await params;
   try {
-    const body = await request.json();
+    const parsed = await readJsonBody(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     const { playerId, songId } = body;
-    if (!playerId || !songId) {
+    if (typeof playerId !== 'string' || !playerId || typeof songId !== 'string' || !songId) {
       return NextResponse.json({ error: '缺少必要欄位' }, { status: 400 });
     }
 

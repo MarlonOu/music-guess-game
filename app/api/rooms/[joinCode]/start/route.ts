@@ -4,6 +4,7 @@ import { loadRoomState } from '../../../../../lib/server/roomState';
 import { getRandomClipStart, DEFAULT_CLIP_DURATION_SEC } from '../../../../../lib/engine/modes/randomClipMode';
 import { pickRandomLyricLine } from '../../../../../lib/engine/modes/lyricLineMode';
 import { buildChoiceSongIds } from '../../../../../lib/server/choiceMode';
+import { readJsonBody } from '../../../../../lib/server/requestGuards';
 
 // 線上模式每場固定題數，與單機模式「玩完整個篩選題庫」的設計不同——
 // 線上比賽要在合理時間內結束，避免有人中途離開晾著其他人。
@@ -13,7 +14,9 @@ export const ROOM_ROUND_COUNT = 10;
 export async function POST(request: NextRequest, { params }: { params: Promise<{ joinCode: string }> }) {
   const { joinCode } = await params;
   try {
-    const body = await request.json();
+    const parsed = await readJsonBody(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     const { playerId } = body;
 
     const room = await prisma.room.findUnique({ where: { joinCode: joinCode.toUpperCase() } });
