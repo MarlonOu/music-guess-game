@@ -74,6 +74,27 @@ export default function OnlineRoomPage() {
     };
   }, [joinCode]);
 
+  // 不在比賽中（大廳、結算、找不到房間）時停止播放。最後一題答對後房間直接變成 finished，
+  // 這時讓最後一首歌在結算畫面繼續播到公布答案期間結束（跟中間題目的公布期間一樣長）才停。
+  // 播放中的停止／換題由 PlayingView 自己處理；離開這個頁面時一律停止。
+  const roomStatus = room?.status ?? null;
+  const roomLastRevealedAt = room?.lastRevealedAt ?? null;
+  const hasPlayer = playerId !== null;
+  useEffect(() => {
+    // 沒有玩家身分時畫面會換成補填暱稱表單，不會顯示 PlayingView，也要停止
+    if (roomStatus === 'playing' && hasPlayer) return;
+    const controller = getGlobalAudioController();
+    const revealedAtMs = roomStatus === 'finished' && roomLastRevealedAt ? new Date(roomLastRevealedAt).getTime() : null;
+    const msLeft = revealedAtMs === null ? 0 : REVEAL_DISPLAY_MS - (estimateServerNow() - revealedAtMs);
+    if (msLeft <= 0) {
+      controller.stop();
+      return;
+    }
+    const timer = setTimeout(() => controller.stop(), msLeft);
+    return () => clearTimeout(timer);
+  }, [roomStatus, roomLastRevealedAt, hasPlayer]);
+  useEffect(() => () => getGlobalAudioController().stop(), []);
+
   // 自我修復（保留作為防呆用途）：如果房間資料正常拿得到，但自己的 playerId 不在玩家名單裡了，
   // 就用先前存的暱稱自動重新加入，避免卡在一個看起來正常、但其實自己已經不是這個房間玩家的
   // 壞掉畫面。先前這個情況最常見的成因是 pagehide 誤判重新整理成離開，那個成因已經連根拔除
@@ -1008,9 +1029,9 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
     }
     return () => {
       controller.setOnStatusChange(undefined);
-      // 停止播放（但不呼叫 dispose()——這是全域共用實例，播放器本身要留給下一場遊戲／
-      // 下一個房間繼續使用，只是「這一輪的播放」要在離開這個畫面時停掉）。
-      controller.stop();
+      // 這裡不停止播放：離開比賽畫面時的停止由 OnlineRoomPage 統一處理，最後一題答對、
+      // 切到結算畫面時才能讓最後一首歌繼續播完公布答案期間（也不呼叫 dispose()——
+      // 這是全域共用實例，播放器本身要留給下一場遊戲／下一個房間繼續使用）。
     };
   }, []);
 
@@ -1018,7 +1039,8 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
   // 計算，拆成兩個 effect 反而會有兩邊時間算不準對不齊的風險：
   //
   // 1. 「上一題答案公布」的過渡期間（room.lastRevealedAt 起 REVEAL_DISPLAY_MS 毫秒內）：
-  //    顯示上一題答案，不做任何倒數/播放動作。這段期間的長度、要不要顯示，完全由伺服器
+  //    顯示上一題答案，還不開始下一題的倒數/播放；上一題的歌則繼續播（跟單機模式公布答案時
+  //    一樣），等這段期間結束、下一題倒數開始的那一刻才停掉。這段期間的長度、要不要顯示，完全由伺服器
   //    透過 lastRevealedAt 這個絕對時間戳決定，客戶端只是照時間戳計算「現在在不在這段期間內」，
   //    不管客戶端是剛好答對的那個人、旁觀的其他玩家、還是輪詢比較慢才發現的人，算出來的結果
   //    都一樣——這是關鍵：換題不再依賴「房主端的本地計時器跑完才觸發」，而是伺服器在答對/
@@ -1031,11 +1053,16 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
   // 換題（currentRoundIndex 改變）或答案公布（lastRevealedAt 改變）時整個重置。
   useEffect(() => {
     playedRoundRef.current = -1;
-    audioController?.stop();
 
     const roundStartAtMs = room.roundStartedAt ? new Date(room.roundStartedAt).getTime() : null;
     const lastRevealedAtMs = room.lastRevealedAt ? new Date(room.lastRevealedAt).getTime() : null;
     const audioStartAtMs = roundStartAtMs !== null ? roundStartAtMs + COUNTDOWN_SEC * 1000 : null;
+
+    // 還在公布答案期間：伺服器已經推進到下一題，但播放器裡仍是上一題的歌，先讓它繼續播，
+    // 等公布期間結束（下一題倒數開始）才停。不在公布期間就照舊立刻停掉殘留的播放。
+    let stopWhenRevealEnds =
+      lastRevealedAtMs !== null && estimateServerNow() - lastRevealedAtMs < REVEAL_DISPLAY_MS;
+    if (!stopWhenRevealEnds) audioController?.stop();
 
     const tick = () => {
       // 用校正過的估計伺服器時間，而不是裝置自己的 Date.now()——理由見 lib/client/serverClock.ts，
@@ -1049,6 +1076,10 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
         return;
       }
       setShowingLastReveal(false);
+      if (stopWhenRevealEnds) {
+        stopWhenRevealEnds = false;
+        audioController?.stop();
+      }
 
       if (audioStartAtMs === null) {
         setCountdown(0);
