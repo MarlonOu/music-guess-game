@@ -1170,7 +1170,9 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', width: '100%' }}>
             <div className="stage-slot">
               {showingLastReveal ? (
-                <StageDisc bare>
+                // 公布期間上一題的歌還在播（見下方播放 effect），唱盤跟著實際播放狀態轉，
+                // 播完（finished）或停止後就停下。這裡不看 isAudio：房間資料已經是下一題了。
+                <StageDisc bare status={audioStatus === 'playing' ? 'playing' : 'idle'}>
                   <AnswerSticker
                     key={room.lastRevealedAt ?? 'answer'}
                     title={room.lastRevealedTitle ?? ''}
@@ -1272,6 +1274,16 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
 
 function FinishedView({ room, isHost, onError, onRoomUpdate }: RoomViewProps) {
   const [restarting, setRestarting] = useState(false);
+  // 最後一題答對後，最後一首會在結算畫面多播一段公布答案期間（見 OnlineRoomPage 的停止 effect），
+  // 唱盤跟著實際播放狀態轉，播完或停止後就停下
+  const [audioStatus, setAudioStatus] = useState<AudioPlaybackStatus>(() =>
+    typeof window === 'undefined' ? 'idle' : getGlobalAudioController().getStatus()
+  );
+  useEffect(() => {
+    const controller = getGlobalAudioController();
+    controller.setOnStatusChange(setAudioStatus);
+    return () => controller.setOnStatusChange(undefined);
+  }, []);
 
   async function handleRestart() {
     setRestarting(true);
@@ -1293,7 +1305,11 @@ function FinishedView({ room, isHost, onError, onRoomUpdate }: RoomViewProps) {
       <div className="result-winner">
         <span className="room-eyebrow">比賽結束</span>
       </div>
-      <StageDisc answer size="clamp(200px, min(56vw, 32dvh), 280px)">
+      <StageDisc
+        answer
+        size="clamp(200px, min(56vw, 32dvh), 280px)"
+        status={audioStatus === 'playing' ? 'playing' : 'idle'}
+      >
         {winners.length > 0 ? (
           <>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.2em', opacity: 0.7 }}>
