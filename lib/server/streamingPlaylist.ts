@@ -13,6 +13,8 @@
 export type StreamingPlatform = 'kkbox' | 'spotify';
 
 export interface StreamingTrack {
+  /** 平台上的曲目識別（KKBOX track id／Spotify uri），用來去除重複；沒有時為空字串 */
+  sourceId: string;
   title: string;
   /** 預設歌手：Spotify 多位歌手時只取第一位（其餘放在 artistsAll） */
   artist: string;
@@ -121,17 +123,39 @@ interface KkboxTracksPage {
   summary?: { total?: unknown };
 }
 
+function trackKey(t: StreamingTrack): string {
+  return t.sourceId ? `id:${t.sourceId}` : `t:${t.title.toLowerCase()}\u0000${t.artist.toLowerCase()}`;
+}
+
+/** 把新取得的曲目併入 acc（依曲目識別去重），回傳「真正新增」的筆數；0 代表這一頁完全重複 */
+export function mergeNewTracks(acc: Map<string, StreamingTrack>, incoming: StreamingTrack[]): number {
+  let added = 0;
+  for (const t of incoming) {
+    const key = trackKey(t);
+    if (acc.has(key)) continue;
+    acc.set(key, t);
+    added += 1;
+  }
+  return added;
+}
+
 /** 把 KKBOX 的曲目陣列轉成統一格式（純函式，供測試） */
 export function parseKkboxTracks(data: unknown): StreamingTrack[] {
   if (!Array.isArray(data)) return [];
   const out: StreamingTrack[] = [];
   for (const t of data) {
-    const track = t as { name?: unknown; album?: { images?: { url?: unknown }[]; artist?: { name?: unknown } } };
+    const track = t as { id?: unknown; name?: unknown; album?: { images?: { url?: unknown }[]; artist?: { name?: unknown } } };
     const title = clean(track?.name);
     const artist = clean(track?.album?.artist?.name, 100);
     if (!title) continue;
     const cover = track.album?.images?.find((i) => typeof i?.url === 'string')?.url;
-    out.push({ title, artist, artistsAll: '', coverUrl: typeof cover === 'string' && cover.startsWith('https://') ? cover : '' });
+    out.push({
+      sourceId: typeof track.id === 'string' ? track.id : '',
+      title,
+      artist,
+      artistsAll: '',
+      coverUrl: typeof cover === 'string' && cover.startsWith('https://') ? cover : '',
+    });
   }
   return out;
 }
@@ -145,33 +169,37 @@ async function kkboxGet(url: string, token: string): Promise<Record<string, unkn
 
 export async function fetchKkboxPlaylist(playlistId: string): Promise<StreamingPlaylist> {
   const token = await getKkboxToken();
-  const base = await kkboxGet(`${KKBOX_API}/shared-playlists/${encodeURIComponent(playlistId)}?territory=${KKBOX_TERRITORY}`, token);
+  const id = encodeURIComponent(playlistId);
+  const base = await kkboxGet(`${KKBOX_API}/shared-playlists/${id}?territory=${KKBOX_TERRITORY}`, token);
   const first = (base.tracks ?? {}) as KkboxTracksPage;
-  const tracks = parseKkboxTracks(first.data);
-  let next = typeof first.paging?.next === 'string' ? first.paging.next : '';
-  const total = typeof first.summary?.total === 'number' ? first.summary.total : tracks.length;
+  const acc = new Map<string, StreamingTrack>();
+  mergeNewTracks(acc, parseKkboxTracks(first.data));
+  const total = typeof first.summary?.total === 'number' ? first.summary.total : acc.size;
 
-  // 後續分頁只跟隨官方 API 網域的網址，避免被回應內容導向其他主機
-  while (next && tracks.length < MAX_TRACKS) {
-    let nextUrl: URL;
+  // 以 offset 逐頁讀取曲目；任何一頁沒有帶來新曲目（API 忽略 offset、或已到最後一頁）就立刻停止，
+  // 避免同一頁被重複讀取而讓清單重複出現。第一頁已經涵蓋全部曲數時不需要再請求。
+  let offset = acc.size;
+  while (acc.size < total && acc.size < MAX_TRACKS) {
+    let page: KkboxTracksPage;
     try {
-      nextUrl = new URL(next);
-    } catch {
-      break;
+      page = (await kkboxGet(`${KKBOX_API}/shared-playlists/${id}/tracks?territory=${KKBOX_TERRITORY}&offset=${offset}&limit=50`, token)) as KkboxTracksPage;
+    } catch (err) {
+      // 第一頁已經有資料時，後續分頁失敗不影響已取得的部分（會標示為未取完）
+      if (acc.size > 0) break;
+      throw err;
     }
-    if (nextUrl.protocol !== 'https:' || nextUrl.hostname !== 'api.kkbox.com') break;
-    const page = (await kkboxGet(nextUrl.toString(), token)) as KkboxTracksPage;
-    tracks.push(...parseKkboxTracks(page.data));
-    next = typeof page.paging?.next === 'string' ? page.paging.next : '';
+    const added = mergeNewTracks(acc, parseKkboxTracks(page.data));
+    if (added === 0) break;
+    offset += added;
   }
 
-  const limited = tracks.slice(0, MAX_TRACKS);
+  const tracks = Array.from(acc.values()).slice(0, MAX_TRACKS);
   return {
     platform: 'kkbox',
     playlistId,
     name: clean(base.title, 100),
-    tracks: limited,
-    truncated: total > limited.length,
+    tracks,
+    truncated: total > tracks.length,
   };
 }
 
@@ -206,13 +234,14 @@ export function parseSpotifyEmbed(html: string): { name: string; tracks: Streami
   if (!list) return null;
   const tracks: StreamingTrack[] = [];
   for (const t of list) {
-    const item = t as { title?: unknown; subtitle?: unknown };
+    const item = t as { uri?: unknown; uid?: unknown; title?: unknown; subtitle?: unknown };
     const title = clean(item?.title);
     const all = clean(item?.subtitle, 200);
     if (!title) continue;
     // 多位歌手以逗號分隔（Spotify 會用「, 」或全形逗號）；預設只取第一位當歌手
     const first = all.split(/\s*[,，]\s*/)[0] ?? all;
-    tracks.push({ title, artist: first, artistsAll: first === all ? '' : all, coverUrl: '' });
+    const sourceId = typeof item.uri === 'string' ? item.uri : '';
+    tracks.push({ sourceId, title, artist: first, artistsAll: first === all ? '' : all, coverUrl: '' });
   }
   const root = json as { props?: { pageProps?: { state?: { data?: { entity?: { name?: unknown; title?: unknown } } } } } };
   const entity = root.props?.pageProps?.state?.data?.entity;
@@ -230,13 +259,16 @@ export async function fetchSpotifyPlaylist(playlistId: string): Promise<Streamin
   if (!parsed) {
     throw new StreamingPlaylistError('無法解析 Spotify 歌單內容（Spotify 可能調整了嵌入頁格式，或這個歌單不開放嵌入）', 502);
   }
-  const tracks = parsed.tracks.slice(0, MAX_TRACKS);
+  // 去除重複曲目（嵌入頁資料偶爾會重複列出同一首）
+  const acc = new Map<string, StreamingTrack>();
+  mergeNewTracks(acc, parsed.tracks);
+  const tracks = Array.from(acc.values()).slice(0, MAX_TRACKS);
   return {
     platform: 'spotify',
     playlistId,
     name: parsed.name,
     tracks,
-    // 嵌入頁固定只提供前約 100 首；達到 100 首時提示可能還有更多
+    // 嵌入頁固定只提供前約 100 首；去重後仍達 100 首時才提示可能還有更多
     truncated: tracks.length >= 100,
   };
 }

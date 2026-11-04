@@ -25,6 +25,7 @@ const URL_PLACEHOLDER: Record<StreamingPlatform, string> = {
 const MATCH_PLATFORMS: MatchPlatform[] = ['apple', 'deezer'];
 
 interface StreamingTrack {
+  sourceId?: string;
   title: string;
   artist: string;
   artistsAll: string;
