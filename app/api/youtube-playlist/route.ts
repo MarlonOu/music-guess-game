@@ -211,6 +211,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       results,
       totalResults,
+      // 清單宣告的曲數比 API 實際回傳的多：差額是 API 不會列出的項目（已移除、地區限制、
+      // YouTube Music 自動產生清單中的部分曲目等），只能在 YouTube 上手動補
+      missingCount: Math.max(0, totalResults - results.length),
       // 只有「確實還有沒讀到的影片、且是因為達到 MAX_PAGES 上限才停止」才算被截斷
       truncated: !exhausted && Boolean(pageToken) && (totalResults === 0 || totalResults > items.length),
     });

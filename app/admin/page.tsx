@@ -1741,6 +1741,7 @@ function YouTubePlaylistImportAccordion({
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
+  const [missingCount, setMissingCount] = useState(0);
   // 「快速套用」的暫存選取——這一組主題不是最終答案，只是拿來一次設定目前已勾選匯入
   // 的每一列各自的 themeIds 起始值（見下面 applyThemesToSelected）。播放清單常常混雜
   // 內容（精選輯裡有各種歌手、各種年代混在一起），不能假設整份清單都該套用同一個主題，
@@ -1848,6 +1849,7 @@ function YouTubePlaylistImportAccordion({
         })
       );
       setTruncated(Boolean(data.truncated));
+      setMissingCount(typeof data.missingCount === 'number' ? data.missingCount : 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : '讀取播放清單失敗');
     } finally {
@@ -2070,6 +2072,11 @@ function YouTubePlaylistImportAccordion({
           {truncated && (
             <p style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>
               這個播放清單超過一次能讀取的上限，只載入了前面一部分，其餘需要分次匯入。
+            </p>
+          )}
+          {!truncated && missingCount > 0 && rows.length > 0 && (
+            <p style={{ color: 'var(--accent)', fontSize: '0.8rem' }}>
+              清單顯示共 {rows.length + missingCount} 首，但 YouTube API 只回傳了 {rows.length} 首，有 {missingCount} 首沒有被列出（已移除、地區限制，或 YouTube Music 自動產生清單中 API 不提供的曲目）。缺少的歌曲請改用「從 YouTube 搜尋歌曲」個別加入。
             </p>
           )}
 
