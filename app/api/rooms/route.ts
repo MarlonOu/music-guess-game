@@ -4,6 +4,7 @@ import { loadRoomState, generateJoinCode } from '../../../lib/server/roomState';
 import { sanitizeDisplayName } from '../../../lib/server/sanitizeName';
 import { rateLimitByIp, readJsonBody } from '../../../lib/server/requestGuards';
 import { maybeCleanupIdleRooms } from '../../../lib/server/roomCleanup';
+import { issuePlayerToken } from '../../../lib/server/playerAuth';
 
 // POST /api/rooms → 建立新房間，建立者自動成為房主與第一位玩家
 export async function POST(request: NextRequest) {
@@ -50,14 +51,16 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    const { token: playerToken, tokenHash } = issuePlayerToken();
     const hostPlayer = await prisma.roomPlayer.create({
-      data: { id: crypto.randomUUID(), roomId: room.id, displayName },
+      data: { id: crypto.randomUUID(), roomId: room.id, displayName, tokenHash },
     });
 
     await prisma.room.update({ where: { id: room.id }, data: { hostPlayerId: hostPlayer.id } });
 
     const state = await loadRoomState(joinCode);
-    return NextResponse.json({ room: state, playerId: hostPlayer.id }, { status: 201 });
+    // playerToken 只出現在這一次回應裡，之後代表房主的操作都要附上（見 lib/server/playerAuth.ts）
+    return NextResponse.json({ room: state, playerId: hostPlayer.id, playerToken }, { status: 201 });
   } catch (err) {
     console.error('[POST /api/rooms] 建立房間失敗：', err);
     return NextResponse.json({ error: '建立房間失敗' }, { status: 500 });

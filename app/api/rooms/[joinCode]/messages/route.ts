@@ -5,6 +5,7 @@ import { advanceRoundAfterReveal } from '../../../../../lib/server/advanceRound'
 import type { RoomMessage } from '../../../../../lib/types/room';
 import { allowRequest } from '../../../../../lib/server/rateLimit';
 import { CHAT_MESSAGE_MAX_LENGTH, rateLimitByIp, readJsonBody } from '../../../../../lib/server/requestGuards';
+import { authenticatePlayer } from '../../../../../lib/server/playerAuth';
 
 function toMessage(row: {
   id: string;
@@ -74,6 +75,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!room) {
       return NextResponse.json({ error: '找不到這個房間' }, { status: 404 });
     }
+    // playerId 會出現在公開的房間狀態裡，必須附上本人的玩家憑證才算數（見 lib/server/playerAuth.ts）
+    const auth = await authenticatePlayer(request, parsed.body, room.id);
+    if (!auth.ok) return auth.response;
     const player = await prisma.roomPlayer.findUnique({ where: { id: playerId } });
     if (!player || player.roomId !== room.id) {
       return NextResponse.json({ error: '找不到這位玩家，可能已離開房間' }, { status: 404 });

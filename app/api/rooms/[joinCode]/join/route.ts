@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../../../../lib/db';
 import { loadRoomState } from '../../../../../lib/server/roomState';
 import { sanitizeDisplayName } from '../../../../../lib/server/sanitizeName';
+import { issuePlayerToken } from '../../../../../lib/server/playerAuth';
 import { rateLimitByIp, readJsonBody } from '../../../../../lib/server/requestGuards';
 
 /** 單一房間人數上限，避免有人用腳本把同一間房塞滿假玩家、讓每次輪詢回應無限變大 */
@@ -40,12 +41,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: `「${trimmedName}」這個暱稱已經有人用了，換一個試試` }, { status: 409 });
     }
 
+    const { token: playerToken, tokenHash } = issuePlayerToken();
     const player = await prisma.roomPlayer.create({
-      data: { id: crypto.randomUUID(), roomId: room.id, displayName: trimmedName },
+      data: { id: crypto.randomUUID(), roomId: room.id, displayName: trimmedName, tokenHash },
     });
 
     const state = await loadRoomState(room.joinCode);
-    return NextResponse.json({ room: state, playerId: player.id }, { status: 201 });
+    return NextResponse.json({ room: state, playerId: player.id, playerToken }, { status: 201 });
   } catch (err) {
     console.error(`[POST /api/rooms/${joinCode}/join] 加入房間失敗：`, err);
     return NextResponse.json({ error: '加入房間失敗' }, { status: 500 });

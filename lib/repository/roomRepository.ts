@@ -8,6 +8,36 @@ export interface RepositoryResult<T> {
   error?: string;
 }
 
+/**
+ * 玩家憑證：建立／加入房間時伺服器發給本人的隨機字串，之後代表這位玩家的操作都要附上
+ * （伺服器端見 lib/server/playerAuth.ts）。依 playerId 存在 sessionStorage，跟頁面既有的
+ * room-player-${joinCode} 一樣只存在這個分頁，重新整理頁面後仍然有效，頁面程式碼不需要知道它的存在。
+ */
+const tokenKey = (playerId: string) => `room-player-token-${playerId}`;
+
+function saveToken(playerId: string, token: unknown): void {
+  if (typeof token !== 'string' || !token) return;
+  try {
+    sessionStorage.setItem(tokenKey(playerId), token);
+  } catch {
+    // 無痕模式等情況 sessionStorage 可能不可用，此時僅在本次頁面生命週期內無法自動復原身分
+  }
+}
+
+function readToken(playerId: string): string {
+  try {
+    return sessionStorage.getItem(tokenKey(playerId)) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/** 代表某位玩家發出的請求共用的標頭 */
+function playerHeaders(playerId: string): Record<string, string> {
+  const token = readToken(playerId);
+  return { 'Content-Type': 'application/json', ...(token ? { 'x-player-token': token } : {}) };
+}
+
 async function parseErrorMessage(res: Response, fallback: string): Promise<string> {
   try {
     const data = await res.json();
@@ -54,6 +84,7 @@ export const roomRepository: RoomRepository = {
     });
     if (!res.ok) return { ok: false, error: await parseErrorMessage(res, '建立房間失敗') };
     const data = await res.json();
+    saveToken(data.playerId, data.playerToken);
     return { ok: true, data: { room: data.room, playerId: data.playerId } };
   },
 
@@ -65,6 +96,7 @@ export const roomRepository: RoomRepository = {
     });
     if (!res.ok) return { ok: false, error: await parseErrorMessage(res, '加入房間失敗') };
     const data = await res.json();
+    saveToken(data.playerId, data.playerToken);
     return { ok: true, data: { room: data.room, playerId: data.playerId } };
   },
 
@@ -85,7 +117,7 @@ export const roomRepository: RoomRepository = {
   async updateSettings(joinCode, playerId, input) {
     const res = await fetch(`/api/rooms/${joinCode}/settings`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: playerHeaders(playerId),
       body: JSON.stringify({ playerId, ...input }),
     });
     if (!res.ok) return { ok: false, error: await parseErrorMessage(res, '更新設定失敗') };
@@ -96,7 +128,7 @@ export const roomRepository: RoomRepository = {
   async start(joinCode, playerId) {
     const res = await fetch(`/api/rooms/${joinCode}/start`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: playerHeaders(playerId),
       body: JSON.stringify({ playerId }),
     });
     if (!res.ok) return { ok: false, error: await parseErrorMessage(res, '開始遊戲失敗') };
@@ -107,7 +139,7 @@ export const roomRepository: RoomRepository = {
   async next(joinCode, playerId) {
     const res = await fetch(`/api/rooms/${joinCode}/next`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: playerHeaders(playerId),
       body: JSON.stringify({ playerId }),
     });
     if (!res.ok) return { ok: false, error: await parseErrorMessage(res, '推進題目失敗') };
@@ -118,7 +150,7 @@ export const roomRepository: RoomRepository = {
   async voteSkip(joinCode, playerId) {
     const res = await fetch(`/api/rooms/${joinCode}/vote-skip`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: playerHeaders(playerId),
       body: JSON.stringify({ playerId }),
     });
     if (!res.ok) return { ok: false, error: await parseErrorMessage(res, '投票跳題失敗') };
@@ -129,7 +161,7 @@ export const roomRepository: RoomRepository = {
   async answerChoice(joinCode, playerId, songId) {
     const res = await fetch(`/api/rooms/${joinCode}/answer-choice`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: playerHeaders(playerId),
       body: JSON.stringify({ playerId, songId }),
     });
     if (!res.ok) return { ok: false, error: await parseErrorMessage(res, '搶答失敗') };
@@ -140,7 +172,7 @@ export const roomRepository: RoomRepository = {
   async end(joinCode, playerId) {
     const res = await fetch(`/api/rooms/${joinCode}/end`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: playerHeaders(playerId),
       body: JSON.stringify({ playerId }),
     });
     if (!res.ok) return { ok: false, error: await parseErrorMessage(res, '結束比賽失敗') };
@@ -151,7 +183,7 @@ export const roomRepository: RoomRepository = {
   async restart(joinCode, playerId) {
     const res = await fetch(`/api/rooms/${joinCode}/restart`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: playerHeaders(playerId),
       body: JSON.stringify({ playerId }),
     });
     if (!res.ok) return { ok: false, error: await parseErrorMessage(res, '重新開始失敗') };
@@ -162,7 +194,7 @@ export const roomRepository: RoomRepository = {
   async sendMessage(joinCode, playerId, text) {
     const res = await fetch(`/api/rooms/${joinCode}/messages`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: playerHeaders(playerId),
       body: JSON.stringify({ playerId, text }),
     });
     if (!res.ok) return { ok: false, error: await parseErrorMessage(res, '傳送訊息失敗') };
@@ -181,7 +213,7 @@ export const roomRepository: RoomRepository = {
   async leave(joinCode, playerId) {
     const res = await fetch(`/api/rooms/${joinCode}/leave`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: playerHeaders(playerId),
       body: JSON.stringify({ playerId }),
     });
     if (!res.ok) return { ok: false, error: await parseErrorMessage(res, '離開房間失敗') };
@@ -191,7 +223,8 @@ export const roomRepository: RoomRepository = {
 
   leaveBeacon(joinCode, playerId) {
     if (typeof navigator === 'undefined' || !navigator.sendBeacon) return;
-    const blob = new Blob([JSON.stringify({ playerId })], { type: 'application/json' });
+    // sendBeacon 無法自訂標頭，憑證改放在 body
+    const blob = new Blob([JSON.stringify({ playerId, playerToken: readToken(playerId) })], { type: 'application/json' });
     navigator.sendBeacon(`/api/rooms/${joinCode}/leave`, blob);
   },
 };

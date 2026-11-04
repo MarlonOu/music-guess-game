@@ -3,6 +3,7 @@ import { prisma } from '../../../../../lib/db';
 import { loadRoomState } from '../../../../../lib/server/roomState';
 import { advanceRoundAfterReveal } from '../../../../../lib/server/advanceRound';
 import { readJsonBody } from '../../../../../lib/server/requestGuards';
+import { authenticatePlayer } from '../../../../../lib/server/playerAuth';
 
 // POST /api/rooms/:joinCode/answer-choice → 選擇題搶答模式（answerMode='choice'）下，
 // 玩家點選其中一個選項（songId）。答對的判定與換題機制直接複用 advanceRoundAfterReveal，
@@ -22,6 +23,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!room) {
       return NextResponse.json({ error: '找不到這個房間' }, { status: 404 });
     }
+    // playerId 會出現在公開的房間狀態裡，必須附上本人的玩家憑證才算數（見 lib/server/playerAuth.ts）
+    const auth = await authenticatePlayer(request, body, room.id);
+    if (!auth.ok) return auth.response;
     if (room.answerMode !== 'choice') {
       return NextResponse.json({ error: '這個房間不是選擇題搶答模式' }, { status: 409 });
     }

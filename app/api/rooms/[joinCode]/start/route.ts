@@ -5,6 +5,7 @@ import { getRandomClipStart, DEFAULT_CLIP_DURATION_SEC } from '../../../../../li
 import { pickRandomLyricLine } from '../../../../../lib/engine/modes/lyricLineMode';
 import { buildChoiceSongIds } from '../../../../../lib/server/choiceMode';
 import { readJsonBody } from '../../../../../lib/server/requestGuards';
+import { authenticatePlayer } from '../../../../../lib/server/playerAuth';
 
 // 線上模式每場固定題數，與單機模式「玩完整個篩選題庫」的設計不同——
 // 線上比賽要在合理時間內結束，避免有人中途離開晾著其他人。
@@ -23,6 +24,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!room) {
       return NextResponse.json({ error: '找不到這個房間' }, { status: 404 });
     }
+    // playerId 會出現在公開的房間狀態裡，必須附上本人的玩家憑證才算數（見 lib/server/playerAuth.ts）
+    const auth = await authenticatePlayer(request, body, room.id);
+    if (!auth.ok) return auth.response;
     if (room.hostPlayerId !== playerId) {
       return NextResponse.json({ error: '只有房主可以開始遊戲' }, { status: 403 });
     }

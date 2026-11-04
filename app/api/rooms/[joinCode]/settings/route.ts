@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../../../../lib/db';
 import { loadRoomState } from '../../../../../lib/server/roomState';
 import { readJsonBody, sanitizeIdList } from '../../../../../lib/server/requestGuards';
+import { authenticatePlayer } from '../../../../../lib/server/playerAuth';
 
 const VALID_MODES = ['INTRO', 'RANDOM_CLIP', 'LYRIC_LINE'];
 
@@ -23,6 +24,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (!room) {
       return NextResponse.json({ error: '找不到這個房間' }, { status: 404 });
     }
+    // playerId 會出現在公開的房間狀態裡，必須附上本人的玩家憑證才算數（見 lib/server/playerAuth.ts）
+    const auth = await authenticatePlayer(request, parsed.body, room.id);
+    if (!auth.ok) return auth.response;
     if (room.hostPlayerId !== playerId) {
       return NextResponse.json({ error: '只有房主可以修改遊戲設定' }, { status: 403 });
     }

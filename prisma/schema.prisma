@@ -167,6 +167,10 @@ model RoomPlayer {
   displayName String   @map("display_name")
   score       Int      @default(0)
   joinedAt    DateTime @default(now()) @map("joined_at")
+  /// 玩家憑證的 SHA-256 雜湊。建立／加入房間時發給本人一組隨機憑證（只出現在那一次回應裡），
+  /// 之後代表這位玩家的操作都要附上憑證；playerId 本身會出現在公開的房間狀態裡，不能當作身分證明。
+  /// 這個欄位加入前就存在的玩家為 null，視為舊資料放行（閒置房間清理會在 6 小時內移除它們）。
+  tokenHash   String?  @map("token_hash")
 
   @@index([roomId])
   @@map("room_players")

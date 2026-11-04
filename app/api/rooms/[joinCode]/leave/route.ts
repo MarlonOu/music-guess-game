@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../../../../lib/db';
+import { authenticatePlayer } from '../../../../../lib/server/playerAuth';
 
 // POST /api/rooms/:joinCode/leave → 玩家離開房間。
 // 一般玩家離開 = 只移除自己這筆紀錄，房間繼續開著。
@@ -27,6 +28,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!room) {
       // 房間可能已經被刪除，視為離開成功（冪等），避免前端還要特別處理「房間已不存在」的離開錯誤
       return NextResponse.json({ ok: true, roomDeleted: true });
+    }
+
+    // 離開＝刪除玩家紀錄，必須是本人才能操作，否則任何人都能把別人踢出房間
+    const auth = await authenticatePlayer(request, body, room.id);
+    if (!auth.ok) {
+      // 玩家紀錄已經不存在（重複送出離開、或已被清掉）視為離開成功，維持原本的冪等行為
+      if (auth.response.status === 404) return NextResponse.json({ ok: true, roomDeleted: false });
+      return auth.response;
     }
 
     if (room.hostPlayerId === playerId) {
