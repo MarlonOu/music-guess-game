@@ -78,6 +78,11 @@ export async function GET(request: NextRequest) {
     let pageToken: string | undefined;
     let pagesFetched = 0;
     let totalResults = 0;
+    const seenVideoIds = new Set<string>();
+    // 某些播放清單（自動產生的混合播放清單、含無法播放項目的清單等）會讓 YouTube 一直回傳 nextPageToken，
+    // 而且後續頁面重複前面的內容。所以：依 videoId 去重、整頁都沒有新影片就停止、
+    // 已經取得 pageInfo.totalResults 宣告的數量也停止，不再盲目讀滿 MAX_PAGES。
+    let exhausted = false;
 
     do {
       const listUrl = new URL('https://www.googleapis.com/youtube/v3/playlistItems');
@@ -99,9 +104,12 @@ export async function GET(request: NextRequest) {
 
       const data = await res.json();
       totalResults = data.pageInfo?.totalResults ?? totalResults;
+      let addedThisPage = 0;
       for (const item of data.items ?? []) {
         const videoId: string | undefined = item.snippet?.resourceId?.videoId;
-        if (!videoId) continue;
+        if (!videoId || seenVideoIds.has(videoId)) continue;
+        seenVideoIds.add(videoId);
+        addedThisPage += 1;
         items.push({
           videoId,
           title: item.snippet?.title ?? '',
@@ -113,6 +121,10 @@ export async function GET(request: NextRequest) {
       }
       pageToken = data.nextPageToken;
       pagesFetched += 1;
+      if (addedThisPage === 0 || (totalResults > 0 && items.length >= totalResults)) {
+        exhausted = true;
+        break;
+      }
     } while (pageToken && pagesFetched < MAX_PAGES);
 
     // 批次查詢每支影片的長度、嵌入許可、可用狀態。videos.list 一次最多帶 50 個 id，
@@ -199,7 +211,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       results,
       totalResults,
-      truncated: Boolean(pageToken), // 還有下一頁但已達 MAX_PAGES 上限，代表清單比抓到的還長
+      // 只有「確實還有沒讀到的影片、且是因為達到 MAX_PAGES 上限才停止」才算被截斷
+      truncated: !exhausted && Boolean(pageToken) && (totalResults === 0 || totalResults > items.length),
     });
   } catch (err) {
     console.error('[GET /api/youtube-playlist] 讀取播放清單失敗：', err);
