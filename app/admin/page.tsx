@@ -10,6 +10,7 @@ import { ManualSourceSearch, PLATFORM_LABEL, type MatchPlatform, type SourceCand
 import { SubmissionSection } from './SubmissionSection';
 import { ReportSection } from './ReportSection';
 import { StreamingImportAccordion } from './StreamingImportAccordion';
+import { SourceHealthAccordion } from './SourceHealthAccordion';
 import { buttonStyle, dangerButtonStyle, editButtonStyle, formatDuration, inputStyle, sectionStyle } from './adminShared';
 import { songRepository, type ImportSummary } from '../../lib/repository/songRepository';
 import { SONG_CSV_COLUMNS, ALIAS_LIST_SEPARATOR } from '../../lib/csv/songCsv';
@@ -3250,6 +3251,8 @@ function SongSection({
       <DeezerSearchAccordion onPick={setDeezerPrefill} />
 
       <SourceMatchAccordion songs={songs} artists={artists} onChanged={onChanged} onError={onError} onNotice={onNotice} />
+
+      <SourceHealthAccordion songs={songs} artists={artists} onChanged={onChanged} onError={onError} onNotice={onNotice} />
 
       <YouTubePlaylistImportAccordion themes={themes} existingSongs={songs} artists={artists} onImported={onChanged} onNotice={onNotice} />
       <StreamingImportAccordion themes={themes} existingSongs={songs} artists={artists} onImported={onChanged} onNotice={onNotice} />
