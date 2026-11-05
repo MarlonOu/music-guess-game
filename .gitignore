@@ -44,3 +44,6 @@ next-env.d.ts
 
 # Prisma 產生的 client 程式碼（見 prisma/schema.prisma 的 generator output）
 /generated/
+
+# CodeGraph 本機程式碼索引
+/.codegraph/
