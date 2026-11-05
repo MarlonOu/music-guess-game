@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useParams, useRouter } from 'next/navigation';
@@ -41,6 +41,16 @@ export default function OnlineRoomPage() {
   const [messages, setMessages] = useState<RoomMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const lastMessageAtRef = useRef<string | null>(null);
+  // 目前畫面上的房間狀態「至少反映到哪個時間點」的伺服器狀態（本地時間）：輪詢回應記錄的是
+  // 那次請求的送出時間，自己操作（作答、投票等）的回應記錄的是收到回應的時間。輪詢每 600ms
+  // 發一次、不等上一次回來，網路抖動時（行動網路很常見）回應可能亂序；更常見的是作答前就已經
+  // 送出的那次輪詢，在 answer-choice 回應之後才回來，內容卻是作答前的上一題——直接套用會讓
+  // 畫面跳回上一題、再被下一次輪詢跳回來，造成閃爍。送出時間早於這個值的輪詢回應一律丟掉。
+  const roomAppliedAtRef = useRef(0);
+  function applyRoomUpdate(next: RoomState) {
+    roomAppliedAtRef.current = Date.now();
+    setRoom(next);
+  }
 
   // 先確認這個瀏覽器分頁有沒有這個房間的 playerId（建立/加入房間時存的）；
   // 沒有的話（例如直接貼連結開新分頁）顯示補填暱稱的表單，補加入房間後才能繼續。
@@ -56,8 +66,12 @@ export default function OnlineRoomPage() {
   useEffect(() => {
     let cancelled = false;
     async function poll() {
+      const sentAt = Date.now();
       const result = await roomRepository.getState(joinCode);
       if (cancelled) return;
+      // 丟掉過時的回應（見 roomAppliedAtRef 的說明），不讓舊狀態蓋掉較新的狀態
+      if (sentAt < roomAppliedAtRef.current) return;
+      roomAppliedAtRef.current = sentAt;
       if (result.ok && result.data) {
         setRoom(result.data);
         setError(null);
@@ -127,7 +141,7 @@ export default function OnlineRoomPage() {
       if (result.ok && result.data) {
         sessionStorage.setItem(`room-player-${joinCode}`, result.data.playerId);
         setPlayerId(result.data.playerId);
-        setRoom(result.data.room);
+        applyRoomUpdate(result.data.room);
       } else {
         // 重新加入也失敗（例如房間這期間已經結束、房主關閉了），才真的退回補填暱稱的表單
         sessionStorage.removeItem(`room-player-${joinCode}`);
@@ -209,7 +223,7 @@ export default function OnlineRoomPage() {
           // （名單裡沒有自己），下面的自我修復 effect 會誤判「自己被移出房間」，
           // 把剛存的身分清掉、畫面閃回暱稱輸入表單，同時房間裡卻已經有這位玩家。
           joinedAtRef.current = Date.now();
-          setRoom(joinedRoom);
+          applyRoomUpdate(joinedRoom);
           setPlayerId(id);
         }}
       />
@@ -251,13 +265,13 @@ export default function OnlineRoomPage() {
               style={{ width: '100%', display: 'flex', justifyContent: 'center', flexShrink: 0 }}
             >
               {room.status === 'lobby' && (
-                <LobbyView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={setRoom} />
+                <LobbyView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={applyRoomUpdate} />
               )}
               {room.status === 'playing' && (
-                <PlayingView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={setRoom} />
+                <PlayingView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={applyRoomUpdate} />
               )}
               {room.status === 'finished' && (
-                <FinishedView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={setRoom} />
+                <FinishedView room={room} playerId={playerId} isHost={isHost} onError={setError} onRoomUpdate={applyRoomUpdate} />
               )}
             </motion.div>
           </AnimatePresence>
@@ -1051,7 +1065,15 @@ function PlayingView({ room, playerId, isHost, onError, onRoomUpdate }: RoomView
   //    晚進這一題的玩家（含剛結束過渡期間的所有玩家）用 elapsedSec 接續播放而非從頭開始。
   //
   // 換題（currentRoundIndex 改變）或答案公布（lastRevealedAt 改變）時整個重置。
-  useEffect(() => {
+  //
+  // 刻意用 useLayoutEffect 而不是 useEffect：showingLastReveal／countdown 是這裡算出來的 state，
+  // 房間資料一換成下一題（答對當下 answer-choice 的回應就已經是下一題的 choices）時，
+  // 第一次 render 拿到的還是上一輪留下的值（showingLastReveal=false、countdown=0），
+  // 會照「正常作答中」把下一題的選項畫出來。用 useEffect 的話這一格會先被畫到螢幕上，
+  // tick() 才把 showingLastReveal 改成 true 藏起來——就是「答對後閃一下下一題選項」的成因。
+  // layout effect 在瀏覽器繪製前同步執行，裡面的 setState 也會在繪製前同步重新 render，
+  // 那一格過時的畫面永遠不會出現在螢幕上。
+  useLayoutEffect(() => {
     playedRoundRef.current = -1;
 
     const roundStartAtMs = room.roundStartedAt ? new Date(room.roundStartedAt).getTime() : null;
