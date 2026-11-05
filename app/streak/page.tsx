@@ -7,6 +7,7 @@ import { PlaybackReportLink } from '../../components/report/PlaybackReportLink';
 import { logEvent } from '../../lib/client/clientLog';
 import { PageShell } from '../../components/layout/PageShell';
 import { StageDisc } from '../../components/game/StageDisc';
+import { StreakTimeline } from '../../components/game/StreakTimeline';
 import { AnswerSticker } from '../../components/game/AnswerSticker';
 import { LeaderboardList } from '../../components/game/LeaderboardList';
 import { SongSearchInput } from '../../components/game/SongSearchInput';
@@ -604,24 +605,13 @@ export default function StreakPage() {
         </div>
       </div>
 
-      <div className="streak-timeline" role="img" aria-label={`第 ${stage + 1} 段，共 ${STREAK_STAGES_SEC.length} 段`}>
-        {STREAK_STAGES_SEC.map((sec, i) => {
-          const prev = i === 0 ? 0 : STREAK_STAGES_SEC[i - 1];
-          const state = i < stage ? 'is-done' : i === stage ? 'is-now' : '';
-          return (
-            <div key={sec} className={`streak-seg ${state}`} style={{ flexGrow: sec - prev }}>
-              <span className="streak-seg-bar">
-                {i === stage && !revealed && spinning && !reduce ? (
-                  <i key={playTick} className="is-run" style={{ animationDuration: `${sec}s` }} />
-                ) : (
-                  <i />
-                )}
-              </span>
-              <span className="streak-seg-label">{sec}s</span>
-            </div>
-          );
-        })}
-      </div>
+      <StreakTimeline
+        stages={STREAK_STAGES_SEC}
+        stage={stage}
+        running={!revealed && spinning}
+        playTick={playTick}
+        reduceMotion={!!reduce}
+      />
 
       <div className="stage">
         <StageDisc bare status={spinning ? 'playing' : status === 'loading' ? 'loading' : status === 'error' ? 'error' : 'idle'}>

@@ -1940,66 +1940,113 @@ body::before {
   color: var(--accent);
 }
 
+/*
+ * 時間軸：段落的位置與寬度嚴格依累計秒數換算（StreakTimeline 以百分比定位），
+ * 段落之間的間隙從每段右側內縮，因此每個分界都精準落在對應秒數上。
+ * 標籤與段落分開排版，由元件量測後決定位置與顯示，避免短段標籤互相重疊。
+ */
 .streak-timeline {
+  --seg-gap: 3px;
   display: flex;
-  gap: 4px;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.streak-track {
+  position: relative;
+  height: 6px;
 }
 
 .streak-seg {
-  flex-basis: 0;
-  /* 依秒數分配寬度，但至少要放得下標籤，避免 0.5s、1s 這種短段的標籤互相重疊 */
-  min-width: max-content;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.streak-seg-bar {
-  position: relative;
-  display: block;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--groove);
-  overflow: hidden;
-}
-
-.streak-seg-bar i {
   position: absolute;
-  inset: 0;
-  width: 0;
+  top: 0;
+  bottom: 0;
+}
+
+.streak-seg::before,
+.streak-seg-fill,
+.streak-seg-run {
+  content: '';
+  position: absolute;
+  inset: 0 var(--seg-gap) 0 0;
+  border-radius: 3px;
+}
+
+.streak-seg:last-child::before,
+.streak-seg:last-child .streak-seg-fill,
+.streak-seg:last-child .streak-seg-run {
+  right: 0;
+}
+
+.streak-seg::before {
+  background: var(--groove);
+}
+
+.streak-seg-fill {
   background: var(--accent);
+  opacity: 0;
+  transition:
+    opacity 240ms ease-out,
+    background-color 240ms ease-out;
 }
 
-.streak-seg.is-done .streak-seg-bar i {
-  width: 100%;
+/* 已聽過的段落 */
+.streak-seg.is-done .streak-seg-fill {
   background: var(--ink-dim);
-}
-
-.streak-seg.is-now .streak-seg-bar i {
-  width: 100%;
-  opacity: 0.4;
-}
-
-.streak-seg.is-now .streak-seg-bar i.is-run {
-  width: 0;
   opacity: 1;
-  animation: streak-fill linear forwards;
+}
+
+/* 剛解鎖、這一輪新增的段落 */
+.streak-seg.is-now .streak-seg-fill {
+  opacity: 0.35;
+}
+
+/* 播放進度：每次播放都從 0 秒開始，依序掃過已解鎖的每一段（以 animation-delay 串接） */
+.streak-seg-run {
+  background: var(--accent);
+  transform-origin: left center;
+  transform: scaleX(0);
+  animation-name: streak-fill;
+  animation-timing-function: linear;
+  animation-fill-mode: both;
 }
 
 @keyframes streak-fill {
+  from {
+    transform: scaleX(0);
+  }
   to {
-    width: 100%;
+    transform: scaleX(1);
   }
 }
 
-.streak-seg-label {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--ink-dim);
+.streak-labels {
+  position: relative;
+  height: 1.1rem;
 }
 
-.streak-seg.is-now .streak-seg-label {
-  color: var(--ink);
+.streak-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.1rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-dim);
+  opacity: 0;
+  transition:
+    opacity 160ms ease-out,
+    color 240ms ease-out;
+}
+
+.streak-label.is-shown {
+  opacity: 1;
+}
+
+.streak-label.is-now {
+  color: var(--accent);
   font-weight: 700;
 }
 
@@ -2186,9 +2233,14 @@ body::before {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .streak-seg.is-now .streak-seg-bar i.is-run {
+  .streak-seg-run {
     animation: none;
-    width: 100%;
+    transform: none;
+  }
+
+  .streak-seg-fill,
+  .streak-label {
+    transition: none;
   }
 }
 
