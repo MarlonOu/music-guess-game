@@ -1,18 +1,18 @@
 /**
- * 無限連勝模式：每首歌從隨機片段的起點開始，最多聽 6 段，在 0~20 秒內逐步拉長。
- * 段落秒數（累計）為 1、2、4、8、13、20：前兩段固定是 1 秒與 2 秒（前奏一入耳就認出來最厲害），
- * 之後每段多給的秒數逐步增加（+2、+4、+5、+7），最後一段完整 20 秒。
+ * 無限連勝模式：每首歌從隨機片段的起點開始，最多聽 7 段，在 0~16 秒內逐步拉長。
+ * 段落秒數（累計）為 0.5、1、2、4、8、12、16：前段每次加倍（前奏一入耳就認出來最厲害），
+ * 之後每段多給 4 秒，最後一段完整 16 秒。
  */
-export const STREAK_STAGES_SEC = [1, 2, 4, 8, 13, 20] as const;
+export const STREAK_STAGES_SEC = [0.5, 1, 2, 4, 8, 12, 16] as const;
 
 /** 隨機片段的長度：等於最後一段的秒數，確保每一段都落在同一個片段之內。 */
 export const STREAK_CLIP_SEC = STREAK_STAGES_SEC[STREAK_STAGES_SEC.length - 1];
 
 /**
- * 各段猜中的得分。越早猜中獎勵越重：1 秒猜中 10 分，2 秒 7 分，之後 5、3、2、1。
- * 前兩段刻意拉開差距，鼓勵憑極短片段辨認，最後一段仍保底 1 分，維持連勝的意義。
+ * 各段猜中的得分。越早猜中獎勵越重：0.5 秒猜中 12 分，1 秒 10 分，2 秒 7 分，之後 5、3、2、1。
+ * 前幾段刻意拉開差距，鼓勵憑極短片段辨認，最後一段仍保底 1 分，維持連勝的意義。
  */
-export const STREAK_POINTS_BY_STAGE = [10, 7, 5, 3, 2, 1] as const;
+export const STREAK_POINTS_BY_STAGE = [12, 10, 7, 5, 3, 2, 1] as const;
 
 /** 在第 stageIndex 段（0 起算）猜中的得分。 */
 export function streakPointsForStage(stageIndex: number): number {

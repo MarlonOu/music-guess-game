@@ -454,7 +454,7 @@ export default function StreakPage() {
             </li>
             <li>
               <b>連勝不斷線</b>
-              <span>6 段都沒猜中或放棄公布答案，挑戰結束，成績依連勝首數與總分上榜。</span>
+              <span>{STREAK_STAGES_SEC.length} 段都沒猜中或放棄公布答案，挑戰結束，成績依連勝首數與總分上榜。</span>
             </li>
           </ol>
 
