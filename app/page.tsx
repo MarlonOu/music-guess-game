@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Turntable } from '../components/home/Turntable';
+import { STREAK_CLIP_SEC, STREAK_STAGES_SEC } from '../lib/constants/streak';
 
 interface ModeDef {
   href: string;
@@ -20,7 +21,14 @@ const MODES: ModeDef[] = [
   { href: '/match-setup', track: 'A1', title: '單機模式', desc: '一個人，自己出題自己猜', tag: '獨奏', color: 'var(--accent)' },
   { href: '/online', track: 'A2', title: '線上模式', desc: '開房間，跟朋友一起搶答', tag: '多人', color: 'var(--mode-online)' },
   { href: '/speedrun', track: 'A3', title: '速通挑戰', desc: '碼表計時，衝上排行榜', tag: '限時', color: 'var(--mode-speedrun)' },
-  { href: '/streak', track: 'A4', title: '無限連勝', desc: '從 1 秒聽到 20 秒，連續猜中不斷線', tag: '無限', color: 'var(--mode-streak)' },
+  {
+    href: '/streak',
+    track: 'A4',
+    title: '無限連勝',
+    desc: `從 ${STREAK_STAGES_SEC[0]} 秒聽到 ${STREAK_CLIP_SEC} 秒，連續猜中不斷線`,
+    tag: '無限',
+    color: 'var(--mode-streak)',
+  },
 ];
 
 function TrackRow({

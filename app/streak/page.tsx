@@ -450,7 +450,7 @@ export default function StreakPage() {
             <li>
               <b>越早猜中越高分</b>
               <span>
-                各段答對依序得 {STREAK_STAGES_SEC.map((_, i) => streakPointsForStage(i)).join('、')} 分，越早猜中分數越高。
+                各段答對依序得 {STREAK_STAGES_SEC.map((_, i) => streakPointsForStage(i)).join('、')} 分，{STREAK_STAGES_SEC[0]} 秒就猜中拿最多。
               </span>
             </li>
             <li>
