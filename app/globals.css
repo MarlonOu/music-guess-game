@@ -1947,7 +1947,8 @@ body::before {
 
 .streak-seg {
   flex-basis: 0;
-  min-width: 0;
+  /* 依秒數分配寬度，但至少要放得下標籤，避免 0.5s、1s 這種短段的標籤互相重疊 */
+  min-width: max-content;
   display: flex;
   flex-direction: column;
   gap: 6px;
