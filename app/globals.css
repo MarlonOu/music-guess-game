@@ -832,7 +832,7 @@ body::before {
   color: var(--ink);
 }
 
-/* 首頁底部的次要連結列：投稿題目（玩家用）與資料庫管理（站長用） */
+/* 首頁底部的次要連結列：投稿題目（玩家用）；資料庫管理頁 /admin 不在首頁露出，需直接輸入網址 */
 .home-links {
   display: flex;
   flex-wrap: wrap;

@@ -140,9 +140,6 @@ export default function Home() {
               <Link href="/submit" className="home-admin home-submit">
                 投稿題目
               </Link>
-              <Link href="/admin" prefetch={false} className="home-admin">
-                資料庫管理
-              </Link>
             </div>
           </motion.div>
 
